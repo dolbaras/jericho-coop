@@ -46,6 +46,8 @@ CoopMenu.TEXT = {
     leave = "Leave", connecting = "Connecting to", host_name = "Host", player = "Player",
     you = "(you)", is_ready = "READY", port_fail = "Could not open port", host_left = "Host closed the session",
     nick = "Nickname", tags = "Names above players", on = "on", off = "off",
+    act = "Character actions", act_players = "players, AI after 30 s", act_humans = "players only",
+    act_ai = "AI at once",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -57,6 +59,8 @@ CoopMenu.TEXT = {
     connecting = "Подключение к", host_name = "Хост", player = "Игрок", you = "(вы)",
     is_ready = "ГОТОВ", port_fail = "Не удалось открыть порт", host_left = "Хост закрыл сессию",
     nick = "Ник", tags = "Имена над игроками", on = "вкл", off = "выкл",
+    act = "Действия персонажей", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
+    act_ai = "сразу ИИ",
   },
 }
 
@@ -276,6 +280,8 @@ function CoopMenu.Lobby()
     {"", "CoopMenu.ToggleReady"},
   }
   if Coop.isHost() then
+    -- Who does character-only actions nobody holds (coop_claim.lua); the host decides.
+    options[#options + 1] = {"", "CoopMenu.CycleActMode"}
     options[#options + 1] = {T("start"), "CoopMenu.Start"}
     options[#options + 1] = {T("close"), "CoopMenu.Leave"}
   else
@@ -328,8 +334,9 @@ function CoopMenu.refreshLobby()
   setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and me.char or "-") .. " >")
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   setText(item("Itm4"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
-  if Coop.isHost() and item("Itm5") then
-    setText(item("Itm5"), CoopMenu.allReady() and T("start") or T("start_wait"))
+  if Coop.isHost() and item("Itm6") then
+    setText(item("Itm5"), T("act") .. ": " .. T("act_" .. (cfg.actmode or "players")))
+    setText(item("Itm6"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
 end
@@ -396,6 +403,16 @@ function CoopMenu.checkNick()
       Net.CoopSend(0, 1, "nick|" .. text)
     end
   end
+end
+
+CoopMenu.ACT_MODES = {"players", "humans", "ai"}
+
+function CoopMenu.CycleActMode()
+  local cur = cfg.actmode or "players"
+  for i, m in ipairs(CoopMenu.ACT_MODES) do
+    if m == cur then cfg.actmode = CoopMenu.ACT_MODES[i % #CoopMenu.ACT_MODES + 1] break end
+  end
+  CoopMenu.refreshLobby()
 end
 
 function CoopMenu.ToggleTags()

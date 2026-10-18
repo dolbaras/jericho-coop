@@ -16,6 +16,7 @@
  *   Net.CoopTime()                      -> seconds (high resolution)
  *   Net.CoopLog(text)                   -> 1     appends a line to %JERICHO_COOP_LOG%
  *   Net.CoopBackground(on)              -> 1     keep running while unfocused (see display_hooks.c)
+ *   Net.CoopKey(vk)                     -> 1/0   key held, only while the game window is in front
  */
 #include <winsock2.h>
 #include <windows.h>
@@ -354,6 +355,12 @@ static int l_background(lua_State *L)
     return 1;
 }
 
+static int l_key(lua_State *L)
+{
+    lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
+    return 1;
+}
+
 /* ---- registration: rewrite unused entries of the engine's Net luaL_Reg table ---- */
 typedef struct {
     const char *name;
@@ -376,6 +383,7 @@ static const struct {
     {"GetClientData", "CoopTime", l_time},
     {"GetMyClientShip", "CoopLog", l_log},
     {"InitBrowser", "CoopBackground", l_background},
+    {"DoneBrowser", "CoopKey", l_key},
 };
 
 int coop_net_install(void)

@@ -270,6 +270,7 @@ function Coop.onMessage(peer, data)
   if CoopScenes and CoopScenes.onMessage(peer, f) then return end
   if CoopSpirit and CoopSpirit.onMessage(peer, f) then return end
   if CoopWorld and CoopWorld.onMessage(peer, f, data) then return end
+  if CoopClaim and CoopClaim.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -474,6 +475,13 @@ function Coop.update()
     end
   end
   if CoopTeam and Coop.inSession() and Coop.level ~= "levels/menu" then CoopTeam.update() end
+  if CoopClaim then
+    local ok, err = pcall(CoopClaim.update)
+    if not ok and (Coop.claimErrors or 0) < 5 then
+      Coop.claimErrors = (Coop.claimErrors or 0) + 1
+      Coop.log("claim error: " .. tostring(err))
+    end
+  end
   if CoopSpirit then
     local ok, err = pcall(CoopSpirit.update)
     if not ok and (Coop.spiritErrors or 0) < 5 then
@@ -550,6 +558,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("spirit load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_world.lua")
   if not ok then Coop.log("world load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_claim.lua")
+  if not ok then Coop.log("claim load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 

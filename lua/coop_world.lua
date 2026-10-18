@@ -45,7 +45,7 @@ function W.installIsPlayer()
     if not Coop.inSession() then return W.origIsPlayer(id, Name) end
     local nam = W.replaying and W.replayTriggered or Game.GetTriggeredEntity(id)
     if Name ~= nil and nam ~= Name then return false end
-    return W.isHuman(nam)
+    return W.isHuman(nam) or (CoopClaim and CoopClaim.acceptsAI(nam)) or false
   end
 end
 

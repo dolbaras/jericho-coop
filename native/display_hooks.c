@@ -99,6 +99,14 @@ static SetCursorPos_t real_SetCursorPos;
 static HwndBool_t real_SetForegroundWindow, real_BringWindowToTop;
 static SetFocus_t real_SetFocus;
 
+int display_hooks_key_down(int vk)
+{
+    /* Our own imports are not hooked: these are the real functions. */
+    if (!game_window || GetForegroundWindow() != game_window)
+        return 0;
+    return (GetAsyncKeyState(vk) & 0x8000) ? 1 : 0;
+}
+
 static int really_in_front(void)
 {
     if (!run_in_background)

@@ -182,6 +182,12 @@ function S.update(dt)
     end
     S.showBody(class)
     S.startExtras(class)
+    -- The AI did this character's action (nobody took it over): its QTE passes by itself.
+    if Coop.isHost() and owner and Coop.ownerOf(owner) == nil and CoopClaim and CoopClaim.aiDid[owner] then
+      S.savedQTEMode = Game.Get("QTEMode")
+      Game.Set("QTEMode", 2)
+      Coop.log("scene QTE: " .. owner .. " is AI, QTE passes by itself")
+    end
   end
   S.updateStandIn(dt)
   S.updateBody()
@@ -700,6 +706,10 @@ end
 -- After the scene vanilla shows its hidden characters again; give the AI back to the
 -- bodies no human holds.
 function S.stopExtras()
+  if S.savedQTEMode then
+    Game.Set("QTEMode", S.savedQTEMode)
+    S.savedQTEMode = nil
+  end
   local x = S.extras
   if not x then return end
   S.extras = nil
