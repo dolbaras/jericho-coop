@@ -336,6 +336,19 @@ static UINT pick_adapter(IDirect3D9 *d3d, HWND focus, UINT asked)
         for (UINT i = 0; i < n; i++)
             if (monitor(d3d, i) == mon)
                 return i;
+        /* Monitor not matched (display settings changing, monitor asleep): test runs must
+         * stay off the owner's main GPU, so take the Intel iGPU if there is one. */
+        HRESULT (WINAPI *ident)(IDirect3D9 *, UINT, DWORD, D3DADAPTER_IDENTIFIER9 *) =
+            (HRESULT (WINAPI *)(IDirect3D9 *, UINT, DWORD, D3DADAPTER_IDENTIFIER9 *))vt[VT_GETADAPTERIDENTIFIER];
+        for (UINT i = 0; i < n; i++) {
+            D3DADAPTER_IDENTIFIER9 id;
+            memset(&id, 0, sizeof id);
+            if (SUCCEEDED(ident(d3d, i, 0, &id)) && id.VendorId == 0x8086) {
+                coop_log("adapter: window monitor not found, using Intel adapter %u", i);
+                return i;
+            }
+        }
+        coop_log("adapter: window monitor not found and no Intel adapter");
     }
     return asked;
 }

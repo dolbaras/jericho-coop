@@ -271,6 +271,7 @@ function Coop.onMessage(peer, data)
   if CoopSpirit and CoopSpirit.onMessage(peer, f) then return end
   if CoopWorld and CoopWorld.onMessage(peer, f, data) then return end
   if CoopClaim and CoopClaim.onMessage(peer, f) then return end
+  if CoopSave and CoopSave.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -539,6 +540,11 @@ end
 -- Restore the ownership table carried over from the previous level.
 if cfg.owners then Coop.owners = Coop.parseOwn(cfg.owners) end
 
+do
+  local ok, err = pcall(dofile, COOP_DIR .. "coop_save.lua")
+  if not ok then Coop.log("save load error: " .. tostring(err)) end
+end
+
 local status = Net.CoopStatus()
 if cfg.auto and Coop.isHost() and string.find(status, "role=none") then
   Coop.log("host start: " .. Net.CoopHost(cfg.port or 28100, 4))
@@ -547,6 +553,7 @@ elseif cfg.auto and Coop.isClient() and string.find(status, "role=none") then
 elseif not cfg.auto and Coop.level == "levels/menu" and not string.find(status, "role=none") then
   -- Back in the main menu after a session: the session is over.
   Net.CoopClose()
+  if CoopSave then pcall(CoopSave.endSession) end
   cfg.role, cfg.myId, cfg.char, cfg.owners, cfg.seats, cfg.loaded = nil, nil, nil, nil, nil, nil
   status = Net.CoopStatus()
 end
@@ -572,6 +579,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("claim load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
+-- Test sessions start without the lobby: protect the profile from the first level on.
+if CoopSave and Coop.inSession() and Coop.level ~= "levels/menu" then CoopSave.beginSession() end
 
 Coop.log("coop.lua loaded level=" .. Coop.level .. " role=" .. tostring(cfg.role) .. " " .. status)
 

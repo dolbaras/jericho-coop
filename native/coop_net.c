@@ -19,6 +19,11 @@
  *   Net.CoopKey(vk)                     -> 1/0   key held, only while the game window is in front
  *   Net.CoopAnnounce(text)              -> 1     host: answer LAN queries with text ("" = stop)
  *   Net.CoopFile(path)                  -> 1/0   a file exists (relative to the game folder)
+ *   Net.CoopFile("coop:name", "r")      -> text | nil   read a co-op save file
+ *   Net.CoopFile("coop:name", "w", s)   -> 1/0   write a co-op save file (atomic replace)
+ *     "coop:" files live in %JERICHO_COOP_SAVEDIR% (tests) or
+ *     Documents\Codemasters\Clive Barker's Jericho\Coop, apart from the game's profile.
+ *     Only "coop:" files can be read or written; names are [A-Za-z0-9_.-].
  *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
  *                                                 call (at most once a second) asks the LAN again
  *
@@ -31,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <shlobj.h>
 #include <enet/enet.h>
 
 #include "coop_net.h"
@@ -513,9 +519,83 @@ static int l_discover(lua_State *L)
     return 1;
 }
 
+/* "coop:<name>" -> full path in the co-op save folder (created on demand); 0 if invalid. */
+static int coop_save_path(const char *name, char *out, size_t size)
+{
+    char dir[MAX_PATH];
+    if (strncmp(name, "coop:", 5) != 0)
+        return 0;
+    name += 5;
+    if (!name[0] || strlen(name) > 64)
+        return 0;
+    for (const char *c = name; *c; c++)
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') ||
+              *c == '_' || *c == '-' || (*c == '.' && c != name)))
+            return 0;
+    DWORD n = GetEnvironmentVariableA("JERICHO_COOP_SAVEDIR", dir, sizeof dir);
+    if (n == 0 || n >= sizeof dir) {
+        if (SHGetFolderPathA(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL, 0, dir) != S_OK)
+            return 0;
+        static const char *const parts[] = {"\\Codemasters", "\\Clive Barker's Jericho", "\\Coop"};
+        for (size_t i = 0; i < sizeof parts / sizeof parts[0]; i++) {
+            if (strlen(dir) + strlen(parts[i]) >= sizeof dir)
+                return 0;
+            strcat(dir, parts[i]);
+            CreateDirectoryA(dir, NULL);
+        }
+    } else {
+        CreateDirectoryA(dir, NULL);
+    }
+    return snprintf(out, size, "%s\\%s", dir, name) < (int)size;
+}
+
 static int l_file(lua_State *L)
 {
     const char *path = lua_tolstring(L, 1, NULL);
+    const char *mode = lua_gettop(L) >= 2 ? lua_tolstring(L, 2, NULL) : NULL;
+    char full[MAX_PATH + 80];
+    if (path && coop_save_path(path, full, sizeof full))
+        path = full;
+    else if (mode)
+        path = NULL;   /* reading and writing only in the co-op save folder */
+    if (mode && mode[0] == 'r') {
+        FILE *f = path ? fopen(path, "rb") : NULL;
+        if (!f) {
+            lua_pushnil(L);
+            return 1;
+        }
+        fseek(f, 0, SEEK_END);
+        long len = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        char *buf = len >= 0 && len < (16 << 20) ? malloc((size_t)len + 1) : NULL;
+        size_t got = buf ? fread(buf, 1, (size_t)len, f) : 0;
+        fclose(f);
+        if (!buf) {
+            lua_pushnil(L);
+            return 1;
+        }
+        lua_pushlstring(L, buf, got);
+        free(buf);
+        return 1;
+    }
+    if (mode && mode[0] == 'w') {
+        size_t len = 0;
+        const char *data = lua_tolstring(L, 3, &len);
+        char tmp[MAX_PATH + 90];
+        int ok = 0;
+        if (path && data && snprintf(tmp, sizeof tmp, "%s.tmp", path) < (int)sizeof tmp) {
+            FILE *f = fopen(tmp, "wb");
+            if (f) {
+                ok = fwrite(data, 1, len, f) == len;
+                ok = fclose(f) == 0 && ok;
+                ok = ok && MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+                if (!ok)
+                    DeleteFileA(tmp);
+            }
+        }
+        lua_pushnumber(L, ok);
+        return 1;
+    }
     DWORD attr = path ? GetFileAttributesA(path) : INVALID_FILE_ATTRIBUTES;
     lua_pushnumber(L, attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
     return 1;

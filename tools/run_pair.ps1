@@ -17,7 +17,8 @@ param(
     [switch] $Record,                 # in-game video capture of both instances (native/capture.c)
     [switch] $RecordFull,             # ... at full resolution (default half)
     [int] $RecordStartHost = 0,       # seconds after the host's device is created
-    [int] $RecordStartClient = 0
+    [int] $RecordStartClient = 0,
+    [string] $HostAdapter = "window"  # both on the iGPU (the owner keeps the main GPU); "" = default GPU
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -47,6 +48,7 @@ function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string]
     $env:JERICHO_STACKDUMP = Join-Path $run "$name.stack.txt"
     $env:JERICHO_WINPOS = $winpos
     $env:JERICHO_BACKGROUND = "1"   # keep running unfocused, without reading the user's input
+    $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot $name
     if ($adapter) { $env:JERICHO_ADAPTER = $adapter }
     if ($multi) { $env:JERICHO_MULTI = "1" }
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_START = "$recStart" }
@@ -55,7 +57,7 @@ function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string]
     # which alone took it to a few frames per second; command-line values are not saved.
     $extra = if ($adapter) { " -Antialiasing:0" } else { "" }
     $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$log`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
-    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") {
+    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }
     try { $p.PriorityClass = 'BelowNormal' } catch {}
@@ -73,7 +75,7 @@ function Wait-Loaded([System.Diagnostics.Process] $p, [string] $coop) {
 
 $h = $null; $c = $null
 try {
-$h = Start-Jericho "host" "${HostCfg}auto=true,role='host',level='$Level',port=$Port" "$($wa.X + 10),$($wa.Y + 10)" "" $false $RecordStartHost
+$h = Start-Jericho "host" "${HostCfg}auto=true,role='host',level='$Level',port=$Port" "$($wa.X + 10),$($wa.Y + 10)" $HostAdapter $false $RecordStartHost
 "run=$run host pid=$($h.Id)"
 $hostOk = Wait-Loaded $h (Join-Path $run "host.coop.txt")
 "host loaded=$hostOk"

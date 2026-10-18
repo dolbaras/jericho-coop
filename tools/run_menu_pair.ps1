@@ -5,7 +5,8 @@ param(
     [string] $HostCfg = "dev=true,menutest='lobby',",
     [string] $ClientCfg = "dev=true,menutest='join',menuwait=500,",
     [int] $Seconds = 60,
-    [switch] $Record
+    [switch] $Record,
+    [string] $HostAdapter = "window"   # both on the iGPU (the owner keeps the main GPU)
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -27,12 +28,13 @@ function Start-One([string] $name, [string] $cfg, [string] $winpos, [string] $ad
     $env:JERICHO_COOP_LOG = Join-Path $run "$name.coop.txt"
     $env:JERICHO_WINPOS = $winpos
     $env:JERICHO_BACKGROUND = "1"
+    $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot $name
     if ($adapter) { $env:JERICHO_ADAPTER = $adapter }
     if ($multi) { $env:JERICHO_MULTI = "1" }
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_FULL = "1" }
     $extra = if ($adapter) { " -Antialiasing:0" } else { "" }   # see run_pair.ps1
     $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$(Join-Path $run "$name.log")`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
-    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_FULL") {
+    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }
     try { $p.PriorityClass = 'BelowNormal' } catch {}
@@ -41,7 +43,7 @@ function Start-One([string] $name, [string] $cfg, [string] $winpos, [string] $ad
 
 $h = $null; $c = $null
 try {
-    $h = Start-One "host" $HostCfg "$($wa.X + 10),$($wa.Y + 10)" "" $false
+    $h = Start-One "host" $HostCfg "$($wa.X + 10),$($wa.Y + 10)" $HostAdapter $false
     Start-Sleep -Seconds 15
     $c = Start-One "client" $ClientCfg "$($wa.X + 20 + $winW + 10),$($wa.Y + 10)" "window" $true
     "run=$run"

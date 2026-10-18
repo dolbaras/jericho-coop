@@ -49,12 +49,13 @@ $env:JERICHO_COOP_LOG = $coopLog
 $env:JERICHO_STACKDUMP = Join-Path $run "host.stack.txt"
 $env:JERICHO_WINPOS = "$($screen.WorkingArea.X + 20),$($screen.WorkingArea.Y + 20)"
 $env:JERICHO_BACKGROUND = "1"   # keep running unfocused, without reading the user's input
+$env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "host"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "host.raw"; $env:JERICHO_RECORD_START = "$RecordStart" }
 if ($Record -and $RecordFull) { $env:JERICHO_RECORD_FULL = "1" }
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $Game -PassThru
 Remove-Item Env:JERICHO_COOP_LOG, Env:JERICHO_STACKDUMP, Env:JERICHO_WINPOS, Env:JERICHO_BACKGROUND
-foreach ($v in "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in "JERICHO_COOP_SAVEDIR", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 try {
 try { $p.PriorityClass = 'BelowNormal' } catch {}
 "run=$run host pid=$($p.Id)"

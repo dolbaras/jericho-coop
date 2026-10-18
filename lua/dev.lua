@@ -300,9 +300,63 @@ if cfg.menutest and Coop.level == "levels/menu" then
       elseif cfg.menutest == "host" then CoopMenu.HostSetup()
       elseif cfg.menutest == "join" then CoopMenu.JoinSetup()
       elseif cfg.menutest == "lobby" then CoopMenu.HostSetup(); CoopMenu.NextLevel(); CoopMenu.CreateSession()
+      elseif cfg.menutest == "flow" then
+        -- Whole lobby flow: host continues the co-op save (or starts cfg.menulevel), the
+        -- client joins 127.0.0.1; both get ready and the host starts once everyone is.
+        CoopMenu.HostSetup()
+        if CoopMenu.saved and not cfg.menunew then
+          CoopMenu.ContinueSession()
+        else
+          CoopMenu.levelIndex = CoopMenu.indexOf(cfg.menulevel or "Alk_Desert") or 1
+          CoopMenu.CreateSession()
+        end
+        CoopMenu.ToggleReady()
+      elseif cfg.menutest == "flowjoin" then
+        CoopMenu.JoinSetup()
+        CoopMenu.Connect()
       end
     end
+    if cfg.menutest == "flowjoin" and Coop.frame > MENU_WAIT and cfg.myId and CoopMenu.screen == "lobby" then
+      local me = CoopMenu.seatOf(CoopMenu.myPeer())
+      if me and not me.ready and Coop.frame % 20 == 0 then CoopMenu.ToggleReady() end
+    end
+    if cfg.menutest == "flow" and Coop.frame > MENU_WAIT and #CoopMenu.seats >= (cfg.waitpeers or 1) + 1 and
+       CoopMenu.allReady() and CoopMenu.screen == "lobby" then
+      CoopMenu.Start()
+    end
   end
+end
+
+-- 'savetest': the host reaches a checkpoint at savetest ticks, then loads it 10 s later
+-- (both once per run); the client should reload with the host's vars.
+if cfg.savetest and Coop.level ~= "levels/menu" then
+  local prev = Coop.dev
+  function Coop.dev()
+    if prev then prev() end
+    if not Coop.isHost() then return end
+    if Coop.frame == cfg.savetest and not cfg.savedone then
+      Game.CreateSaveVar("CoopSaveTest", "")
+      Game.SetSaveVar("CoopSaveTest", "marker-" .. Coop.frame)
+      -- A real spawn point of this level (Team.CreateMapSpawnPlayers needs one).
+      local best = 0
+      for _, pos in ipairs(MapSpawnPlayers.Positions or {}) do
+        if pos[20] and tonumber(pos[20][2]) and pos[20][2] > best then best = pos[20][2] end
+      end
+      Coop.log("savetest: spawn point " .. best)
+      SaveGame.AutoSaveWaypoint(best)
+      cfg.savedone = true
+      Coop.log("savetest: checkpoint")
+    elseif Coop.frame == cfg.savetest + 200 and cfg.savedone and not cfg.loaddone then
+      cfg.loaddone = true
+      Coop.rearm()
+      Coop.log("savetest: load checkpoint")
+      SaveGame.LoadWaypoint()
+    end
+  end
+end
+if cfg.savetest and Coop.level ~= "levels/menu" then
+  Coop.log("savetest: var CoopSaveTest=" .. tostring(Game.GetSaveVar("CoopSaveTest")) ..
+           " level=" .. tostring(Game.GetSaveVar("LevelName")))
 end
 
 -- Experiment: is OnRenderDebug called every frame, independent of game time speed?

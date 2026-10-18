@@ -235,6 +235,7 @@ function E.installLevelHost()
   SaveGame.LoadLevel = function(name, ...)
     if name and name ~= "menu" then
       Coop.log("level -> " .. tostring(name))
+      if CoopSave then CoopSave.sendVars(name) end
       Net.CoopSend(-1, 1, "level|" .. tostring(name))
       Coop.cfg.level = name
       Coop.rearm()
@@ -247,6 +248,7 @@ function E.onLevel(name)
   Coop.log("host changes level to " .. tostring(name))
   Coop.cfg.level = name
   Coop.rearm()
+  if CoopSave then CoopSave.applyPending() end
   fromHost(SaveGame.LoadLevel, name)
 end
 

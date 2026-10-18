@@ -31,10 +31,11 @@ $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt"
 $env:JERICHO_STACKDUMP = Join-Path $run "stack.txt"
 $env:JERICHO_WINPOS = "$($screen.WorkingArea.X + 20),$($screen.WorkingArea.Y + 20)"
 $env:JERICHO_BACKGROUND = "1"
+$env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "game.raw"; $env:JERICHO_RECORD_START = "$RecordStart"; $Shots = @() }
 $p = Start-Process -FilePath (Join-Path $Game "bin\Jericho.exe") -ArgumentList $args -WorkingDirectory $Game -PassThru
-foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START") {
+foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_COOP_SAVEDIR") {
     Remove-Item "Env:$v" -ErrorAction SilentlyContinue
 }
 try {

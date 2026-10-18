@@ -105,6 +105,13 @@ class Bot:
             self.log(f'welcome id={self.my_id} level={self.level} char={self.char} pos={self.pos} yaw={self.yaw}')
             # A real client reports the level loaded; the host's scene gate and catch-up wait for it.
             self.send('lready|' + self.level, True)
+        elif f[0] in ('sv', 'cp', 'level'):
+            # Save vars / checkpoint / level change (coop_save.lua): log the size and level.
+            extra = ''
+            if f[0] == 'sv' and len(f) > 1:
+                lvl = [l for l in f[1].split('%0A') if l.startswith('level%09')]
+                extra = f' bytes={len(f[1])} vars={f[1].count("%0Av%09")} {lvl[0][8:] if lvl else ""}'
+            self.log(f'{f[0]}{extra} {f[1] if f[0] == "level" else ""}')
         elif f[0] == 'own':
             if f[1] != getattr(self, 'last_own', None):
                 self.last_own = f[1]

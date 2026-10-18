@@ -6,7 +6,8 @@
 --   pick|<char>                 client -> host: wants this character
 --   nick|<nick>                 client -> host: nickname
 --   ready|<0/1>                 client -> host
---   lobby|<level>|<seats>       host -> all; seats = "peer:char:ready:nick;..."
+--   lobby|<level>|<seats>|<c>   host -> all; seats = "peer:char:ready:nick;...", c=1: continuing
+--   sv|<save>                   host -> all, before start: the save vars (coop_save.lua)
 --   start|<level>|<seats>       host -> all; everyone loads <level>
 
 CoopMenu = {}
@@ -48,6 +49,7 @@ CoopMenu.TEXT = {
     nick = "Nickname", tags = "Names above players", on = "on", off = "off",
     act = "Character actions", act_players = "players, AI after 30 s", act_humans = "players only",
     act_ai = "AI at once", lan = "Games on the local network:", lan_none = "(searching...)",
+    continue = "Continue", continue_from = "Continue from",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -61,6 +63,7 @@ CoopMenu.TEXT = {
     nick = "Ник", tags = "Имена над игроками", on = "вкл", off = "выкл",
     act = "Действия персонажей", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
     act_ai = "сразу ИИ", lan = "Игры в локальной сети:", lan_none = "(поиск...)",
+    continue = "Продолжить", continue_from = "Продолжение",
   },
 }
 
@@ -190,13 +193,50 @@ end
 -- Host setup
 ------------------------------------------------------------------------------
 
+-- The co-op save (coop_save.lua): the last checkpoint, else the start of the last level.
+function CoopMenu.savedGame()
+  if not CoopSave then return nil end
+  local rec = CoopSave.read(CoopSave.CHECKPOINT) or CoopSave.read(CoopSave.SAVE)
+  if rec and rec.level and CoopMenu.indexOf(rec.level) then return rec end
+end
+
+function CoopMenu.indexOf(level)
+  for i, id in ipairs(CoopMenu.LEVELS) do
+    if string.lower(id) == string.lower(level or "") then return i end
+  end
+end
+
+-- Chapters a new session can start from: the first one, every level reached in co-op or
+-- in single player (VisitedLevels); all of them in test runs.
+function CoopMenu.unlocked(i)
+  if i == 1 or cfg.dev then return true end
+  local id = string.lower(CoopMenu.LEVELS[i])
+  if not CoopMenu.unlockedSet then
+    local set = {}
+    if CoopSave then
+      local _, coopSet = CoopSave.visited()
+      for k in pairs(coopSet) do set[k] = true end
+    end
+    for name in string.gmatch(Game.Get("VisitedLevels") or "", "[^,]+") do set[string.lower(name)] = true end
+    CoopMenu.unlockedSet = set
+  end
+  return CoopMenu.unlockedSet[id] == true
+end
+
 function CoopMenu.HostSetup()
   CoopMenu.screen = "host"
-  Menu.VerticalMenu(T("title_host"), {
+  CoopMenu.unlockedSet = nil
+  if not CoopMenu.unlocked(CoopMenu.levelIndex) then CoopMenu.levelIndex = 1 end
+  local options = {
     {"", "CoopMenu.NextLevel"},
     {T("create"), "CoopMenu.CreateSession"},
-    {Menu.GetBackText(), "CoopMenu.Root"},
-  }, "CoopMenu.Root")
+  }
+  CoopMenu.saved = CoopMenu.savedGame()
+  if CoopMenu.saved then
+    options[#options + 1] = {T("continue") .. ": " .. CoopMenu.levelName(CoopMenu.saved.level), "CoopMenu.ContinueSession"}
+  end
+  options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Root"}
+  Menu.VerticalMenu(T("title_host"), options, "CoopMenu.Root")
   local it = item("Itm1")
   it.onLeft = "CoopMenu.PrevLevel"
   it.onRight = "CoopMenu.NextLevel"
@@ -207,19 +247,33 @@ function CoopMenu.refreshHost()
   setText(item("Itm1"), "< " .. T("chapter") .. ": " .. CoopMenu.levelName(CoopMenu.LEVELS[CoopMenu.levelIndex]) .. " >")
 end
 
-function CoopMenu.PrevLevel()
-  CoopMenu.levelIndex = (CoopMenu.levelIndex - 2) % #CoopMenu.LEVELS + 1
+function CoopMenu.stepLevel(step)
+  local n = #CoopMenu.LEVELS
+  for _ = 1, n do
+    CoopMenu.levelIndex = (CoopMenu.levelIndex - 1 + step) % n + 1
+    if CoopMenu.unlocked(CoopMenu.levelIndex) then break end
+  end
   CoopMenu.refreshHost()
   CoopMenu.broadcastLobby()
 end
 
-function CoopMenu.NextLevel()
-  CoopMenu.levelIndex = CoopMenu.levelIndex % #CoopMenu.LEVELS + 1
-  CoopMenu.refreshHost()
-  CoopMenu.broadcastLobby()
+function CoopMenu.PrevLevel() CoopMenu.stepLevel(-1) end
+function CoopMenu.NextLevel() CoopMenu.stepLevel(1) end
+
+function CoopMenu.ContinueSession()
+  local rec = CoopMenu.saved or CoopMenu.savedGame()
+  if not rec then return end
+  CoopMenu.levelIndex = CoopMenu.indexOf(rec.level) or CoopMenu.levelIndex
+  CoopMenu.openSession()
+  CoopMenu.continueRec = rec
 end
 
 function CoopMenu.CreateSession()
+  CoopMenu.openSession()
+  CoopMenu.continueRec = nil
+end
+
+function CoopMenu.openSession()
   Net.CoopClose()
   local ok = Net.CoopHost(cfg.port or CoopMenu.PORT, CoopMenu.MAX_PLAYERS - 1)
   Coop.log("lobby: host " .. ok)
@@ -379,7 +433,8 @@ function CoopMenu.refreshLobby()
     if Coop.isClient() and not cfg.myId then
       setText(line0, T("connecting") .. " " .. tostring(cfg.addr) .. "...")
     else
-      setText(line0, T("chapter") .. ": " .. CoopMenu.levelName(level))
+      local label = (CoopMenu.continueRec or cfg.continuing) and T("continue_from") or T("chapter")
+      setText(line0, label .. ": " .. CoopMenu.levelName(level))
     end
   end
   for i = 1, CoopMenu.MAX_PLAYERS do
@@ -499,6 +554,8 @@ end
 
 function CoopMenu.Leave()
   if Net.CoopAnnounce then Net.CoopAnnounce("") end
+  CoopMenu.continueRec = nil
+  cfg.continuing = nil
   CoopMenu.announced = ""
   Net.CoopClose()
   cfg.role = nil
@@ -509,14 +566,29 @@ end
 
 function CoopMenu.broadcastLobby()
   if not Coop.isHost() or CoopMenu.screen ~= "lobby" and CoopMenu.screen ~= "host" then return end
-  Net.CoopSend(-1, 1, "lobby|" .. CoopMenu.LEVELS[CoopMenu.levelIndex] .. "|" .. CoopMenu.seatsString())
+  Net.CoopSend(-1, 1, "lobby|" .. CoopMenu.LEVELS[CoopMenu.levelIndex] .. "|" .. CoopMenu.seatsString() ..
+               "|" .. (CoopMenu.continueRec and 1 or 0))
 end
 
 function CoopMenu.Start()
   if not Coop.isHost() or not CoopMenu.allReady() then return end
   local level = CoopMenu.LEVELS[CoopMenu.levelIndex]
   local seats = CoopMenu.seatsString()
-  Coop.log("lobby: start " .. level .. " seats=" .. seats)
+  Coop.log("lobby: start " .. level .. " seats=" .. seats .. (CoopMenu.continueRec and " (continue)" or ""))
+  -- Save state: the co-op save when continuing, else a clean start (which becomes the
+  -- new co-op save). The clients get the same vars before "start".
+  if CoopSave then
+    CoopSave.beginSession()
+    if CoopMenu.continueRec then
+      CoopSave.apply(CoopMenu.continueRec)
+      level = CoopMenu.continueRec.level
+    else
+      Game.DelSaveVars("")
+      CoopSave.levelStart(level)
+    end
+    CoopSave.sendVars(level)
+  end
+  CoopMenu.continueRec = nil
   Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats)
   CoopMenu.launch(level, seats)
 end
@@ -534,6 +606,11 @@ function CoopMenu.launch(level, seats)
   end
   cfg.owners = table.concat(own, ",")
   cfg.save = "coop"   -- marks the session for the co-op save slot
+  cfg.continuing = nil
+  if CoopSave then
+    CoopSave.beginSession()
+    CoopSave.applyPending()
+  end
   Coop.rearm()
   Game.LoadLevel("Levels/" .. level)
 end
@@ -603,6 +680,7 @@ function CoopMenu.onMessage(peer, f)
       if id == f[2] then CoopMenu.levelIndex = i end
     end
     CoopMenu.seats = CoopMenu.parseSeats(f[3])
+    cfg.continuing = f[4] == "1" or nil
     return true
   elseif kind == "start" and Coop.isClient() then
     Coop.log("lobby: host started " .. f[2])

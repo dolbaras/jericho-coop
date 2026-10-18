@@ -16,7 +16,10 @@ function COOP_SERIALIZE(v)
     table.sort(parts)
     return "{" .. table.concat(parts, ",") .. "}"
   elseif type(v) == "string" then
-    return "'" .. string.gsub(string.gsub(v, "\\", "\\\\"), "'", "\\'") .. "'"
+    -- One line: control characters (tabs, newlines) become \ddd escapes.
+    local q = string.gsub(string.gsub(v, "\\", "\\\\"), "'", "\\'")
+    q = string.gsub(q, "%c", function(c) return string.format("\\%03d", string.byte(c)) end)
+    return "'" .. q .. "'"
   end
   return tostring(v)
 end
