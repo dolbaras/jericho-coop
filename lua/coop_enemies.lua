@@ -404,6 +404,10 @@ local function guard(tbl, name)
   if type(f) ~= "function" then return end
   tbl[name] = function(...)
     if Coop.fromHost then return f(...) end
+    -- A host callback replayed by coop_world.lua runs the level's own effects here;
+    -- enemies, saves and level changes stay dropped (the host sends those itself).
+    if Coop.replay and tbl == MapCallbacks then return f(...) end
+    if tbl == MapCallbacks and CoopWorld then CoopWorld.onLocalCallback(name, ...) end
     E.stats.dropped = E.stats.dropped + 1
   end
   return f

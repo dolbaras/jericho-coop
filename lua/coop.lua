@@ -269,6 +269,7 @@ function Coop.onMessage(peer, data)
   if CoopTeam and CoopTeam.onMessage(peer, f) then return end
   if CoopScenes and CoopScenes.onMessage(peer, f) then return end
   if CoopSpirit and CoopSpirit.onMessage(peer, f) then return end
+  if CoopWorld and CoopWorld.onMessage(peer, f, data) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -467,7 +468,10 @@ function Coop.update()
   Coop.pump()
   if CoopEnemies and (Coop.isHost() or Coop.isClient()) then
     CoopEnemies.install()
-    if CoopEnemies.installed then CoopEnemies.update() end
+    if CoopEnemies.installed then
+      CoopEnemies.update()
+      if CoopWorld then CoopWorld.install() end
+    end
   end
   if CoopTeam and Coop.inSession() and Coop.level ~= "levels/menu" then CoopTeam.update() end
   if CoopSpirit then
@@ -497,7 +501,7 @@ function Coop.report()
   local parts = {"f=" .. Coop.frame, "me=" .. tostring(Coop.localChar()), "own=" .. Coop.ownString(),
                  Net.CoopStatus(), "snaps=" .. (Coop.snaps or 0),
                  string.format("err_avg=%.0f err_max=%.0f", errAvg, Coop.errMax or -1),
-                 CoopEnemies and CoopEnemies.report() or ""}
+                 CoopEnemies and CoopEnemies.report() or "", CoopWorld and CoopWorld.report() or ""}
   Coop.errN, Coop.errSum, Coop.errMax = 0, 0, 0
   for _, name in ipairs(Coop.SQUAD) do
     local st = Coop.remote[name]
@@ -544,6 +548,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("scenes load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_spirit.lua")
   if not ok then Coop.log("spirit load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_world.lua")
+  if not ok then Coop.log("world load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 
