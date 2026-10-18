@@ -10,6 +10,10 @@ document only proposes what co-op adds.
 - **Every split gets a parallel line.** A player whose character leaves chooses: (a) switch to
   a character who goes on, or (b) stay in their own body and play that character's own line.
   The Crusades "Lost Patrol" (G7, Tier 3) is planned too.
+- Story content may re-run existing enemy groups and place existing enemy types at new
+  spawn points (no new geometry).
+- The Lost Patrol (G7) is built in its full form: its own route through cru_river,
+  cru_catacomb and cru_chapel with a second host (story/act3-splits.md option B).
 - Voice: new beats are built from the game's existing voice lines (catalog:
   `tools/voice_catalog.py`); anything else is subtitle text. Cloning the actors' voices is not
   done.
