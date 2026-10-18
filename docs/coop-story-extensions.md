@@ -1,8 +1,27 @@
 # Story extensions for co-op: what the players left behind do
 
-Status: proposal for the owner's review (2026-10-18). Facts about the vanilla scripts are in
+Status: owner decisions taken 2026-10-19 (see below); detailed per-act designs in `story/`. Facts about the vanilla scripts are in
 `campaign-structure.md` (sections 3 and 5) and `scenes-catalog.md` (sections 5 and 6). This
 document only proposes what co-op adds.
+
+## Owner decisions (2026-10-19)
+
+- Players with no body: the **spirit role** (plain spectator built first as the fallback).
+- **Every split gets a parallel line.** A player whose character leaves chooses: (a) switch to
+  a character who goes on, or (b) stay in their own body and play that character's own line.
+  The Crusades "Lost Patrol" (G7, Tier 3) is planned too.
+- Voice: new beats are built from the game's existing voice lines (catalog:
+  `tools/voice_catalog.py`); anything else is subtitle text. Cloning the actors' voices is not
+  done.
+
+Per-act designs with routes, enemy groups, voice keys, engineering and in-game checks:
+`story/act1-splits.md`, `story/act2-splits.md`, `story/act3-splits.md`, `story/act45-splits.md`.
+Corrections they make to the table below:
+- G6: there is no climb to defend (the climb is inside the scene); the real gap is Cole and
+  Rawlings hidden all level, so their line is on top of the gate with the captive.
+- G11: the legion assault comes before Church's crossing and the plates after it.
+- G15: the final fight has no Arnold Leach adds; the enemies are the Firstborn's stolen powers
+  (`EvilAbabanili`, the ghost copies).
 
 ## Goal
 
