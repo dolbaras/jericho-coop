@@ -98,6 +98,9 @@ static GetAsyncKeyState_t real_GetAsyncKeyState;
 static SetCursorPos_t real_SetCursorPos;
 static HwndBool_t real_SetForegroundWindow, real_BringWindowToTop;
 static SetFocus_t real_SetFocus;
+static int test_mode;   /* JERICHO_BACKGROUND set: test instances never activate their window */
+typedef BOOL(WINAPI *ShowWindow_t)(HWND, int);
+static ShowWindow_t real_ShowWindow;
 
 int display_hooks_key_down(int vk)
 {
@@ -200,6 +203,19 @@ void display_hooks_wrap_dinput(void *dinput)
         real_DICreateDevice = (DICreateDevice_t)orig;
 }
 
+/* The game's window must never become active by itself: the owner may be playing another
+ * game full screen on the main monitor, which minimizes when it loses focus. */
+static BOOL WINAPI bg_ShowWindow(HWND hw, int cmd)
+{
+    if (test_mode && hw == game_window) {
+        if (cmd == SW_SHOW || cmd == SW_SHOWNORMAL || cmd == SW_RESTORE || cmd == SW_SHOWDEFAULT)
+            cmd = SW_SHOWNOACTIVATE;
+        else if (cmd == SW_SHOWMAXIMIZED)
+            cmd = SW_SHOWNA;
+    }
+    return real_ShowWindow(hw, cmd);
+}
+
 static void install_background_hooks(void)
 {
 #define BG_HOOK(name, type)                                                              \
@@ -215,6 +231,7 @@ static void install_background_hooks(void)
     BG_HOOK(SetForegroundWindow, HwndBool_t);
     BG_HOOK(BringWindowToTop, HwndBool_t);
     BG_HOOK(SetFocus, SetFocus_t);
+    BG_HOOK(ShowWindow, ShowWindow_t);
 #undef BG_HOOK
 }
 
@@ -242,6 +259,8 @@ static LRESULT CALLBACK background_wndproc(HWND hw, UINT msg, WPARAM wp, LPARAM 
     return CallWindowProcA(game_wndproc, hw, msg, wp, lp);
 }
 
+static int show_after_create;
+
 static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, int x, int y,
                                         int w, int h, HWND parent, HMENU menu, HINSTANCE inst, LPVOID param)
 {
@@ -251,7 +270,16 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWOR
         x = win_x;
         y = win_y;
     }
+    if (game && test_mode) {
+        ex |= WS_EX_NOACTIVATE;
+        if (style & WS_VISIBLE) {
+            style &= ~WS_VISIBLE;
+            show_after_create = 1;
+        }
+    }
     HWND hw = real_CreateWindowExA(ex, cls, title, style, x, y, w, h, parent, menu, inst, param);
+    if (game && hw && show_after_create)
+        real_ShowWindow ? real_ShowWindow(hw, SW_SHOWNOACTIVATE) : ShowWindow(hw, SW_SHOWNOACTIVATE);
     if (game && hw) {
         game_window = hw;
         if (!game_wndproc)
@@ -266,6 +294,8 @@ static BOOL WINAPI hook_SetWindowPos(HWND hw, HWND after, int x, int y, int w, i
         x = win_x;
         y = win_y;
     }
+    if (hw == game_window && test_mode)
+        flags |= SWP_NOACTIVATE;
     return real_SetWindowPos(hw, after, x, y, w, h, flags);
 }
 
@@ -346,6 +376,7 @@ void display_hooks_install(void)
 {
     char v[64];
     run_in_background = GetEnvironmentVariableA("JERICHO_BACKGROUND", v, sizeof v) == 1 && v[0] == '1';
+    test_mode = run_in_background;
     if (run_in_background)
         coop_log("background mode on");
     if (!real_CreateWindowExA)
