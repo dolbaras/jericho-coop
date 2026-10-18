@@ -7,6 +7,14 @@
 
 CoopScenes = {}
 local S = CoopScenes
+
+-- Exponential smoothing of a vector towards target with time constant tau (seconds).
+local function lowpass(cur, target, tau, dt)
+  if not cur then return target end
+  local k = 1 - math.exp(-math.min(dt or 0.033, 0.25) / tau)
+  return cur + V3D((target.x - cur.x) * k, (target.y - cur.y) * k, (target.z - cur.z) * k)
+end
+
 S.CAM = "CoopPOVCam"
 S.FOCUS_TAU = 0.2         -- smoothing of the shared focus point
 S.FOCUS_RANGE = 6000      -- view ray length for the focus
@@ -74,6 +82,21 @@ function S.startStandIn(class, owner)
   Coop.log("scene stand-in body: " .. owner)
 end
 
+-- The first-person camera bobs and turns with every gesture; a body copying it each frame
+-- ran on the spot and spun (scene audit, wwii_biggates Conversation). The stand-in follows a
+-- smoothed anchor, walks only while the anchor really travels, faces where it walks, and
+-- otherwise stands in its idle pose turned (slowly) towards where the camera looks.
+S.STANDIN_POS_TAU = 0.35
+S.STANDIN_SPEED_TAU = 0.4
+S.STANDIN_YAW_TAU = 0.6
+S.STANDIN_WALK_SPEED = 90   -- units/s of anchor travel before the body walks
+
+local function yawLowpass(cur, target, tau, dt)
+  if not cur then return target end
+  local d = (target - cur + 540) % 360 - 180
+  return cur + d * (1 - math.exp(-math.min(dt or 0.033, 0.25) / tau))
+end
+
 function S.updateStandIn(dt)
   local si = S.standIn
   if not si then return end
@@ -81,12 +104,23 @@ function S.updateStandIn(dt)
   if not body or not eye or not eye.camPos then return end
   local p, a = eye.camPos, eye.camAng
   local h = body.oActCtrl and body.oActCtrl.oActClass and body.oActCtrl.oActClass.CenterMoveY or 150
-  local target = V3D(p.x, p.y - h, p.z)
-  local d = target - body.Pos
-  local speed = math.sqrt(d.x * d.x + d.z * d.z) / math.max(dt or 0.033, 0.001)
-  body.Pos = target
-  body.Ang = V3D(0, a.y + 180, 0)
-  body.InCtrl_Walk = speed > 60 and math.min(speed / 400, 1) or 0
+  local prev = si.pos
+  si.pos = lowpass(si.pos, V3D(p.x, p.y - h, p.z), S.STANDIN_POS_TAU, dt)
+  local step = prev and (si.pos - prev) or V3D(0, 0, 0)
+  local inst = math.sqrt(step.x * step.x + step.z * step.z) / math.max(dt or 0.033, 0.001)
+  si.speed = (si.speed or 0) + (inst - (si.speed or 0)) * (1 - math.exp(-math.min(dt or 0.033, 0.25) / S.STANDIN_SPEED_TAU))
+  body.Pos = si.pos
+  local wantYaw = a.y + 180
+  if si.speed > S.STANDIN_WALK_SPEED and inst > 1 then
+    wantYaw = math.deg(math.atan2(-step.x, -step.z))
+    body.InCtrl_Walk = math.max(0.3, math.min(si.speed / 450, 1))
+  else
+    body.InCtrl_Walk = 0
+  end
+  si.yaw = yawLowpass(si.yaw, wantYaw, S.STANDIN_YAW_TAU, dt)
+  body.Ang = V3D(0, si.yaw, 0)
+  body.InCtrl_Str = 0
+  body.InCtrl_Sprint = 0
 end
 
 function S.stopStandIn()
@@ -101,7 +135,7 @@ end
 
 function S.stop()
   S.stopStandIn()
-  S.smooth, S.focus, S.eye = nil, nil, nil
+  S.smooth, S.focus, S.eye, S.look, S.headCache = nil, nil, nil, nil, nil
   local eye = Game.GetEntity(S.EYE_CAM)
   if eye then eye:Del() end
   if not S.pov then return end
@@ -182,21 +216,74 @@ function S.ownerView()
   return eye.camPos, V3D(0, 0, 1):rot(eye.camAng)
 end
 
-local function lowpass(cur, target, tau, dt)
-  if not cur then return target end
-  local k = 1 - math.exp(-math.min(dt or 0.033, 0.25) / tau)
-  return cur + V3D((target.x - cur.x) * k, (target.y - cur.y) * k, (target.z - cur.z) * k)
+-- Heads of the scene's actors (Scene.Actors[class] = {"Actor_<Name>", entity, actor class}),
+-- for finding who the scene camera looks at. World rays pass through characters, so a
+-- speaker looked at would otherwise give a point on the floor or wall behind them.
+S.HEAD_NODES = {"Bip01 Head", "Bip %s Head", "Bip Head"}
+S.LOOK_CONE_COS = 0.85   -- within about 32 degrees of the view ray (the subject is rarely centred)
+
+function S.actorHead(info)
+  local e = Game.GetEntity(info[2])
+  if not e or string.find(info[3] or "", "^FP_") then return nil end
+  S.headCache = S.headCache or {}
+  local node = S.headCache[info[2]]
+  if node == nil then
+    local tries = {"NodePosHierarchy_" .. S.headNode(info[3] or "")}
+    for _, n in ipairs(S.HEAD_NODES) do tries[#tries + 1] = "NodePosHierarchy_" .. string.format(n, info[3] or "") end
+    for _, k in ipairs(tries) do
+      local ok, v = pcall(function() return e[k] end)
+      if ok and v then node = k break end
+    end
+    S.headCache[info[2]] = node or false
+  end
+  return node and e[node] or nil
 end
 
--- Where the scene camera looks: the hit point of its view ray (or a point ahead), smoothed.
+-- The actor head closest to the view ray (p, dir) and nearer than maxDist; mine = it is the
+-- local player's own actor.
+function S.lookedAtActor(p, dir, maxDist)
+  local list = Scene.Actors and S.pov and Scene.Actors[S.pov.class]
+  if not list then return nil end
+  local best, bestCos, mine
+  for _, info in pairs(list) do
+    local hp = S.actorHead(info)
+    if hp then
+      local v = hp - p
+      local dist = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+      local c = dist > 0 and (v.x * dir.x + v.y * dir.y + v.z * dir.z) / dist or 0
+      if S.debugLook then S.debugLook[#S.debugLook + 1] = string.format("%s:%.0f/%.2f", tostring(info[3]), dist, c) end
+      if dist > 50 and dist < maxDist then
+        if c > S.LOOK_CONE_COS and (not bestCos or c > bestCos) then
+          best, bestCos, mine = hp, c, info[2] == S.pov.actor
+        end
+      end
+    end
+  end
+  return best, mine
+end
+
+-- Where the scene camera looks, smoothed: the actor it looks at (or, when that is the local
+-- player's own actor, the speaker: the scene camera itself), else the hit point of its view
+-- ray, else a point ahead.
 function S.updateFocus(dt, p, dir)
   local far = p + V3D(dir.x * S.FOCUS_RANGE, dir.y * S.FOCUS_RANGE, dir.z * S.FOCUS_RANGE)
-  local target = Game.TestLine(p, far, "")
-  if target then
-    local d = target - p
-    if math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z) < S.FOCUS_MIN then target = nil end
+  local hit = Game.TestLine(p, far, "")
+  local hitDist = S.FOCUS_RANGE
+  if hit then
+    local d = hit - p
+    hitDist = math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+    if hitDist < S.FOCUS_MIN then hit = nil end
   end
-  target = target or (p + V3D(dir.x * S.FOCUS_DEFAULT, dir.y * S.FOCUS_DEFAULT, dir.z * S.FOCUS_DEFAULT))
+  S.debugLook = ((S.frames or 0) % 60 == 0) and {} or nil
+  local head, mine = S.lookedAtActor(p, dir, hitDist + 100)
+  if S.debugLook then Coop.log(string.format("look: hit %.0f, %s", hitDist, table.concat(S.debugLook, " "))) end
+  local target
+  if head then
+    target = mine and p or head
+  else
+    target = hit or (p + V3D(dir.x * S.FOCUS_DEFAULT, dir.y * S.FOCUS_DEFAULT, dir.z * S.FOCUS_DEFAULT))
+  end
+  S.focusActor = head and (mine and "self" or "actor") or "world"
   S.focus = lowpass(S.focus, target, S.FOCUS_TAU, dt)
   return S.focus
 end
@@ -207,6 +294,8 @@ end
 -- actor's own body is hidden for them, as in first person. If the head is implausibly far
 -- from the scene camera (no animation data), the eye stays near the scene camera.
 S.EYE_TAU = 0.25
+S.SELF_FOCUS = 180        -- the scene camera looks at this player's own head
+S.LOOK_TAU = 0.35
 S.EYE_MAX = 2000
 
 function S.updatePOV(dt)
@@ -221,15 +310,20 @@ function S.updatePOV(dt)
   S.eye = lowpass(S.eye, hp, S.EYE_TAU, dt)
   local pos = S.eye
   cam.Pos = pos
+  -- When the scene camera looks at this character (the speaker turns to them), they look
+  -- back at the speaker instead of into their own face.
   local focus = S.updateFocus(dt, p, dir)
-  local look = focus - pos
+  local toSelf = focus - pos
+  local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and p or focus
+  S.look = lowpass(S.look, target, S.LOOK_TAU, dt)
+  local look = S.look - pos
   if math.sqrt(look.x * look.x + look.y * look.y + look.z * look.z) < S.FOCUS_MIN then look = dir end
   local ang = S.dirToAng(look)
   if ang then cam.Ang = S.toFCam(ang) end
   if Game.GetCam(0) ~= S.CAM then Game.SetCam(0, S.CAM) end
   S.frames = (S.frames or 0) + 1
   if S.frames % 60 == 1 then
-    Coop.log(string.format("POV eye=%s owner=%s off=%s focus=%s", Coop.v3(pos), Coop.v3(p), Coop.v3(pos - p), Coop.v3(focus)))
+    Coop.log(string.format("POV eye=%s owner=%s off=%s focus=%s (%s)", Coop.v3(pos), Coop.v3(p), Coop.v3(pos - p), Coop.v3(focus), tostring(S.focusActor)))
   end
 end
 

@@ -50,7 +50,8 @@ function H.hide(name)
 end
 
 function H.update()
-  if Coop.cfg.tags == false or Coop.level == "levels/menu" then
+  -- No nameplates over cutscenes (the bodies are hidden or stand-ins there).
+  if Coop.cfg.tags == false or Coop.level == "levels/menu" or (Scene and Scene.IsPlaying) then
     for _, name in ipairs(Coop.SQUAD) do H.hide(name) end
     return
   end

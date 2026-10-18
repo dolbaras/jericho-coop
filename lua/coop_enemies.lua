@@ -233,8 +233,46 @@ function E.installReplay()
   end
 end
 
+-- Level-start scenes (the WWII conversation, the chapel rescue, the ending, ...) would play
+-- on the host while clients are still loading. The host holds scene starts until every
+-- expected player reported the level loaded (lready), at most GATE_TIMEOUT seconds.
+-- Expected players: the lobby seats, or cfg.waitpeers in tests.
+E.GATE_TIMEOUT = 90
+E.readyPeers = {}
+
+function E.expectedPeers()
+  if Coop.cfg.waitpeers then return Coop.cfg.waitpeers end
+  local n = 0
+  for item in string.gmatch(Coop.cfg.seats or "", "[^;]+") do
+    if not string.find(item, "^0:") then n = n + 1 end
+  end
+  return n
+end
+
+function E.gateOpen()
+  if E.gateOpened then return true end
+  local ready = 0
+  for _ in pairs(E.readyPeers) do ready = ready + 1 end
+  if ready >= E.expectedPeers() or Net.CoopTime() > (E.gateUntil or 0) then
+    E.gateOpened = true
+    Coop.log(string.format("scene gate open: %d of %d players loaded", ready, E.expectedPeers()))
+  end
+  return E.gateOpened
+end
+
+function E.flushHeldScenes()
+  local held = E.heldScenes
+  if not held or not E.gateOpen() then return end
+  E.heldScenes = nil
+  for _, h in ipairs(held) do
+    Coop.log("scene " .. h.fname .. " " .. tostring(h.class) .. " released")
+    Scene[h.fname](h.class, unpack(h.args))
+  end
+end
+
 function E.installSceneHost()
   E.installReplay()
+  E.gateUntil = Net.CoopTime() + E.GATE_TIMEOUT
   local origEnd = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     E.inEndOfScene = true
@@ -246,6 +284,12 @@ function E.installSceneHost()
   for mode, fname in pairs(E.SCENE_FUNCS) do
     local orig = Scene[fname]
     Scene[fname] = function(class, ...)
+      if not E.inEndOfScene and not E.inReplay and not E.gateOpen() then
+        E.heldScenes = E.heldScenes or {}
+        table.insert(E.heldScenes, {fname = fname, class = class, args = {...}})
+        Coop.log("scene " .. fname .. " " .. tostring(class) .. " held until the players have loaded")
+        return false
+      end
       -- PlayFP -> PlayFPNI -> Play run in sequence (partly asynchronously) for one scene;
       -- the client repeats that chain itself, so forward only its first call.
       local now = Net.CoopTime()
@@ -513,7 +557,10 @@ function E.onMessage(peer, f)
   elseif kind == "level" and Coop.isClient() then
     E.onLevel(f[2])
   elseif kind == "lready" and Coop.isHost() then
-    if string.lower("levels/" .. (f[2] or "")) == Coop.level then E.sendCatchup(peer) end
+    if string.lower("levels/" .. (f[2] or "")) == Coop.level then
+      E.sendCatchup(peer)
+      E.readyPeers[peer] = true
+    end
   else
     return false
   end
@@ -523,6 +570,7 @@ end
 function E.update()
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
+    E.flushHeldScenes()
   elseif Coop.isClient() then
     -- Tell the host this level is loaded so it sends the current enemy state.
     if not E.readySent and Coop.cfg.myId then
@@ -545,14 +593,24 @@ function E.report()
     s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0)
 end
 
+-- Scene hooks go in as soon as this file loads: levels schedule their opening scene for
+-- the first game tick (wwii_biggates MapInit.main), before the first co-op tick.
+function E.installScenes()
+  if E.scenesInstalled or not Scene or not Scene.Play or not Scene.EndOfScene then return end
+  if not (Coop.isHost() or Coop.isClient()) then return end
+  E.scenesInstalled = true
+  if Coop.isHost() then E.installSceneHost() else E.installSceneClient() end
+  E.installFpRestore()
+  Coop.log("scene hooks installed as " .. tostring(Coop.cfg.role))
+end
+
 function E.install()
   if E.installed or not NPC or not Weapons then return end
   E.installed = true
   if Coop.isHost() then E.installHost() elseif Coop.isClient() then E.installClient() end
-  if Scene then
-    if Coop.isHost() then E.installSceneHost() elseif Coop.isClient() then E.installSceneClient() end
-    E.installFpRestore()
-  end
+  E.installScenes()
   if SaveGame and Coop.isHost() then E.installLevelHost() end
   Coop.log("enemies installed as " .. tostring(Coop.cfg.role))
 end
+
+E.installScenes()

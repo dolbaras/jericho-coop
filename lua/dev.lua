@@ -256,17 +256,30 @@ if cfg.exp == "pitch" and Coop.level ~= "levels/menu" then
   end
 end
 
--- 'trigger' (host): call a map callback by name after cfg.trigat ticks (scene/level tests).
-if cfg.exp == "trigger" and Coop.isHost() and Coop.level ~= "levels/menu" then
+-- 'trigger' (host, or solo for vanilla reference runs): call cfg.trigger after cfg.trigat
+-- ticks. A bare name is a map callback (called like the engine does); a dotted name such
+-- as "MapInit.PlayConversation" is called with cfg.trigarg; cfg.trigargs (a list) overrides.
+if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level ~= "levels/menu" then
+  local function resolve(name)
+    if MapCallbacks and MapCallbacks[name] then return MapCallbacks[name], true end
+    local ok, fn = pcall(loadstring("return " .. name))
+    if ok and type(fn) == "function" then return fn, false end
+  end
   function Coop.dev()
-    -- Fire cfg.trigat ticks after the first client reported the level loaded.
+    -- Fire cfg.trigat ticks after the first client reported the level loaded (solo: after start).
     if not Coop.devReadyFrame then
-      if CoopEnemies and CoopEnemies.catchupSent then Coop.devReadyFrame = Coop.frame end
+      if cfg.role == "solo" or (CoopEnemies and CoopEnemies.catchupSent) then Coop.devReadyFrame = Coop.frame end
       return
     end
-    if Coop.frame == Coop.devReadyFrame + (cfg.trigat or 100) and MapCallbacks and MapCallbacks[cfg.trigger] then
-      Coop.log("trigger: MapCallbacks." .. cfg.trigger)
-      MapCallbacks[cfg.trigger](cfg.trigger, 0, nil)
+    if Coop.frame == Coop.devReadyFrame + (cfg.trigat or 100) then
+      local fn, isCallback = resolve(cfg.trigger)
+      Coop.log("trigger: " .. cfg.trigger .. (fn and "" or " (not found)"))
+      if not fn then return end
+      local ok, err
+      if cfg.trigargs then ok, err = pcall(fn, unpack(cfg.trigargs))
+      elseif isCallback then ok, err = pcall(fn, cfg.trigger, 0, nil)
+      else ok, err = pcall(fn, cfg.trigarg) end
+      if not ok then Coop.log("trigger error: " .. tostring(err)) end
     end
   end
 end
@@ -386,3 +399,15 @@ end
 -- cfg.qtemode = 2: the engine presses QTE keys itself (the game's own "QTE" cheat), so a
 -- bot can pass scene QTEs.
 if cfg.qtemode then Game.Set("QTEMode", cfg.qtemode) end
+
+-- Mark scene starts in the log ("scene start <class>"), in vanilla reference runs too, so
+-- tools/scene_compare.ps1 can line up the recordings. Held or dropped starts return false.
+if Scene and Scene.Play and not Coop.devSceneMark then
+  Coop.devSceneMark = true
+  local orig = Scene.Play
+  Scene.Play = function(class, ...)
+    local r = {orig(class, ...)}
+    if r[1] ~= false then Coop.log("scene start " .. tostring(class)) end
+    return unpack(r)
+  end
+end

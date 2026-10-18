@@ -28,8 +28,9 @@ static double interval, start_after, created_at, last_at = -1e9;
 static IDirect3DSurface9 *sysmem;
 static UINT sw, sh;
 static D3DFORMAT sf;
-static unsigned char *row;
+static unsigned char *frame;   /* one half-resolution frame */
 static int frames;
+static double first_at = -1;
 
 static double now(void)
 {
@@ -95,8 +96,8 @@ static void grab(IDirect3DDevice9 *dev)
         sw = d.Width;
         sh = d.Height;
         sf = d.Format;
-        free(row);
-        row = malloc((sw / 2) * 4);
+        free(frame);
+        frame = malloc((size_t)(sw / 2) * (sh / 2) * 4);
         char meta[MAX_PATH + 8];
         snprintf(meta, sizeof meta, "%s.txt", path);
         FILE *m = fopen(meta, "w");
@@ -113,16 +114,27 @@ static void grab(IDirect3DDevice9 *dev)
         D3DLOCKED_RECT lr;
         if (SUCCEEDED(IDirect3DSurface9_LockRect(sysmem, &lr, NULL, D3DLOCK_READONLY))) {
             /* Half resolution: every other pixel of every other row. */
+            unsigned int *dst = (unsigned int *)frame;
             for (UINT y = 0; y + 1 < sh; y += 2) {
                 const unsigned int *src = (const unsigned int *)((const unsigned char *)lr.pBits + y * lr.Pitch);
-                unsigned int *dst = (unsigned int *)row;
                 for (UINT x = 0; x + 1 < sw; x += 2)
-                    dst[x / 2] = src[x];
-                fwrite(row, 4, sw / 2, out);
+                    *dst++ = src[x];
             }
             IDirect3DSurface9_UnlockRect(sysmem);
+            /* Keep the video in real time when the game renders slower than the capture
+             * rate: write the frame once for every interval since the last one. */
+            double t = now();
+            if (first_at < 0)
+                first_at = t;
+            int due = (int)((t - first_at) / interval) + 1 - frames;
+            if (due < 1)
+                due = 1;
+            if (due > 240)   /* a long hitch (level load): at most 30 s */
+                due = 240;
+            for (int i = 0; i < due; i++)
+                fwrite(frame, 4, (size_t)(sw / 2) * (sh / 2), out);
             fflush(out);   /* test runs end with the process killed */
-            frames++;
+            frames += due;
         }
     }
     if (resolved)
