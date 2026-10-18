@@ -161,6 +161,7 @@ end
 function S.update(dt)
   if not Scene or not Scene.IsPlaying or not Scene.SceneName then
     if S.pov then S.stop() end
+    S.stopExtras()
     S.checked = nil
     return
   end
@@ -180,9 +181,11 @@ function S.update(dt)
       end
     end
     S.showBody(class)
+    S.startExtras(class)
   end
   S.updateStandIn(dt)
   S.updateBody()
+  S.updateExtras(dt)
   if S.pov then S.updatePOV(dt) end
 end
 
@@ -537,3 +540,161 @@ function S.updateBody()
 end
 
 S.installBodyActor()
+
+------------------------------------------------------------------------------
+-- Everyone else stays alive on screen, from any player's viewpoint:
+-- * Squad members who are in the level but not in the scene: vanilla hides them
+--   (Scene.HideChars) because the owner's camera never sees them, but another player's
+--   camera may look where they stand. They stay visible, idling with their own relax
+--   animations, slowly turning towards the scene.
+-- * Scene actors whose animation ended while the scene goes on (RawlingsTorture's loop
+--   branches animate only Rawlings; Church and Cole froze): the actor is swapped for the
+--   character's real body idling at the same spot, until the scene gives it a new action.
+------------------------------------------------------------------------------
+
+S.IDLE_GRACE = 0.3            -- seconds past the end of an animation before idling
+-- Scenes where squad members are in the level but not in the scene, checked against the
+-- story (they must really be there, not gone or on another task):
+--   RossDeath: all six gather at the Firstborn first (alk_final MapInit.EveryBodyLookAtFistro);
+--     Church and Cole are actors again in RossDeathB.
+--   NaziSacrificeB: Jones, Delgado and Black wait at the foot of the gate while Church climbs.
+--   TheEndA: Church, Delgado and Rawlings start sum_end with Black; actors again in TheEndB.
+S.WATCH_SCENES = {RossDeath = true, NaziSacrificeB = true, TheEndA = true}
+S.WATCH_RADIUS = 2500          -- farther from the scene's people: leave them hidden
+S.WATCH_YAW_TAU = 1.2
+S.PEOPLE = {Ross = true}
+for name in pairs(Coop.SQUAD_SET) do S.PEOPLE[name] = true end
+
+function S.dist(a, b)
+  local d = a - b
+  return math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+end
+
+local function bone(char, part)
+  return "Bip " .. (char == "Rawlings" and "Rawllings" or char) .. " " .. part
+end
+
+function S.startExtras(class)
+  S.stopExtras()
+  local x = {class = class, watchers = {}, actors = {}}
+  local inScene = {}
+  for _, info in ipairs((Scene.Actors and Scene.Actors[class]) or {}) do
+    local c = info[3] or ""
+    if string.find(c, "^FP_") then
+      inScene[string.sub(c, 4)] = true
+    elseif S.PEOPLE[c] then
+      inScene[c] = true
+      local hiddenBody = S.body and S.body.entity == info[2] and S.body.hidden
+      if not hiddenBody then x.actors[info[2]] = {char = c, entity = info[2]} end
+    end
+  end
+  -- Watchers only for players who see the scene from their own actor: the vanilla
+  -- first-person framing (its owner, or players without an actor) stays as it was.
+  local hidden = S.pov and S.WATCH_SCENES[class] and Scene.HidenChars or {}
+  S.extras = x
+  local center = S.sceneCenter()
+  for _, name in ipairs(hidden) do
+    local e = Game.GetEntity(name)
+    local near = center and e and S.dist(e.Pos, center) < S.WATCH_RADIUS
+    if S.PEOPLE[name] and not inScene[name] and e and near and (e.Life or 0) > 0 and e.bActive ~= false then
+      e.Active = 1
+      e.TimeSpeed = 1
+      if e.oAI then e.oAI.bEnable = false end
+      e.InCtrl_Walk, e.InCtrl_Str = 0, 0
+      x.watchers[name] = {yaw = e.Ang.y}
+      Coop.log("scene extras: " .. name .. " stays in view, idle")
+    end
+  end
+  S.extras = x
+end
+
+-- Middle of the scene's people (actor heads), what the watchers turn to.
+function S.sceneCenter()
+  local sx, sy, sz, n = 0, 0, 0, 0
+  for _, info in ipairs((Scene.Actors and S.extras and Scene.Actors[S.extras.class]) or {}) do
+    local hp = S.actorHead(info)
+    if hp then sx, sy, sz, n = sx + hp.x, sy + hp.y, sz + hp.z, n + 1 end
+  end
+  if n == 0 then return nil end
+  return V3D(sx / n, sy / n, sz / n)
+end
+
+function S.beginIdle(a, e)
+  local body = Game.GetEntity(a.char)
+  if not body or (S.pov and a.entity == S.pov.actor) then return end
+  local pelvis = e["NodePosHierarchy_" .. bone(a.char, "Pelvis")]
+  local head = e["NodeAngHierarchy_" .. S.headNode(a.char)]
+  if not pelvis then return end
+  local ground = Game.TestLine(pelvis, V3D(pelvis.x, pelvis.y - 300, pelvis.z), "")
+  local yaw = body.Ang.y
+  if head then
+    local f = V3D(0, 0, 1):rot(head)
+    yaw = math.deg(math.atan2(-f.x, -f.z))
+  end
+  body.Active = 1
+  body.TimeSpeed = 1
+  if body.oAI then body.oAI.bEnable = false end
+  body.InCtrl_Walk, body.InCtrl_Str = 0, 0
+  body.Pos = ground or V3D(pelvis.x, pelvis.y - 90, pelvis.z)
+  body.Ang = V3D(0, yaw, 0)
+  body.bObjectVisible = true
+  e.bObjectVisible = false
+  a.idle = true
+  Coop.log("scene extras: " .. a.entity .. " animation ended, " .. a.char .. " idles in its place")
+end
+
+function S.endIdle(a)
+  local e, body = Game.GetEntity(a.entity), Game.GetEntity(a.char)
+  if e and not (S.pov and a.entity == S.pov.actor) then e.bObjectVisible = true end
+  if body and not (S.extras and S.extras.watchers[a.char]) then body.Active = 0 end
+  a.idle = false
+end
+
+function S.updateExtras(dt)
+  local x = S.extras
+  if not x then return end
+  local now = Game.GetTime()
+  for _, a in pairs(x.actors) do
+    local e = Game.GetEntity(a.entity)
+    if e then
+      local act = e.Action
+      if act ~= a.action then
+        a.action, a.t0 = act, now
+        if a.idle then S.endIdle(a) end
+      end
+      local cls = Act.GetClass(a.entity)
+      local ad = cls and act and act ~= "" and cls:GetAct(act)
+      if not a.idle and ad and ad.isLoop ~= 1 and ad.AnmTotalTime and now - a.t0 > ad.AnmTotalTime + S.IDLE_GRACE then
+        S.beginIdle(a, e)
+      end
+    end
+  end
+  local center = next(x.watchers) and S.sceneCenter()
+  if center then
+    for name, w in pairs(x.watchers) do
+      local e = Game.GetEntity(name)
+      if e then
+        local d = center - e.Pos
+        local want = math.deg(math.atan2(-d.x, -d.z))
+        local k = 1 - math.exp(-math.min(dt or 0.033, 0.25) / S.WATCH_YAW_TAU)
+        w.yaw = w.yaw + ((want - w.yaw + 540) % 360 - 180) * k
+        e.Ang = V3D(0, w.yaw, 0)
+      end
+    end
+  end
+end
+
+-- After the scene vanilla shows its hidden characters again; give the AI back to the
+-- bodies no human holds.
+function S.stopExtras()
+  local x = S.extras
+  if not x then return end
+  S.extras = nil
+  local touched = {}
+  for name in pairs(x.watchers) do touched[name] = true end
+  for _, a in pairs(x.actors) do if a.idle then touched[a.char] = true end end
+  for name in pairs(touched) do
+    local e = Game.GetEntity(name)
+    if e and e.oAI and Coop.ownerOf(name) == nil then e.oAI.bEnable = true end
+  end
+end
