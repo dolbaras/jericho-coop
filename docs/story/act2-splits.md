@@ -167,6 +167,12 @@ The squad is placed right next to the body, so station 3 and the end are inside 
   This is the scripted exception to "only Rawlings revives", taken from the vanilla scene
   (`scene_wwii_pillboxes_bitch20`). The revive is refused until the soul has arrived.
 
+**Owner decision (2026-10-19).** The line is kept. The revive stays with whoever did it in the
+original: the main player (Ross's spirit), which in co-op is the host in whatever body they
+hold. If Rawlings is AI-controlled, the vanilla flow runs unchanged (no soul journey). If a
+human holds Rawlings, that human makes the soul journey and the host revives him once the soul
+has arrived; if the host is Rawlings' player, any other human revives.
+
 **Ending / reunion.** The revive itself; then the vanilla flow: `AfterRawlingHealed` →
 `Mission_wwii_Pillboxes_Conflict` (Rawlings demands Delgado's arrest, `conflict0..6`) →
 Lichthammer appears. The new beat leads straight into the existing confrontation, so the
