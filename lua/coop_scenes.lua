@@ -281,6 +281,19 @@ function S.lookedAtActor(p, dir, maxDist)
   return best, mine
 end
 
+-- Where a player looked at by the scene's character looks back: that character's visible
+-- full body (its head), else the scene camera. First-person scene cameras sit up to a few
+-- metres off the body's head (HelicopterTrip: about 2.2 m), so looking at the camera
+-- itself stared at a seat.
+function S.speakerPos(p)
+  local b = S.body
+  if b and not b.hidden and S.pov and b.class == S.pov.class then
+    local hp = S.actorHead({"", b.entity, b.char})
+    if hp then return hp end
+  end
+  return p
+end
+
 -- Where the scene camera looks, smoothed: the actor it looks at (or, when that is the local
 -- player's own actor, the speaker: the scene camera itself), else the hit point of its view
 -- ray, else a point ahead.
@@ -298,7 +311,7 @@ function S.updateFocus(dt, p, dir)
   if S.debugLook then Coop.log(string.format("look: hit %.0f, %s", hitDist, table.concat(S.debugLook, " "))) end
   local target
   if head then
-    target = mine and p or head
+    target = mine and S.speakerPos(p) or head
   else
     target = hit or (p + V3D(dir.x * S.FOCUS_DEFAULT, dir.y * S.FOCUS_DEFAULT, dir.z * S.FOCUS_DEFAULT))
   end
@@ -333,7 +346,7 @@ function S.updatePOV(dt)
   -- back at the speaker instead of into their own face.
   local focus = S.updateFocus(dt, p, dir)
   local toSelf = focus - pos
-  local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and p or focus
+  local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and S.speakerPos(p) or focus
   S.look = lowpass(S.look, target, S.LOOK_TAU, dt)
   local look = S.look - pos
   if math.sqrt(look.x * look.x + look.y * look.y + look.z * look.z) < S.FOCUS_MIN then look = dir end
