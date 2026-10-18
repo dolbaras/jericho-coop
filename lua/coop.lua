@@ -427,6 +427,7 @@ function Coop.inSession()
 end
 
 function Coop.frameUpdate(now, dt)
+  if Coop.devFrame then pcall(Coop.devFrame, dt) end
   if Coop.inSession() then Coop.drivePuppets(dt) end
   if CoopHud and Coop.inSession() then
     local ok, err = pcall(CoopHud.update)

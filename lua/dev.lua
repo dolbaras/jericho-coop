@@ -455,17 +455,32 @@ if cfg.exp == "bones" and Coop.level == "levels/rom_palace_02" then
       if t.oAI then t.oAI.bEnable = false end
     end
     if t and f == 100 then probe(t, {"Bip " .. t.Name, "Bip01", "Bip"}, "body") end
+    -- Write variants, 70 ticks each, on the right upper arm (hand position shows the effect):
+    --   1 bExtNodeDisabled_ + NodeAng_   2 bExtNodeDisabled_ + NT_NodeAng_
+    --   3 NodeAngHierarchy_ (world)      4 bShowNode_ = false (sanity: node props work)
     if t and f >= 120 and f < 400 then
-      local key = (f < 260 and "NT_NodeAng_" or "NodeAng_") .. "Bip " .. t.Name .. " R UpperArm"
-      local v = V3D(0, 0, (f % 40) * 4 - 80)
-      local ok, err = pcall(function() t[key] = v end)
-      if f == 121 or f == 261 or f % 40 == 0 then
-        local ok2, rb = pcall(function() return t[key] end)
-        local ok3, h = pcall(function() return t["NodePosHierarchy_Bip " .. t.Name .. " R Hand"] end)
-        Coop.log(string.format("bones write %s=%s ok=%s err=%s readback=%s hand=%s", key, Coop.v3(v), tostring(ok),
-          tostring(err), ok2 and rb and Coop.v3(rb) or "-", ok3 and h and Coop.v3(h) or "-"))
+      local node = "Bip " .. t.Name .. " R UpperArm"
+      local phase = math.floor((f - 120) / 70) + 1
+      local v = V3D(0, 0, 90)
+      local ok, err = true, nil
+      if phase == 1 then
+        ok, err = pcall(function() t["bExtNodeDisabled_" .. node] = true; t["NodeAng_" .. node] = v end)
+      elseif phase == 2 then
+        ok, err = pcall(function() t["bExtNodeDisabled_" .. node] = true; t["NT_NodeAng_" .. node] = v end)
+      elseif phase == 3 then
+        ok, err = pcall(function() t["bExtNodeDisabled_" .. node] = false; t["NodeAngHierarchy_" .. node] = v end)
+      else
+        ok, err = pcall(function() t["bShowNode_" .. node] = false end)
+      end
+      if (f - 120) % 70 == 5 or (f - 120) % 70 == 60 then
+        local h = t["NodePosHierarchy_Bip " .. t.Name .. " R Hand"]
+        local la = t["NodeAng_" .. node]
+        local ok3, ext = pcall(function() return t["bExtNodeDisabled_" .. node] end)
+        Coop.log(string.format("bones phase %d ok=%s err=%s hand=%s local=%s ext=%s", phase, tostring(ok), tostring(err),
+          h and Coop.v3(h) or "-", la and Coop.v3(la) or "-", tostring(ext)))
       end
     end
+    if t and f == 400 then pcall(function() t["bShowNode_Bip " .. t.Name .. " R UpperArm"] = true end) end
     if f == 400 then
       if usr then usr.IgnoreUsrControl = 0 end
       Coop.log("bones: start TheTrap")
@@ -475,6 +490,60 @@ if cfg.exp == "bones" and Coop.level == "levels/rom_palace_02" then
       local fp = Game.GetEntity("TheTrapFP_Delgado")
       if fp then probe(fp, {"Bip Delgado", "Bip01", "Bip", "FP Delgado", "Bip FP_Delgado", "Bip FP Delgado"}, "fp")
       else Coop.log("bones: no FP actor entity") end
+    end
+  end
+end
+
+-- 'bones2': per-frame bone writes on the head of the nearest teammate, close up, 4 s each:
+--   A none, B NodeAngHierarchy_ (world), C NodeAng_ (local), D NT_NodeAng_, E bShowNode_ false,
+--   F bExtNodeDisabled_ + NodeAngHierarchy_. Log the head's world position per phase.
+if cfg.exp == "bones2" and Coop.level ~= "levels/menu" then
+  local PH = {"none", "world", "local", "nt", "hide", "ext+world"}
+  function Coop.dev()
+    local usr = Game.UsrEntity(0)
+    if not usr or Coop.frame < 100 then return end
+    if not Coop.devT then
+      local best, bd
+      for _, n in ipairs(Coop.SQUAD) do
+        local e = Game.GetEntity(n)
+        if e and n ~= usr.Name then
+          local d = e.Pos - usr.Pos
+          local dist = math.sqrt(d.x * d.x + d.z * d.z)
+          if not bd or dist < bd then best, bd = e, dist end
+        end
+      end
+      if not best then return end
+      Coop.devT = best.Name
+      Coop.devT0 = Net.CoopTime()
+      Coop.log("bones2 target " .. best.Name)
+    end
+    local t = Game.GetEntity(Coop.devT)
+    if t.oAI then t.oAI.bEnable = false end
+    -- park the target 150 units in front of the player, facing the player
+    local yaw = usr.Ang.y
+    local fwd = V3D(-math.sin(math.rad(yaw)), 0, -math.cos(math.rad(yaw)))
+    t.Pos = usr.Pos + V3D(fwd.x * 150, 0, fwd.z * 150)
+    t.Ang = V3D(0, yaw + 180, 0)
+    usr.IgnoreUsrControl = 1
+  end
+  function Coop.devFrame(dt)
+    local t = Game.GetEntity(Coop.devT or "")
+    if not t then return end
+    local k = math.floor((Net.CoopTime() - Coop.devT0) / 4) + 1
+    local ph = PH[k]
+    local node = "Bip " .. (t.Name == "Rawlings" and "Rawllings" or t.Name) .. " Head"
+    if ph ~= Coop.devPh then
+      Coop.devPh = ph
+      pcall(function() t["bShowNode_" .. node] = true; t["bExtNodeDisabled_" .. node] = false end)
+      local h = t["NodePosHierarchy_" .. node]
+      Coop.log("bones2 phase " .. tostring(ph) .. " head=" .. (h and Coop.v3(h) or "-"))
+    end
+    local v = V3D(0, 0, 90)
+    if ph == "world" then pcall(function() t["NodeAngHierarchy_" .. node] = v end)
+    elseif ph == "local" then pcall(function() t["NodeAng_" .. node] = v end)
+    elseif ph == "nt" then pcall(function() t["NT_NodeAng_" .. node] = v end)
+    elseif ph == "hide" then pcall(function() t["bShowNode_" .. node] = false end)
+    elseif ph == "ext+world" then pcall(function() t["bExtNodeDisabled_" .. node] = true; t["NodeAngHierarchy_" .. node] = v end)
     end
   end
 end

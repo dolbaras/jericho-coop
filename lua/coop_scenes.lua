@@ -173,13 +173,16 @@ function S.update(dt)
       local actor = S.findActor(class, me)
       if actor then
         S.start(class, me, actor)
-        S.startStandIn(class, owner)
+        -- The full-body copy (below) replaces the old stand-in where it exists.
+        if not (S.body and S.body.class == class) then S.startStandIn(class, owner) end
       else
         Coop.log("scene POV: no actor for " .. me .. " in " .. class)
       end
     end
+    S.showBody(class)
   end
   S.updateStandIn(dt)
+  S.updateBody()
   if S.pov then S.updatePOV(dt) end
 end
 
@@ -420,3 +423,117 @@ function S.onMessage(peer, f)
   end
   return true
 end
+
+------------------------------------------------------------------------------
+-- Full-body copy of the first-person character. A first-person scene animates its owner
+-- only as FP_<Char> (arms and camera on screen), but those animation files drive the whole
+-- biped ("Bip <Char> ..." nodes, legs included: dev 'bones'). Played on the character's
+-- full model they show what the character really does in the scene: sits in the
+-- helicopter, kneels, types, gestures. Every first-person scene loaded in a session gets
+-- this extra actor "CoopBody"; it mirrors the FP actor's current action (branches and
+-- retries included) and is hidden for the player who watches through those eyes.
+------------------------------------------------------------------------------
+
+S.BODY_MODEL = {RossNude = "Ross"}   -- FP models without a full-body twin of the same name
+
+-- Levels load most scenes when they start, before the mod, so the body is added when a
+-- scene is played: Scene.Play calls Scene.Load every time (it returns early if loaded).
+function S.installBodyActor()
+  if S.bodyInstalled or not Scene or not Scene.Load then return end
+  S.bodyInstalled = true
+  local origLoad = Scene.Load
+  Scene.Load = function(SceneClass, ...)
+    local r = {origLoad(SceneClass, ...)}
+    if Coop.inSession() then
+      local ok, err = pcall(S.ensureBody, SceneClass)
+      if not ok then Coop.log("scene body error: " .. tostring(err)) end
+    end
+    return unpack(r)
+  end
+end
+
+-- Action names the scene scripts give FP actors (mapscenes.lua: Play, PlayA..I, Play_A..,
+-- <Scene>, <Scene>A.., Behemoth_A.., SceneApertura).
+function S.fpActionNames(class)
+  local names, bases = {}, {"Play", class, "Behemoth", "Scene" .. class}
+  local suffixes = {"", "A", "B", "C", "D", "E", "F", "G", "H", "I", "_A", "_B", "_C", "_D"}
+  for _, b in ipairs(bases) do
+    for _, x in ipairs(suffixes) do names[#names + 1] = b .. x end
+  end
+  return names
+end
+
+function S.ensureBody(class)
+  local list = Scene.Actors and Scene.Actors[class]
+  if not list then return end
+  local fpInfo
+  for _, info in ipairs(list) do
+    if info[2] == class .. "CoopBody" then return end
+    if not fpInfo and string.find(info[3] or "", "^FP_") then fpInfo = info end
+  end
+  if not fpInfo then return end
+  local fpc = Act.GetClass(fpInfo[2])
+  if not fpc then return end
+  local rec = {}
+  for _, name in ipairs(S.fpActionNames(class)) do
+    local a = fpc:GetAct(name)
+    if a then rec[#rec + 1] = {name = name, file = a.AnmFilePath, loop = a.isLoop, turn = a.RotSpeed} end
+  end
+  if #rec == 0 then
+    Coop.log("scene body: no FP actions found for " .. fpInfo[2])
+    return
+  end
+  local char = string.sub(fpInfo[3], 4)
+  local model = S.BODY_MODEL[char] or char
+  local sceneName, last = Scene.SceneName, Scene.lastActorName
+  Scene.SceneName = class
+  local ac = Scene.BaseAddActor("CoopBody", model, "Models/Chars/" .. model .. "/" .. model .. ".M3D")
+  -- Scenes not in absolute coordinates link every actor to its node in the scene model
+  -- (LinkModel "<scene>,Actor_<name>", Scene.Play); the body takes the FP actor's node.
+  list[#list][1] = fpInfo[1]
+  pcall(Act.SetCls, "Discardable", 1)
+  for _, a in ipairs(rec) do
+    if ac:GetAct(a.name) == nil then
+      local act = ac:NewAct(a.name)
+      act.AnmFilePath = a.file
+      act.isLoop = a.loop or 0
+      act.RotSpeed = a.turn or 0
+      act.AngRotLimit = 90
+      act.UseDisp = 0
+      act.NodeModifier = -1
+      act.AngleModifierSpeed = 5
+      act.AnimAbsMove = 1
+    end
+  end
+  ac.DefAction = fpc.DefAction or rec[1].name
+  Scene.SceneName, Scene.lastActorName = sceneName, last
+  S.body = {class = class, char = char == "RossNude" and "Ross" or char, fp = fpInfo[2], entity = class .. "CoopBody"}
+  Coop.log(string.format("scene body: %s gets %s with %d actions of %s (%s)", class, model, #rec, fpInfo[2], rec[1].file))
+end
+
+-- At scene start: the body is shown only to players watching from their own actor; whoever
+-- watches through the character's eyes (its owner, or a player with no actor in the scene)
+-- would have it in front of the camera.
+function S.showBody(class)
+  local b = S.body
+  if not b or b.class ~= class then return end
+  local e = Game.GetEntity(b.entity)
+  if not e then return end
+  b.hidden = S.pov == nil
+  e.bObjectVisible = not b.hidden
+  Coop.log("scene body: " .. b.entity .. (b.hidden and " hidden (seen through its eyes)" or " shown"))
+end
+
+function S.updateBody()
+  local b = S.body
+  if not b or not Scene.SceneName or string.sub(Scene.SceneName, 10) ~= b.class then return end
+  local fp, body = Game.GetEntity(b.fp), Game.GetEntity(b.entity)
+  if not fp or not body then return end
+  local act = fp.Action
+  if act and act ~= "" and body.Action ~= act then
+    body.ForceAction = act
+    body.ForceDefLoop = act
+  end
+end
+
+S.installBodyActor()
