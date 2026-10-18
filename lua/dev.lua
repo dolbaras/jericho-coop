@@ -575,3 +575,12 @@ if cfg.exp == "claimtest" and Coop.isHost() and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'lanlog': log what LAN discovery hears (Net.CoopDiscover) every 2 s in the menu.
+if cfg.lanlog and Coop.level == "levels/menu" then
+  local prev = Coop.dev
+  function Coop.dev()
+    if prev then prev() end
+    if Coop.frame % 40 == 0 and Net.CoopDiscover then Coop.log("lan heard: " .. tostring(Net.CoopDiscover())) end
+  end
+end

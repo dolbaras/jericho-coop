@@ -460,7 +460,8 @@ function Coop.update()
   Coop.frame = Coop.frame + 1
   -- Keep running while unfocused for the length of a session (a paused host would
   -- freeze everyone); outside a session the game behaves as in single player.
-  local bg = Coop.inSession() and 1 or 0
+  -- Test runs (dev) keep running unfocused in the menu too.
+  local bg = (Coop.inSession() or cfg.dev) and 1 or 0
   if bg ~= Coop.bgState and Net.CoopBackground then
     Net.CoopBackground(bg)
     Coop.bgState = bg

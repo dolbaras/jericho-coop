@@ -17,6 +17,13 @@
  *   Net.CoopLog(text)                   -> 1     appends a line to %JERICHO_COOP_LOG%
  *   Net.CoopBackground(on)              -> 1     keep running while unfocused (see display_hooks.c)
  *   Net.CoopKey(vk)                     -> 1/0   key held, only while the game window is in front
+ *   Net.CoopAnnounce(text)              -> 1     host: answer LAN queries with text ("" = stop)
+ *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
+ *                                                 call (at most once a second) asks the LAN again
+ *
+ * LAN discovery: UDP port DISCOVERY_PORT. A client broadcasts "JCOOP?" (and sends it to
+ * 127.0.0.1 for a second instance on the same PC); a host that announces answers
+ * "JCOOP!<text>" to the sender. Runs on the network thread.
  */
 #include <winsock2.h>
 #include <windows.h>
@@ -104,6 +111,15 @@ static Queue inbox, outbox;
 static ENetHost *host;
 static ENetPeer *peers[MAX_PEERS + 1];  /* index = Lua peer id; host is 0 on clients */
 static int is_host, running;
+
+/* ---- LAN discovery state (guarded by lock) ---- */
+#define DISCOVERY_PORT 28199
+#define MAX_FOUND 16
+static ENetSocket disc_listen = ENET_SOCKET_NULL;   /* host: bound to DISCOVERY_PORT */
+static ENetSocket disc_query = ENET_SOCKET_NULL;    /* client: ephemeral, broadcast */
+static char announce_text[256];
+static struct { enet_uint32 ip; char text[256]; double seen; } found[MAX_FOUND];
+static int query_pending;
 static HANDLE thread;
 static char log_path[MAX_PATH];
 
@@ -140,11 +156,107 @@ static void send_one(ENetPeer *p, Msg *m)
     enet_peer_send(p, m->reliable ? 0 : 1, pk);
 }
 
+static double now_seconds(void)
+{
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER t;
+    if (!freq.QuadPart)
+        QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / (double)freq.QuadPart;
+}
+
+/* Called with lock held, from the network thread. */
+static void discovery_poll(void)
+{
+    char buf[300];
+    ENetAddress from;
+    ENetBuffer b;
+    if (announce_text[0] && disc_listen == ENET_SOCKET_NULL) {
+        disc_listen = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+        if (disc_listen != ENET_SOCKET_NULL) {
+            ENetAddress a = {ENET_HOST_ANY, DISCOVERY_PORT};
+            enet_socket_set_option(disc_listen, ENET_SOCKOPT_REUSEADDR, 1);
+            enet_socket_set_option(disc_listen, ENET_SOCKOPT_NONBLOCK, 1);
+            if (enet_socket_bind(disc_listen, &a) < 0) {
+                coop_log("lan: cannot bind discovery port %d", DISCOVERY_PORT);
+                enet_socket_destroy(disc_listen);
+                disc_listen = ENET_SOCKET_NULL;
+                announce_text[0] = 0;
+            } else {
+                coop_log("lan: announcing on port %d", DISCOVERY_PORT);
+            }
+        }
+    }
+    if (!announce_text[0] && disc_listen != ENET_SOCKET_NULL) {
+        enet_socket_destroy(disc_listen);
+        disc_listen = ENET_SOCKET_NULL;
+    }
+    for (int i = 0; i < 8 && disc_listen != ENET_SOCKET_NULL; i++) {
+        b.data = buf;
+        b.dataLength = sizeof buf - 1;
+        int n = enet_socket_receive(disc_listen, &from, &b, 1);
+        if (n <= 0)
+            break;
+        if (n >= 6 && memcmp(buf, "JCOOP?", 6) == 0) {
+            char reply[300];
+            int len = snprintf(reply, sizeof reply, "JCOOP!%s", announce_text);
+            ENetBuffer r;
+            r.data = reply;
+            r.dataLength = (size_t)len;
+            enet_socket_send(disc_listen, &from, &r, 1);
+        }
+    }
+    if (query_pending) {
+        query_pending = 0;
+        if (disc_query == ENET_SOCKET_NULL) {
+            disc_query = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+            if (disc_query != ENET_SOCKET_NULL) {
+                enet_socket_set_option(disc_query, ENET_SOCKOPT_BROADCAST, 1);
+                enet_socket_set_option(disc_query, ENET_SOCKOPT_NONBLOCK, 1);
+            }
+        }
+        if (disc_query != ENET_SOCKET_NULL) {
+            ENetBuffer q;
+            q.data = (void *)"JCOOP?";
+            q.dataLength = 6;
+            ENetAddress bc = {ENET_HOST_BROADCAST, DISCOVERY_PORT};
+            ENetAddress lo;
+            enet_address_set_host(&lo, "127.0.0.1");
+            lo.port = DISCOVERY_PORT;
+            enet_socket_send(disc_query, &bc, &q, 1);
+            enet_socket_send(disc_query, &lo, &q, 1);
+        }
+    }
+    for (int i = 0; i < 16 && disc_query != ENET_SOCKET_NULL; i++) {
+        b.data = buf;
+        b.dataLength = sizeof buf - 1;
+        int n = enet_socket_receive(disc_query, &from, &b, 1);
+        if (n <= 0)
+            break;
+        buf[n] = 0;
+        if (n < 6 || memcmp(buf, "JCOOP!", 6) != 0)
+            continue;
+        int slot = -1;
+        for (int k = 0; k < MAX_FOUND; k++)
+            if (found[k].seen > 0 && found[k].ip == from.host) { slot = k; break; }
+        if (slot < 0)
+            for (int k = 0; k < MAX_FOUND; k++)
+                if (found[k].seen == 0) { slot = k; break; }
+        if (slot >= 0) {
+            found[slot].ip = from.host;
+            snprintf(found[slot].text, sizeof found[slot].text, "%s", buf + 6);
+            found[slot].seen = now_seconds();
+        }
+    }
+}
+
 static DWORD WINAPI net_thread(LPVOID unused)
 {
     (void)unused;
     while (running) {
         EnterCriticalSection(&lock);
+        discovery_poll();
         Msg *m;
         while ((m = q_pop(&outbox)) != NULL) {
             if (m->peer < 0) {
@@ -355,6 +467,51 @@ static int l_background(lua_State *L)
     return 1;
 }
 
+static int l_announce(lua_State *L)
+{
+    const char *t = lua_tolstring(L, 1, NULL);
+    EnterCriticalSection(&lock);
+    snprintf(announce_text, sizeof announce_text, "%s", t ? t : "");
+    for (char *c = announce_text; *c; c++)
+        if (*c == ';')
+            *c = ',';   /* ';' separates entries in CoopDiscover */
+    LeaveCriticalSection(&lock);
+    start_thread();
+    lua_pushnumber(L, 1);
+    return 1;
+}
+
+static int l_discover(lua_State *L)
+{
+    static double last_query;
+    char out[MAX_FOUND * 300];
+    size_t used = 0;
+    double t = now_seconds();
+    EnterCriticalSection(&lock);
+    if (t - last_query > 1.0) {
+        query_pending = 1;
+        last_query = t;
+    }
+    out[0] = 0;
+    for (int k = 0; k < MAX_FOUND; k++) {
+        if (found[k].seen == 0)
+            continue;
+        if (t - found[k].seen > 5.0) {   /* not heard for 5 s: gone */
+            found[k].seen = 0;
+            continue;
+        }
+        enet_uint32 ip = found[k].ip;   /* network byte order */
+        int n = snprintf(out + used, sizeof out - used, "%s%u.%u.%u.%u|%s", used ? ";" : "",
+                         ip & 255, (ip >> 8) & 255, (ip >> 16) & 255, (ip >> 24) & 255, found[k].text);
+        if (n > 0 && used + (size_t)n < sizeof out)
+            used += (size_t)n;
+    }
+    LeaveCriticalSection(&lock);
+    start_thread();
+    lua_pushstring(L, out);
+    return 1;
+}
+
 static int l_key(lua_State *L)
 {
     lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
@@ -384,6 +541,8 @@ static const struct {
     {"GetMyClientShip", "CoopLog", l_log},
     {"InitBrowser", "CoopBackground", l_background},
     {"DoneBrowser", "CoopKey", l_key},
+    {"SendUsrString", "CoopAnnounce", l_announce},
+    {"SendChatString", "CoopDiscover", l_discover},
 };
 
 int coop_net_install(void)

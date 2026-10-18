@@ -47,7 +47,7 @@ CoopMenu.TEXT = {
     you = "(you)", is_ready = "READY", port_fail = "Could not open port", host_left = "Host closed the session",
     nick = "Nickname", tags = "Names above players", on = "on", off = "off",
     act = "Character actions", act_players = "players, AI after 30 s", act_humans = "players only",
-    act_ai = "AI at once",
+    act_ai = "AI at once", lan = "Games on the local network:", lan_none = "(searching...)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -60,7 +60,7 @@ CoopMenu.TEXT = {
     is_ready = "ГОТОВ", port_fail = "Не удалось открыть порт", host_left = "Хост закрыл сессию",
     nick = "Ник", tags = "Имена над игроками", on = "вкл", off = "выкл",
     act = "Действия персонажей", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
-    act_ai = "сразу ИИ",
+    act_ai = "сразу ИИ", lan = "Игры в локальной сети:", lan_none = "(поиск...)",
   },
 }
 
@@ -237,13 +237,21 @@ end
 -- Join
 ------------------------------------------------------------------------------
 
+-- LAN games heard through Net.CoopDiscover (native/coop_net.c): items 3..6 of the join
+-- screen, refreshed by CoopMenu.update. Hosts announce "nick|level|players|max|port".
+CoopMenu.LAN_SLOTS = 4
+CoopMenu.lan = {}
+
 function CoopMenu.JoinSetup()
   CoopMenu.screen = "join"
-  Menu.VerticalMenu(T("title_join"), {
+  local options = {
     {cfg.addr or "127.0.0.1", "!EditText"},
     {T("connect"), "CoopMenu.Connect"},
-    {Menu.GetBackText(), "CoopMenu.Root"},
-  }, "CoopMenu.Root")
+  }
+  for i = 1, CoopMenu.LAN_SLOTS do options[#options + 1] = {"", "CoopMenu.JoinLan" .. i} end
+  options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Root"}
+  Menu.VerticalMenu(T("title_join"), options, "CoopMenu.Root")
+  CoopMenu.lanNext = 0
   local it = item("Itm1")
   it.MaxInput = 21
   local hint = Scorer.NewItem(0, "CoopHint", "Text")
@@ -252,6 +260,63 @@ function CoopMenu.JoinSetup()
   hint.CentralText = 1
   hint.Font = Menu.SmallFont
   hint.Color = Menu.ItemColor
+end
+
+function CoopMenu.refreshLan()
+  if not Net.CoopDiscover then return end
+  CoopMenu.lan = {}
+  local byText = {}
+  for entry in string.gmatch(Net.CoopDiscover() or "", "[^;]+") do
+    local f = {}
+    for x in string.gmatch(entry .. "|", "([^|]*)|") do f[#f + 1] = x end
+    local g = {ip = f[1], nick = f[2], level = f[3], players = f[4], max = f[5], port = tonumber(f[6])}
+    -- A host on this PC answers on the loopback and on its LAN address: list it once,
+    -- under the LAN address.
+    local key = table.concat(f, "|", 2)
+    local seen = byText[key]
+    if not seen then
+      byText[key] = g
+      CoopMenu.lan[#CoopMenu.lan + 1] = g
+    elseif seen.ip == "127.0.0.1" then
+      seen.ip = g.ip
+    end
+  end
+  for i = 1, CoopMenu.LAN_SLOTS do
+    local it = item("Itm" .. (2 + i))
+    local g = CoopMenu.lan[i]
+    if it then
+      if g then
+        local nick = (g.nick and g.nick ~= "") and g.nick or T("host_name")
+        setText(it, string.format("LAN: %s - %s (%s/%s)  %s", nick, CoopMenu.levelName(g.level or ""),
+          g.players or "?", g.max or "?", g.ip or ""))
+      else
+        setText(it, i == 1 and ("LAN: " .. T("lan_none")) or "")
+      end
+    end
+  end
+end
+
+function CoopMenu.joinLan(i)
+  local g = CoopMenu.lan[i]
+  if not g then return end
+  if g.port then cfg.port = g.port end
+  if item("Itm1") then item("Itm1").Text = g.ip end
+  CoopMenu.Connect()
+end
+for i = 1, 4 do CoopMenu["JoinLan" .. i] = function() CoopMenu.joinLan(i) end end
+
+-- Host: announce the session on the LAN while the lobby is open.
+function CoopMenu.announce()
+  if not Net.CoopAnnounce then return end
+  local text = ""
+  if Coop.isHost() and CoopMenu.screen == "lobby" then
+    text = table.concat({Coop.cleanNick(CoopMenu.myNick()), CoopMenu.LEVELS[CoopMenu.levelIndex] or "",
+      #CoopMenu.seats, CoopMenu.MAX_PLAYERS, cfg.port or CoopMenu.PORT}, "|")
+  end
+  if text ~= CoopMenu.announced then
+    CoopMenu.announced = text
+    Net.CoopAnnounce(text)
+  end
 end
 
 function CoopMenu.Connect()
@@ -433,6 +498,8 @@ function CoopMenu.ToggleReady()
 end
 
 function CoopMenu.Leave()
+  if Net.CoopAnnounce then Net.CoopAnnounce("") end
+  CoopMenu.announced = ""
   Net.CoopClose()
   cfg.role = nil
   cfg.myId = nil
@@ -456,6 +523,7 @@ end
 
 -- Everyone: remember the session in COOP_CFG (survives level loads) and load the level.
 function CoopMenu.launch(level, seats)
+  if Net.CoopAnnounce then Net.CoopAnnounce("") end
   cfg.level = level
   cfg.seats = seats
   cfg.loaded = true
@@ -550,6 +618,11 @@ end
 
 function CoopMenu.update()
   if CoopMenu.screen == "lobby" then CoopMenu.refreshLobby() end
+  if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then
+    CoopMenu.lanNext = Coop.frame + 10
+    CoopMenu.refreshLan()
+  end
+  CoopMenu.announce()
 end
 
 CoopMenu.hookMainMenu()
