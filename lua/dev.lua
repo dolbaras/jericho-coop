@@ -414,3 +414,67 @@ if Scene and Scene.Play and not Coop.devSceneMark then
     return unpack(r)
   end
 end
+
+-- 'bones': can Lua pose a body's bones, and how are the first-person arms' bones named?
+-- (FP scenes animate only the scene owner's arms; other players see a body that cannot
+-- play that animation. If bone angles are writable, the arms' motion can be copied.)
+--   frames 100: probe a teammate's arm bones (read)
+--   120-260:   write NT_NodeAng_ on its right upper arm; 260-400: write NodeAng_
+--   400:       start TheTrap (rom_palace_02); 470: probe the FP actor's bones
+if cfg.exp == "bones" and Coop.level == "levels/rom_palace_02" then
+  local PARTS = {"Head", "Neck", "Spine", "Spine1", "Pelvis", "R Clavicle", "R UpperArm", "R Forearm", "R Hand",
+                 "L Clavicle", "L UpperArm", "L Forearm", "L Hand", "R Finger0", "R Thigh", "R Calf"}
+  local function probe(e, prefixes, tag)
+    for _, pre in ipairs(prefixes) do
+      local found = {}
+      for _, part in ipairs(PARTS) do
+        local node = pre .. " " .. part
+        local ok, a = pcall(function() return e["NodeAng_" .. node] end)
+        local ok2, h = pcall(function() return e["NodeAngHierarchy_" .. node] end)
+        if (ok and a) or (ok2 and h) then
+          found[#found + 1] = string.format("%s[%s|%s]", part, ok and a and Coop.v3(a) or "-", ok2 and h and Coop.v3(h) or "-")
+        end
+      end
+      Coop.log(string.format("bones %s %s '%s': %s", tag, e.Name, pre, #found > 0 and table.concat(found, " ") or "none"))
+    end
+  end
+  function Coop.dev()
+    local usr = Game.UsrEntity(0)
+    local t = Game.GetEntity(Coop.devBoneT or "")
+    if not t and usr then
+      for _, n in ipairs({"Church", "Black", "Cole", "Rawlings", "Delgado"}) do
+        local e = Game.GetEntity(n)
+        if e and n ~= usr.Name then t = e Coop.devBoneT = n break end
+      end
+    end
+    local f = Coop.frame
+    if t and f >= 100 and f < 400 and usr then
+      local d = t.Pos - usr.Pos
+      usr.IgnoreUsrControl = 1
+      usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+      if t.oAI then t.oAI.bEnable = false end
+    end
+    if t and f == 100 then probe(t, {"Bip " .. t.Name, "Bip01", "Bip"}, "body") end
+    if t and f >= 120 and f < 400 then
+      local key = (f < 260 and "NT_NodeAng_" or "NodeAng_") .. "Bip " .. t.Name .. " R UpperArm"
+      local v = V3D(0, 0, (f % 40) * 4 - 80)
+      local ok, err = pcall(function() t[key] = v end)
+      if f == 121 or f == 261 or f % 40 == 0 then
+        local ok2, rb = pcall(function() return t[key] end)
+        local ok3, h = pcall(function() return t["NodePosHierarchy_Bip " .. t.Name .. " R Hand"] end)
+        Coop.log(string.format("bones write %s=%s ok=%s err=%s readback=%s hand=%s", key, Coop.v3(v), tostring(ok),
+          tostring(err), ok2 and rb and Coop.v3(rb) or "-", ok3 and h and Coop.v3(h) or "-"))
+      end
+    end
+    if f == 400 then
+      if usr then usr.IgnoreUsrControl = 0 end
+      Coop.log("bones: start TheTrap")
+      if MapCallbacks and MapCallbacks.AreaTrigger_3 then pcall(MapCallbacks.AreaTrigger_3, "AreaTrigger_3", 0, nil) end
+    end
+    if f == 470 or f == 600 then
+      local fp = Game.GetEntity("TheTrapFP_Delgado")
+      if fp then probe(fp, {"Bip Delgado", "Bip01", "Bip", "FP Delgado", "Bip FP_Delgado", "Bip FP Delgado"}, "fp")
+      else Coop.log("bones: no FP actor entity") end
+    end
+  end
+end

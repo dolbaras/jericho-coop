@@ -104,8 +104,14 @@ function S.updateStandIn(dt)
   if not body or not eye or not eye.camPos then return end
   local p, a = eye.camPos, eye.camAng
   local h = body.oActCtrl and body.oActCtrl.oActClass and body.oActCtrl.oActClass.CenterMoveY or 150
+  -- Stand on the floor under the camera (a body hung below the camera sank into the floor
+  -- whenever the character sat or knelt) and crouch when the camera is low.
+  local ground = Game.TestLine(p, V3D(p.x, p.y - 3 * h, p.z), "")
+  local footY = ground and ground.y or (p.y - h)
+  local camH = p.y - footY
+  si.crouch = camH < h * (si.crouch and 0.85 or 0.75)   -- with hysteresis
   local prev = si.pos
-  si.pos = lowpass(si.pos, V3D(p.x, p.y - h, p.z), S.STANDIN_POS_TAU, dt)
+  si.pos = lowpass(si.pos, V3D(p.x, footY, p.z), S.STANDIN_POS_TAU, dt)
   local step = prev and (si.pos - prev) or V3D(0, 0, 0)
   local inst = math.sqrt(step.x * step.x + step.z * step.z) / math.max(dt or 0.033, 0.001)
   si.speed = (si.speed or 0) + (inst - (si.speed or 0)) * (1 - math.exp(-math.min(dt or 0.033, 0.25) / S.STANDIN_SPEED_TAU))
@@ -119,6 +125,10 @@ function S.updateStandIn(dt)
   end
   si.yaw = yawLowpass(si.yaw, wantYaw, S.STANDIN_YAW_TAU, dt)
   body.Ang = V3D(0, si.yaw, 0)
+  -- Head and aim follow the camera's pitch (PlayFP itself sets ViewAng.x = -camAng.x).
+  si.pitch = (si.pitch or 0) + ((-a.x) - (si.pitch or 0)) * (1 - math.exp(-math.min(dt or 0.033, 0.25) / S.STANDIN_YAW_TAU))
+  body.ViewAng = V3D(si.pitch, si.yaw, 0)
+  if body.owc then body.owc.Crouch = si.crouch and 1 or 0 end
   body.InCtrl_Str = 0
   body.InCtrl_Sprint = 0
 end
@@ -127,7 +137,10 @@ function S.stopStandIn()
   local si = S.standIn
   if not si then return end
   local body = Game.GetEntity(si.body)
-  if body then body.InCtrl_Walk = 0 end
+  if body then
+    body.InCtrl_Walk = 0
+    if body.owc then body.owc.Crouch = 0 end
+  end
   local fp = si.fp and Game.GetEntity(si.fp)
   if fp then fp.bObjectVisible = true end
   S.standIn = nil
