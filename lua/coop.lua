@@ -18,6 +18,8 @@ Coop = {}
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
+Coop.SQUAD_SET = {}
+for _, name in ipairs(Coop.SQUAD) do Coop.SQUAD_SET[name] = true end
 Coop.TICK = 0.05
 Coop.SEND_EVERY = 1        -- ticks between state messages (20 Hz)
 Coop.SNAP_DIST = 150       -- units; puppet is teleported beyond this error
@@ -53,6 +55,23 @@ end
 function Coop.cleanNick(s)
   s = string.gsub(tostring(s or ""), "[^%w _%-92-­]", "")
   return string.sub(s, 1, 16)
+end
+
+-- "ru" when the game's own strings are Russian (cp1251), else "en".
+function Coop.lang()
+  if CoopMenu and CoopMenu.lang then return CoopMenu.lang end
+  return (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+end
+
+-- Mod sources are UTF-8; the game's fonts use cp1251.
+function Coop.cp1251(s)
+  return (string.gsub(s, "([\208\209])([\128-\191])", function(a, b)
+    local code = (string.byte(a) - 192) * 64 + (string.byte(b) - 128)
+    if code == 0x401 then return "\168" end      -- Ё
+    if code == 0x451 then return "\184" end      -- ё
+    if code >= 0x410 and code <= 0x44F then return string.char(code - 0x410 + 192) end
+    return "?"
+  end))
 end
 
 function Coop.isHost() return cfg.role == "host" end
@@ -249,6 +268,7 @@ function Coop.onMessage(peer, data)
   if CoopEnemies and CoopEnemies.onMessage(peer, f) then return end
   if CoopTeam and CoopTeam.onMessage(peer, f) then return end
   if CoopScenes and CoopScenes.onMessage(peer, f) then return end
+  if CoopSpirit and CoopSpirit.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -449,6 +469,13 @@ function Coop.update()
     if CoopEnemies.installed then CoopEnemies.update() end
   end
   if CoopTeam and Coop.inSession() and Coop.level ~= "levels/menu" then CoopTeam.update() end
+  if CoopSpirit then
+    local ok, err = pcall(CoopSpirit.update)
+    if not ok and (Coop.spiritErrors or 0) < 5 then
+      Coop.spiritErrors = (Coop.spiritErrors or 0) + 1
+      Coop.log("spirit error: " .. tostring(err))
+    end
+  end
   if Coop.inSession() then
     Coop.updateLocalOwnership()
     if Coop.frame % Coop.SEND_EVERY == 0 then Coop.sendStates() end
@@ -514,6 +541,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("team load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_scenes.lua")
   if not ok then Coop.log("scenes load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_spirit.lua")
+  if not ok then Coop.log("spirit load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 

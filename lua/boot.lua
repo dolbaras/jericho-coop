@@ -9,12 +9,14 @@ function COOP_SERIALIZE(v)
   if type(v) == "table" then
     local parts = {}
     for k, x in pairs(v) do
-      parts[#parts + 1] = k .. "=" .. COOP_SERIALIZE(x)
+      -- List items (trigargs={'Cole'}) need [n]= keys: "1='Cole'" does not parse.
+      local key = type(k) == "number" and "[" .. k .. "]" or k
+      parts[#parts + 1] = key .. "=" .. COOP_SERIALIZE(x)
     end
     table.sort(parts)
     return "{" .. table.concat(parts, ",") .. "}"
   elseif type(v) == "string" then
-    return "'" .. v .. "'"
+    return "'" .. string.gsub(string.gsub(v, "\\", "\\\\"), "'", "\\'") .. "'"
   end
   return tostring(v)
 end

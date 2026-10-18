@@ -1,7 +1,7 @@
 # Record every in-engine cutscene for review: a vanilla reference (one instance, no co-op
 # session) and a co-op run (host + client, both recorded), per row of tests/scene_audit.csv.
 # Output: <work>\runs\scene-audit\<id>_<level>\{ref,pair}\<stamp>\*.mp4 plus contact sheets.
-# Usage: scene_audit.ps1 [-Ids 09,34] [-Mode both|ref|pair]
+# Usage: scene_audit.ps1 [-Ids '09','34'] [-Mode both|ref|pair]   (quote ids: 09 alone is the number 9)
 param(
     [string[]] $Ids = @(),
     [ValidateSet("both", "ref", "pair")] [string] $Mode = "both"
@@ -14,8 +14,8 @@ New-Item -ItemType Directory -Force $out | Out-Null
 
 foreach ($line in Get-Content $list) {
     if ($line -match '^\s*#' -or -not $line.Trim()) { continue }
-    $id, $level, $trigger, $targs, $char, $secs = $line.Split(';')
-    if ($Ids.Count -and $Ids -notcontains $id) { continue }
+    $id, $level, $trigger, $targs, $char, $secs, $class = $line.Split(';')
+    if ($Ids.Count -and ($Ids | ForEach-Object { "$_".PadLeft(2, '0') }) -notcontains $id) { continue }
     $dir = Join-Path $out "${id}_$level"
     # QTEMode 2: the engine passes QTEs, so the scenes run their vanilla (success) path.
     $exp = "dev=true,qtemode=2,"
@@ -35,5 +35,5 @@ foreach ($line in Get-Content $list) {
             -HostCfg "${exp}waitpeers=1," -ClientCfg "dev=true,qtemode=2,char='$char'," |
             Select-String "mp4|trigger|scene|loaded=" | ForEach-Object { "  pair: $($_.Line)" }
     }
-    & (Join-Path $PSScriptRoot "scene_compare.ps1") -Dir $dir -Seconds ([int]$secs + 5) | ForEach-Object { "  $_" }
+    & (Join-Path $PSScriptRoot "scene_compare.ps1") -Dir $dir -Scene $class -Seconds ([int]$secs + 5) | ForEach-Object { "  $_" }
 }

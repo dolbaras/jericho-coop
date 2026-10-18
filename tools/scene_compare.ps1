@@ -2,7 +2,7 @@
 # co-op client, each starting -Lead seconds before its "scene start" log line (dev.lua).
 # Writes compare.mp4 and compare_sheetNN.png (one row per -Step seconds) into the folder.
 # Usage: scene_compare.ps1 -Dir <work>\runs\scene-audit\14_WWII_BigGates [-Seconds 70]
-param([Parameter(Mandatory)] [string] $Dir, [int] $Seconds = 60, [double] $Lead = 3, [double] $Step = 2)
+param([Parameter(Mandatory)] [string] $Dir, [string] $Scene = "", [int] $Seconds = 60, [double] $Lead = 3, [double] $Step = 2)
 
 . (Join-Path $PSScriptRoot "paths.ps1")
 $ffmpeg = Join-Path $FfmpegBin "ffmpeg.exe"
@@ -17,7 +17,8 @@ function Latest([string] $sub) {
 function SceneOffset([string] $log) {
     $lines = Get-Content $log
     $cap = $lines | Where-Object { $_ -match "capture: \d+x\d+" } | Select-Object -First 1
-    $st = $lines | Where-Object { $_ -match "lua: scene start " } | Select-Object -First 1
+    $pattern = if ($Scene) { "lua: scene start $Scene$" } else { "lua: scene start " }
+    $st = $lines | Where-Object { $_ -match $pattern } | Select-Object -First 1
     if (-not $cap -or -not $st) { return $null }
     $t0 = [datetime]::ParseExact($cap.Substring(0, 12), "HH:mm:ss.fff", $null)
     $t1 = [datetime]::ParseExact($st.Substring(0, 12), "HH:mm:ss.fff", $null)

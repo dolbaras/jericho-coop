@@ -259,7 +259,8 @@ end
 -- 'trigger' (host, or solo for vanilla reference runs): call cfg.trigger after cfg.trigat
 -- ticks. A bare name is a map callback (called like the engine does); a dotted name such
 -- as "MapInit.PlayConversation" is called with cfg.trigarg; cfg.trigargs (a list) overrides.
-if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level ~= "levels/menu" then
+if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level ~= "levels/menu"
+    and (not cfg.level or Coop.level == "levels/" .. string.lower(cfg.level)) then
   local function resolve(name)
     if MapCallbacks and MapCallbacks[name] then return MapCallbacks[name], true end
     local ok, fn = pcall(loadstring("return " .. name))
@@ -271,6 +272,8 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
       if cfg.role == "solo" or (CoopEnemies and CoopEnemies.catchupSent) then Coop.devReadyFrame = Coop.frame end
       return
     end
+    -- Wait for a level-start scene to finish (a scene started on top of it breaks both).
+    if Scene and Scene.IsPlaying then Coop.devReadyFrame = Coop.frame return end
     if Coop.frame == Coop.devReadyFrame + (cfg.trigat or 100) then
       local fn, isCallback = resolve(cfg.trigger)
       Coop.log("trigger: " .. cfg.trigger .. (fn and "" or " (not found)"))
