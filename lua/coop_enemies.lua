@@ -68,7 +68,39 @@ function E.snapshot()
   E.lastCount = n
 end
 
+-- Enemy target choice (scripts/ai/aienemy.lua) only takes squad members whose AI is on
+-- (AIMemberSquad.IsEnable = oAI.bEnable). Bodies held by remote players are network-driven
+-- with their AI off, so enemies never went for them. While an enemy picks a target, a body
+-- a human holds counts as enabled; squad AI elsewhere keeps the real flag.
+function E.installTargeting()
+  if E.targetingInstalled or not AIMemberSquad or not AIMemberSquad.IsEnable or not AIEnemy then return end
+  E.targetingInstalled = true
+  local origEnable = AIMemberSquad.IsEnable
+  AIMemberSquad.IsEnable = function(ent)
+    if E.choosingTarget and ent and Coop.isRemoteOwned(ent.Name) and (ent.Life or 0) > 0 then
+      E.stats.remoteTargets = (E.stats.remoteTargets or 0) + 1
+      return true
+    end
+    return origEnable(ent)
+  end
+  for _, fn in ipairs({"FindMemb", "FindMembVisNear", "FindMembRandom"}) do
+    local orig = AIEnemy[fn]
+    if type(orig) == "function" then
+      AIEnemy[fn] = function(...)
+        local was = E.choosingTarget
+        E.choosingTarget = true
+        local r = {pcall(orig, ...)}
+        E.choosingTarget = was
+        if not r[1] then error(r[2], 0) end
+        return unpack(r, 2)
+      end
+    end
+  end
+  Coop.log("enemies may target every human")
+end
+
 function E.installHost()
+  E.installTargeting()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -592,8 +624,8 @@ function E.report()
     for _ in pairs(E.targets) do n = n + 1 end
     E.lastCount = "driven:" .. n
   end
-  return string.format("enemies=%s hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d",
-    tostring(E.lastCount or "-"), s.hitsSent, s.hitsApplied, s.pdmgSent, s.pdmgApplied, s.spawns,
+  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d",
+    tostring(E.lastCount or "-"), s.remoteTargets or 0, s.hitsSent, s.hitsApplied, s.pdmgSent, s.pdmgApplied, s.spawns,
     s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0)
 end
 

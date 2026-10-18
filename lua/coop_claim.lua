@@ -21,8 +21,8 @@ C.aiActing = {}              -- char -> true while the AI does the action (IsPla
 C.aiDid = {}                 -- char -> true after the AI took over an action this level
 
 C.TEXT = {
-  en = {req = "%s is needed here (%s).  [Y] take control  %d", ai = "%s: the AI does it", obj = "use"},
-  ru = {req = "Нужен %s (%s).  [Y] взять управление  %d", ai = "%s: делает ИИ", obj = "действие"},
+  en = {req = "%s is needed here (%s).  Y - take control  (%d)", ai = "%s: the AI does it", obj = "use"},
+  ru = {req = "Нужен %s (%s).  Y - взять управление  (%d)", ai = "%s: делает ИИ", obj = "действие"},
 }
 
 local function text(key)

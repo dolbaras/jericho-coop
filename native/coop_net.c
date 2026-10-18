@@ -18,6 +18,7 @@
  *   Net.CoopBackground(on)              -> 1     keep running while unfocused (see display_hooks.c)
  *   Net.CoopKey(vk)                     -> 1/0   key held, only while the game window is in front
  *   Net.CoopAnnounce(text)              -> 1     host: answer LAN queries with text ("" = stop)
+ *   Net.CoopFile(path)                  -> 1/0   a file exists (relative to the game folder)
  *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
  *                                                 call (at most once a second) asks the LAN again
  *
@@ -512,6 +513,14 @@ static int l_discover(lua_State *L)
     return 1;
 }
 
+static int l_file(lua_State *L)
+{
+    const char *path = lua_tolstring(L, 1, NULL);
+    DWORD attr = path ? GetFileAttributesA(path) : INVALID_FILE_ATTRIBUTES;
+    lua_pushnumber(L, attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
+    return 1;
+}
+
 static int l_key(lua_State *L)
 {
     lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
@@ -543,6 +552,7 @@ static const struct {
     {"DoneBrowser", "CoopKey", l_key},
     {"SendUsrString", "CoopAnnounce", l_announce},
     {"SendChatString", "CoopDiscover", l_discover},
+    {"SendCtrlString", "CoopFile", l_file},
 };
 
 int coop_net_install(void)

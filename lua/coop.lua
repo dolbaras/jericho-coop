@@ -376,6 +376,14 @@ end
 function Coop.updateLocalOwnership()
   local mine = Coop.localChar()
   if not mine then return end
+  -- Test option: this player holds no body (a 4th player in a 3-body level), so it becomes
+  -- a spirit (coop_spirit.lua).
+  if cfg.nobody then
+    for n, p in pairs(Coop.owners) do
+      if p == Coop.myId() then Coop.owners[n] = nil end
+    end
+    return
+  end
   -- At level start (and after a welcome) move once to the character picked in the lobby;
   -- after that the player switches freely (cfg.char follows the body they hold).
   if not Coop.switchedTo and (Coop.isHost() or cfg.myId) then
@@ -439,6 +447,7 @@ function Coop.frameUpdate(now, dt)
     end
   end
   if CoopEnemies and CoopEnemies.installed and Coop.isClient() then CoopEnemies.driveEnemies(dt) end
+  if CoopSpirit and CoopSpirit.active then pcall(CoopSpirit.frame, dt) end
   if CoopEnemies and CoopEnemies.installed and Scene then CoopEnemies.updateSceneLabel() end
   if CoopScenes and Coop.inSession() then
     CoopScenes.install()

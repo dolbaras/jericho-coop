@@ -456,6 +456,16 @@ end
 -- retries included) and is hidden for the player who watches through those eyes.
 ------------------------------------------------------------------------------
 
+-- The retargeted animations (Pack1.packed next to the game's own archives). Without them
+-- the FP file is used as is (the body then shows its first-person pose errors).
+function S.haveCoopAnims()
+  if S.coopAnims == nil then
+    S.coopAnims = Net.CoopFile ~= nil and Net.CoopFile("Pack1.packed") == 1
+    Coop.log("scene body: retargeted animations " .. (S.coopAnims and "found" or "missing"))
+  end
+  return S.coopAnims
+end
+
 S.BODY_MODEL = {RossNude = "Ross"}   -- FP models without a full-body twin of the same name
 
 -- Levels load most scenes when they start, before the mod, so the body is added when a
@@ -499,7 +509,14 @@ function S.ensureBody(class)
   local rec = {}
   for _, name in ipairs(S.fpActionNames(class)) do
     local a = fpc:GetAct(name)
-    if a then rec[#rec + 1] = {name = name, file = a.AnmFilePath, loop = a.isLoop, turn = a.RotSpeed} end
+    if a then
+      -- The FP file drives the first-person rig; Pack1.packed (tools/cm3_retarget.py, built by
+      -- install.ps1 from the player's own game files) holds the same motion retargeted to the
+      -- full model, under CoopBody_<char>_<anm>.
+      local file = a.AnmFilePath or ""
+      if S.haveCoopAnims() then file = string.gsub(file, "/FP_([^/]+)$", "/CoopBody_%1") end
+      rec[#rec + 1] = {name = name, file = file, loop = a.isLoop, turn = a.RotSpeed}
+    end
   end
   if #rec == 0 then
     Coop.log("scene body: no FP actions found for " .. fpInfo[2])
