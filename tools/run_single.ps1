@@ -6,7 +6,7 @@ param(
     [string] $Cfg = "",                # COOP_CFG fields, e.g. "dev=true,menutest='root',"
     [int[]] $Shots = @(25),            # seconds after start
     [int] $Seconds = 30,
-    [string] $Adapter = "",
+    [string] $Adapter = "window",       # "window" = the secondary monitor's GPU (the iGPU); "" = default GPU
     [switch] $Record,                  # in-game video capture (native/capture.c), no screenshots
     [int] $RecordStart = 0
 )
@@ -23,7 +23,8 @@ $luaDir = $LuaDirForward
 $boot = "COOP_DIR='$luaDir' COOP_CFG={$Cfg} dofile(COOP_DIR..'boot.lua')"
 $winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
 $winH = [int][math]::Floor($winW * 9 / 16)
-$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH -debug:3 -R_LimitFPS:30 " +
+$aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
+$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
         "-OutDebugFile:`"$(Join-Path $run 'game.log')`" -InitLuaLine:`"$boot`""
 $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt"

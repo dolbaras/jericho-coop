@@ -103,6 +103,8 @@ class Bot:
                 self.pos = [float(f[4]), float(f[5]), float(f[6])]
                 self.yaw = float(f[7])
             self.log(f'welcome id={self.my_id} level={self.level} char={self.char} pos={self.pos} yaw={self.yaw}')
+            # A real client reports the level loaded; the host's scene gate and catch-up wait for it.
+            self.send('lready|' + self.level, True)
         elif f[0] == 'own':
             if f[1] != getattr(self, 'last_own', None):
                 self.last_own = f[1]

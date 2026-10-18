@@ -567,14 +567,6 @@ function S.updateBody()
     b.faceOn = true
     body.Action = "CoopFace"   -- channel 1: the head, on top of the scene animation
   end
-  b.n = (b.n or 0) + 1
-  if b.n % 90 == 1 then
-    local pre = "NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " "
-    local function at(part) local v = body[pre .. part] return v and Coop.v3(v) or "-" end
-    Coop.log(string.format("scene body dbg: action=%s pos=%s head=%s neck=%s spine2=%s pelvis=%s fphead=%s",
-      tostring(body.Action), Coop.v3(body.Pos), at("Head"), at("Neck"), at("Spine2"), at("Pelvis"),
-      (fp["NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " Neck"] and Coop.v3(fp["NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " Neck"])) or "-"))
-  end
   -- Mirror branch changes of the FP actor (tracked: Action reads back the face channel).
   local act = fp.Action
   if b.lastAct == nil then b.lastAct = act end

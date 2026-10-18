@@ -4,7 +4,11 @@
 # Usage: scene_audit.ps1 [-Ids '09','34'] [-Mode both|ref|pair]   (quote ids: 09 alone is the number 9)
 param(
     [string[]] $Ids = @(),
-    [ValidateSet("both", "ref", "pair")] [string] $Mode = "both"
+    [ValidateSet("both", "ref", "pair")] [string] $Mode = "both",
+    # bot (default): one game on the iGPU as host holding the row's non-owner character, plus
+    # the headless bot as client: the host then sees the scene the way a client would, and the
+    # owner's NVIDIA card stays free. pair: two game instances (host on the default GPU).
+    [ValidateSet("bot", "pair")] [string] $Coop = "bot"
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -29,7 +33,13 @@ foreach ($line in Get-Content $list) {
             -Cfg "${exp}auto=true,role='solo',level='$level'," -Seconds (45 + [int]$secs) -Record -RecordStart 3 |
             Select-String "mp4|trigger|scene" | ForEach-Object { "  ref: $($_.Line)" }
     }
-    if ($Mode -ne "ref") {
+    if ($Mode -ne "ref" -and $Coop -eq "bot") {
+        $want = if ($char -eq "Rawlings") { "Church" } else { "Rawlings" }
+        & (Join-Path $PSScriptRoot "run_bot.ps1") -OutDir (Join-Path $dir "pair") -Level $level -Want $want -Pattern still `
+            -BotSeconds ([int]$secs + 45) -Record -RecordStart 5 -HostCfg "${exp}waitpeers=1,char='$char'," |
+            Select-String "loaded=|run=" | ForEach-Object { "  bot: $($_.Line)" }
+    }
+    if ($Mode -ne "ref" -and $Coop -eq "pair") {
         & (Join-Path $PSScriptRoot "run_pair.ps1") -OutDir (Join-Path $dir "pair") -Level $level -Duration ([int]$secs + 10) `
             -Record -RecordStartHost 30 -RecordStartClient 10 `
             -HostCfg "${exp}waitpeers=1," -ClientCfg "dev=true,qtemode=2,char='$char'," |

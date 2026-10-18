@@ -14,7 +14,10 @@ param(
     [int] $LoadTimeout = 120,
     [string] $ExtraArgs = "",
     [string] $HostCfg = "",            # extra COOP_CFG fields, e.g. "dev=true,"
-    [string] $Adapter = ""             # JERICHO_ADAPTER for the host ("window" = monitor's GPU)
+    [string] $Adapter = "window",      # JERICHO_ADAPTER for the host ("window" = the secondary monitor's iGPU)
+    [switch] $Record,                  # in-game video capture (native/capture.c)
+    [switch] $RecordFull,
+    [int] $RecordStart = 0
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -34,7 +37,11 @@ $log = Join-Path $run "host.log"
 $coopLog = Join-Path $run "host.coop.txt"
 $luaDir = $LuaDirForward
 $boot = "COOP_DIR='$luaDir' COOP_CFG={${HostCfg}auto=true,role='host',level='$Level',port=$Port} dofile(COOP_DIR..'boot.lua')"
-$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:640 -VideoHeight:360 -debug:3 -R_LimitFPS:30 " +
+# Large 16:9 window on the secondary monitor; on the iGPU without the owner's 8x MSAA.
+$winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
+$winH = [int][math]::Floor($winW * 9 / 16)
+$aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }
+$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 $ExtraArgs " +
         "-OutDebugFile:`"$log`" -InitLuaLine:`"$boot`""
 
@@ -43,9 +50,11 @@ $env:JERICHO_STACKDUMP = Join-Path $run "host.stack.txt"
 $env:JERICHO_WINPOS = "$($screen.WorkingArea.X + 20),$($screen.WorkingArea.Y + 20)"
 $env:JERICHO_BACKGROUND = "1"   # keep running unfocused, without reading the user's input
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
+if ($Record) { $env:JERICHO_RECORD = Join-Path $run "host.raw"; $env:JERICHO_RECORD_START = "$RecordStart" }
+if ($Record -and $RecordFull) { $env:JERICHO_RECORD_FULL = "1" }
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $Game -PassThru
 Remove-Item Env:JERICHO_COOP_LOG, Env:JERICHO_STACKDUMP, Env:JERICHO_WINPOS, Env:JERICHO_BACKGROUND
-if ($Adapter) { Remove-Item Env:JERICHO_ADAPTER }
+foreach ($v in "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 try {
 try { $p.PriorityClass = 'BelowNormal' } catch {}
 "run=$run host pid=$($p.Id)"
@@ -70,6 +79,7 @@ if ($loaded) {
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     Wait-Process -Id $p.Id -Timeout 30 -ErrorAction SilentlyContinue
 }
+if ($Record) { & (Join-Path $PSScriptRoot "record.ps1") -Dir $run }
 "host alive after stop=$(-not $p.HasExited)"
 "--- bot.txt"
 if (Test-Path (Join-Path $run "bot.txt")) { Get-Content (Join-Path $run "bot.txt") | Select-Object -Last 12 }
