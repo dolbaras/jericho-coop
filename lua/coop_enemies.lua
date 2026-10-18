@@ -218,7 +218,23 @@ function E.onLevel(name)
   fromHost(SaveGame.LoadLevel, name)
 end
 
+-- A failed QTE replays its scene (Scene.ReloadScene -> ReplayScene). Branches are synced
+-- (CoopScenes), so every machine replays by itself: let that Play through on clients and
+-- do not forward it from the host.
+function E.installReplay()
+  local orig = Scene.ReplayScene
+  if not orig then return end
+  Scene.ReplayScene = function(...)
+    Coop.log("scene replay " .. tostring((...)))
+    E.inReplay = true
+    local ok, err = pcall(orig, ...)
+    E.inReplay = false
+    if not ok then Coop.log("ReplayScene error: " .. tostring(err)) end
+  end
+end
+
 function E.installSceneHost()
+  E.installReplay()
   local origEnd = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     E.inEndOfScene = true
@@ -235,7 +251,7 @@ function E.installSceneHost()
       local now = Net.CoopTime()
       local repeated = class == E.lastSceneClass and now - (E.lastSceneTime or 0) < 15
       if mode ~= "play" then E.beforeFpScene(class) end
-      if not E.inEndOfScene and not repeated then
+      if not E.inEndOfScene and not E.inReplay and not repeated then
         Net.CoopSend(-1, 1, "scene|" .. mode .. "|" .. tostring(class))
         E.stats.scenes = (E.stats.scenes or 0) + 1
         E.lastSceneClass, E.lastSceneTime = class, now
@@ -251,6 +267,7 @@ function E.installSceneHost()
 end
 
 function E.installSceneClient()
+  E.installReplay()
   local origEnd = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     Coop.log("scene ended " .. tostring(Scene.SceneName))
@@ -264,7 +281,7 @@ function E.installSceneClient()
     local orig = Scene[fname]
     E["scene_" .. fname] = orig
     Scene[fname] = function(class, ...)
-      if Coop.fromHost or E.inEndOfScene then
+      if Coop.fromHost or E.inEndOfScene or E.inReplay then
         if mode ~= "play" then E.beforeFpScene(class) end
         return orig(class, ...)
       end

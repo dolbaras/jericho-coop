@@ -382,3 +382,7 @@ if cfg.exp == "hide" and Coop.level ~= "levels/menu" then
     if Coop.frame == 260 then try("bObjectVisible", true) end
   end
 end
+
+-- cfg.qtemode = 2: the engine presses QTE keys itself (the game's own "QTE" cheat), so a
+-- bot can pass scene QTEs.
+if cfg.qtemode then Game.Set("QTEMode", cfg.qtemode) end

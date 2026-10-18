@@ -248,6 +248,7 @@ function Coop.onMessage(peer, data)
   local kind = f[1]
   if CoopEnemies and CoopEnemies.onMessage(peer, f) then return end
   if CoopTeam and CoopTeam.onMessage(peer, f) then return end
+  if CoopScenes and CoopScenes.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -418,6 +419,7 @@ function Coop.frameUpdate(now, dt)
   if CoopEnemies and CoopEnemies.installed and Scene then CoopEnemies.updateSceneLabel() end
   if CoopScenes and Coop.inSession() then
     CoopScenes.install()
+    CoopScenes.installQTE()
     local ok, err = pcall(CoopScenes.update, dt)
     if not ok and (Coop.sceneErrors or 0) < 5 then
       Coop.sceneErrors = (Coop.sceneErrors or 0) + 1

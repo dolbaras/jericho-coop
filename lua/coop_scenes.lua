@@ -243,3 +243,73 @@ function S.install()
     return orig(...)
   end
 end
+
+------------------------------------------------------------------------------
+-- Scene branches and QTEs (scripts/missions/qte.lua). One player decides each scene:
+-- the human holding its first-person character, else the host. Only the decider sees
+-- QTE prompts and presses keys. Every branch switch of the scene (Scene.PlayAlternate:
+-- a failed QTE, a random torture loop, a replay after death) is taken by the decider
+-- and sent to everyone; the others ignore their own choices.
+--   qalt|<scene entity>|<suffix>   decider -> host -> everyone
+------------------------------------------------------------------------------
+
+function S.sceneClass(name)
+  return name and string.sub(name, 10)
+end
+
+-- Peer id that decides the scene `name` (Scene.SceneName).
+function S.decider(name)
+  local owner = CoopEnemies and CoopEnemies.FP_OWNER[string.lower(tostring(S.sceneClass(name)))]
+  local peer = owner and Coop.ownerOf(owner)
+  return peer or 0
+end
+
+function S.decides(name)
+  return not Coop.inSession() or S.decider(name) == Coop.myId()
+end
+
+-- QTE functions run for in-game grabs too; those always belong to the local player.
+local function inSceneNotMine()
+  return Coop.inSession() and Scene.IsPlaying and Scene.SceneName and not S.decides(Scene.SceneName)
+end
+
+function S.installQTE()
+  if S.qteInstalled or not QTE or not QTE.LaunchSequence or not Scene or not Scene.PlayAlternate then return end
+  S.qteInstalled = true
+  for _, fn in ipairs({"LaunchSequence", "LaunchRndSequence", "WrongAction", "RightAction"}) do
+    local orig = QTE[fn]
+    QTE[fn] = function(...)
+      if inSceneNotMine() then return end
+      return orig(...)
+    end
+  end
+  local origValidate = QTE.ValidateSequence
+  QTE.ValidateSequence = function(...)
+    if inSceneNotMine() then return end
+    return origValidate(...)
+  end
+  S.origAlternate = Scene.PlayAlternate
+  Scene.PlayAlternate = function(sufix, sceneName)
+    local name = sceneName or Scene.SceneName
+    if not S.decides(name) then
+      Coop.log("scene branch " .. tostring(sufix) .. " of " .. tostring(name) .. " left to peer " .. S.decider(name))
+      return
+    end
+    if Coop.inSession() then Net.CoopSend(-1, 1, "qalt|" .. tostring(name) .. "|" .. tostring(sufix)) end
+    return S.origAlternate(sufix, sceneName)
+  end
+end
+
+function S.onMessage(peer, f)
+  if f[1] ~= "qalt" then return false end
+  local name, sufix = f[2], f[3]
+  if Coop.isHost() then Net.CoopSend(-1, 1, "qalt|" .. name .. "|" .. sufix) end
+  if S.decides(name) then return true end   -- our own decision coming back
+  if Scene.SceneName == name and Game.GetEntity(name) and S.origAlternate then
+    Coop.log("scene branch " .. sufix .. " of " .. name .. " from peer " .. peer)
+    S.origAlternate(sufix, name)
+  else
+    Coop.log("scene branch " .. sufix .. " for " .. name .. " ignored: playing " .. tostring(Scene.SceneName))
+  end
+  return true
+end
