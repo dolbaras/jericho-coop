@@ -1,9 +1,19 @@
-"""List and extract BFPK (.packed) archives from Clive Barker's Jericho.
+"""List, extract and write BFPK (.packed) archives from Clive Barker's Jericho.
 
 Layout (observed): "BFPK", u32 version, u32 count, then count entries of
 u32 name_len, name, u32 size, u32 offset (absolute). Data follows the table.
+
+Version 1 archives (Data00..05.packed): every entry is stored as
+u32 compressed_size + one zlib stream (zlib level 6, i.e. Python's default,
+reproduces the original bytes exactly). The index `size` is the
+*uncompressed* size, so reading `size` bytes at `offset` is wrong: the
+stored record is 4 + compressed_size bytes.
+Version 0 archives (Music.packed): entries are stored raw, `size` bytes.
+
+Extraction writes the stored record (u32 + zlib) by default, as in the
+archive; `--decompress` writes the plain file content instead.
 """
-import argparse, collections, fnmatch, os, struct, sys
+import argparse, collections, fnmatch, os, struct, sys, zlib
 
 
 def read_index(path):
@@ -20,12 +30,74 @@ def read_index(path):
     return version, entries
 
 
+def read_stored(f, version, entry):
+    """Return the stored bytes of an entry (u32 + zlib for version 1)."""
+    name, size, offset = entry
+    f.seek(offset)
+    if version == 0:
+        return f.read(size)
+    head = f.read(4)
+    (csize,) = struct.unpack('<I', head)
+    return head + f.read(csize)
+
+
+def unpack_stored(version, stored):
+    """Stored record -> plain file bytes."""
+    if version == 0:
+        return stored
+    (csize,) = struct.unpack_from('<I', stored, 0)
+    return zlib.decompress(stored[4:4 + csize])
+
+
+def pack_stored(data, version=1):
+    """Plain file bytes -> stored record, compressed like the originals."""
+    if version == 0:
+        return data
+    z = zlib.compress(data, 6)
+    return struct.pack('<I', len(z)) + z
+
+
+def read_file(path, version=None):
+    """Read a file that is either a stored record (u32 + zlib) or plain."""
+    with open(path, 'rb') as f:
+        d = f.read()
+    if len(d) >= 6 and d[4:5] == b'\x78':
+        try:
+            return unpack_stored(1, d)
+        except zlib.error:
+            pass
+    return d
+
+
+def write_archive(path, files, version=1):
+    """files: list of (archive_name, plain_bytes). Names use '/' separators.
+
+    Writes the index first, then the stored records in index order, like
+    the original archives.
+    """
+    names = [n.encode('latin-1') for n, _ in files]
+    stored = [pack_stored(d, version) for _, d in files]
+    table = 12 + sum(4 + len(n) + 8 for n in names)
+    out = [struct.pack('<4sII', b'BFPK', version, len(files))]
+    off = table
+    for n, (_, d), s in zip(names, files, stored):
+        out.append(struct.pack('<I', len(n)) + n + struct.pack('<II', len(d), off))
+        off += len(s)
+    out.extend(stored)
+    with open(path, 'wb') as f:
+        f.write(b''.join(out))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('archives', nargs='+')
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--stats', action='store_true')
     ap.add_argument('--extract', metavar='OUT_DIR')
+    ap.add_argument('--decompress', action='store_true',
+                    help='with --extract: write plain file content instead of the stored record')
+    ap.add_argument('--verify', action='store_true',
+                    help='decompress every selected entry and check its size against the index')
     ap.add_argument('--filter', default='*', help='fnmatch pattern on entry names')
     a = ap.parse_args()
     for arc in a.archives:
@@ -39,15 +111,25 @@ def main():
         if a.list:
             for name, size, offset in entries:
                 print(f'{offset:10d} {size:10d} {name}')
-        if a.extract:
+        if a.extract or a.verify:
+            bad = 0
             with open(arc, 'rb') as f:
-                for name, size, offset in entries:
-                    parts = [p for p in name.replace('\\', '/').split('/') if p not in ('', '.', '..')]
-                    dst = os.path.join(a.extract, *parts)
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    f.seek(offset)
-                    with open(dst, 'wb') as o:
-                        o.write(f.read(size))
+                for e in entries:
+                    name = e[0]
+                    s = read_stored(f, version, e)
+                    if a.verify or a.decompress:
+                        plain = unpack_stored(version, s)
+                        if len(plain) != e[1]:
+                            bad += 1
+                            print(f'size mismatch: {name} {len(plain)} != {e[1]}', file=sys.stderr)
+                    if a.extract:
+                        parts = [p for p in name.replace('\\', '/').split('/') if p not in ('', '.', '..')]
+                        dst = os.path.join(a.extract, *parts)
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        with open(dst, 'wb') as o:
+                            o.write(plain if a.decompress else s)
+            if a.verify:
+                print(f'# verify: {len(entries) - bad} ok, {bad} bad', file=sys.stderr)
 
 
 if __name__ == '__main__':

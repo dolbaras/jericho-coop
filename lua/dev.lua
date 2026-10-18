@@ -547,3 +547,31 @@ if cfg.exp == "bones2" and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'claimtest' (host): stand next to a character-only object nobody holds the character of
+-- (cfg.gate, default TriggerTheAbyss in rom_palace_01, Church-only) and let coop_claim.lua
+-- ask for a take-over, then hand it to the AI after the timeout.
+if cfg.exp == "claimtest" and Coop.isHost() and Coop.level ~= "levels/menu" then
+  function Coop.dev()
+    if not Coop.devReadyFrame then
+      if CoopEnemies and CoopEnemies.catchupSent then Coop.devReadyFrame = Coop.frame end
+      return
+    end
+    if Coop.frame == Coop.devReadyFrame + 40 then
+      local o = Game.GetEntity(cfg.gate or "TriggerTheAbyss")
+      local usr = Game.UsrEntity(0)
+      if o and usr then
+        o.bActive = true
+        o.bArrowCanUse = true
+        usr.Pos = o.Pos + V3D(250, 0, 0)
+        for _, n in ipairs(Coop.SQUAD) do
+          local e = Game.GetEntity(n)
+          if e then e.Invulnerable = 1 end
+        end
+        Coop.log("claimtest: host moved next to " .. o.Name .. " at " .. Coop.v3(o.Pos) .. ", squad invulnerable")
+      else
+        Coop.log("claimtest: no gate " .. tostring(cfg.gate))
+      end
+    end
+  end
+end

@@ -21,7 +21,9 @@ $run = Join-Path $OutDir (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force $run | Out-Null
 $luaDir = $LuaDirForward
 $boot = "COOP_DIR='$luaDir' COOP_CFG={$Cfg} dofile(COOP_DIR..'boot.lua')"
-$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:640 -VideoHeight:360 -debug:3 -R_LimitFPS:30 " +
+$winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
+$winH = [int][math]::Floor($winW * 9 / 16)
+$args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH -debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
         "-OutDebugFile:`"$(Join-Path $run 'game.log')`" -InitLuaLine:`"$boot`""
 $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt"

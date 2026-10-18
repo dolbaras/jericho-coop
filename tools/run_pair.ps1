@@ -15,6 +15,7 @@ param(
     [int] $LoadTimeout = 150,
     [switch] $KeepRunning,
     [switch] $Record,                 # in-game video capture of both instances (native/capture.c)
+    [switch] $RecordFull,             # ... at full resolution (default half)
     [int] $RecordStartHost = 0,       # seconds after the host's device is created
     [int] $RecordStartClient = 0
 )
@@ -33,7 +34,10 @@ $run = Join-Path $OutDir $stamp
 New-Item -ItemType Directory -Force $run | Out-Null
 $exe = Join-Path $Game "bin\Jericho.exe"
 $luaDir = $LuaDirForward
-$common = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:640 -VideoHeight:360 -debug:3 -R_LimitFPS:30 " +
+# Two windows side by side on the secondary monitor, 16:9, as large as fit (owner's wish).
+$winW = [int][math]::Min(960, [math]::Floor(($wa.Width - 40) / 2))
+$winH = [int][math]::Floor($winW * 9 / 16)
+$common = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH -debug:3 -R_LimitFPS:30 " +
           "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0"
 
 function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string] $adapter, [bool] $multi, [int] $recStart) {
@@ -46,8 +50,9 @@ function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string]
     if ($adapter) { $env:JERICHO_ADAPTER = $adapter }
     if ($multi) { $env:JERICHO_MULTI = "1" }
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_START = "$recStart" }
+    if ($Record -and $RecordFull) { $env:JERICHO_RECORD_FULL = "1" }
     $p = Start-Process -FilePath $exe -ArgumentList "$common -OutDebugFile:`"$log`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
-    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START") {
+    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }
     try { $p.PriorityClass = 'BelowNormal' } catch {}
@@ -71,7 +76,7 @@ $hostOk = Wait-Loaded $h (Join-Path $run "host.coop.txt")
 "host loaded=$hostOk"
 if ($hostOk) {
     Start-Sleep -Seconds 3
-    $c = Start-Jericho "client" "${ClientCfg}auto=true,role='client',port=$Port" "$($wa.X + 10),$($wa.Y + 430)" "window" $true $RecordStartClient
+    $c = Start-Jericho "client" "${ClientCfg}auto=true,role='client',port=$Port" "$($wa.X + 20 + $winW + 10),$($wa.Y + 10)" "window" $true $RecordStartClient
     "client pid=$($c.Id)"
     $clientOk = Wait-Loaded $c (Join-Path $run "client.coop.txt")
     "client loaded=$clientOk"

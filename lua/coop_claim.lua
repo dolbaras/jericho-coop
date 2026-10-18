@@ -12,6 +12,7 @@
 CoopClaim = {}
 local C = CoopClaim
 C.ACT_TIMEOUT = 30
+C.AI_WALK_TIMEOUT = 25        -- seconds for the AI to walk there before it is moved there
 C.NEAR = 900                 -- a human this close to the spot opens the request
 C.KEY = 0x59                 -- Y: take control (Net.CoopKey, only while the game is in front)
 C.gates = {}                 -- name -> {name, char, func, radius}
@@ -85,6 +86,18 @@ function C.updateHost()
   for name, req in pairs(C.open) do
     if req.deadline and now > req.deadline then C.aiDoes(name) end
   end
+  -- The AI did not get there (no path, stuck, killed on the way): put the character at the
+  -- object and do it, so the story never stalls.
+  local p = C.pendingUse
+  if p and now > p.deadline then
+    local body, o = Game.GetEntity(p.char), Game.GetEntity(p.gate)
+    Coop.log("claim: the AI did not reach " .. p.gate .. " in time, " .. p.char .. " is moved there")
+    if body and o then
+      if (body.Life or 0) <= 0 and Team and Team.RevivePlayer then pcall(Team.RevivePlayer, body) end
+      body.Pos = o.Pos + V3D(60, 0, 0)
+    end
+    C.aiArrived()
+  end
 end
 
 function C.request(gate, char, what)
@@ -121,7 +134,7 @@ function C.aiDoes(gate)
   Net.CoopSend(-1, 1, "actreq|" .. gate .. "|" .. req.char .. "|ai|0")
   C.flash = {text = string.format(text("ai"), req.char), untilT = Net.CoopTime() + 4}
   Coop.log("claim: the AI does " .. gate .. " with " .. req.char)
-  C.pendingUse = {char = req.char, gate = gate, func = g and g.func}
+  C.pendingUse = {char = req.char, gate = gate, func = g and g.func, deadline = Net.CoopTime() + C.AI_WALK_TIMEOUT}
   if AIGen and AIGen.GoAndAction then
     pcall(AIGen.GoAndAction, req.char, body.Pos, o.Pos, CoopClaim.aiArrived, (g and g.radius or 300) * 0.5)
   else

@@ -5,6 +5,7 @@
  *   JERICHO_RECORD=<file.raw>   append frames as raw BGRA, half resolution
  *   JERICHO_RECORD_FPS=<n>      frames per second (default 8)
  *   JERICHO_RECORD_START=<s>    seconds after device creation before recording (default 0)
+ *   JERICHO_RECORD_FULL=1       full resolution instead of half
  *
  * Writes <file.raw>.txt with "width height fps" once the size is known. Frames are copied
  * from the back buffer right before IDirect3DDevice9::Present (vtable slot 17).
@@ -31,6 +32,7 @@ static D3DFORMAT sf;
 static unsigned char *frame;   /* one half-resolution frame */
 static int frames;
 static double first_at = -1;
+static UINT step = 2;          /* 2 = half resolution, 1 = full */
 
 static double now(void)
 {
@@ -97,15 +99,15 @@ static void grab(IDirect3DDevice9 *dev)
         sh = d.Height;
         sf = d.Format;
         free(frame);
-        frame = malloc((size_t)(sw / 2) * (sh / 2) * 4);
+        frame = malloc((size_t)(sw / step) * (sh / step) * 4);
         char meta[MAX_PATH + 8];
         snprintf(meta, sizeof meta, "%s.txt", path);
         FILE *m = fopen(meta, "w");
         if (m) {
-            fprintf(m, "%u %u %.3f\n", sw / 2, sh / 2, 1.0 / interval);
+            fprintf(m, "%u %u %.3f\n", sw / step, sh / step, 1.0 / interval);
             fclose(m);
         }
-        coop_log("capture: %ux%u -> %ux%u", sw, sh, sw / 2, sh / 2);
+        coop_log("capture: %ux%u -> %ux%u", sw, sh, sw / step, sh / step);
     }
     hr = IDirect3DDevice9_GetRenderTargetData(dev, src, sysmem);
     if (FAILED(hr))
@@ -113,11 +115,11 @@ static void grab(IDirect3DDevice9 *dev)
     if (SUCCEEDED(hr)) {
         D3DLOCKED_RECT lr;
         if (SUCCEEDED(IDirect3DSurface9_LockRect(sysmem, &lr, NULL, D3DLOCK_READONLY))) {
-            /* Half resolution: every other pixel of every other row. */
+            /* Half resolution: every other pixel of every other row (step 2). */
             unsigned int *dst = (unsigned int *)frame;
-            for (UINT y = 0; y + 1 < sh; y += 2) {
+            for (UINT y = 0; y + step - 1 < sh; y += step) {
                 const unsigned int *src = (const unsigned int *)((const unsigned char *)lr.pBits + y * lr.Pitch);
-                for (UINT x = 0; x + 1 < sw; x += 2)
+                for (UINT x = 0; x + step - 1 < sw; x += step)
                     *dst++ = src[x];
             }
             IDirect3DSurface9_UnlockRect(sysmem);
@@ -132,7 +134,7 @@ static void grab(IDirect3DDevice9 *dev)
             if (due > 240)   /* a long hitch (level load): at most 30 s */
                 due = 240;
             for (int i = 0; i < due; i++)
-                fwrite(frame, 4, (size_t)(sw / 2) * (sh / 2), out);
+                fwrite(frame, 4, (size_t)(sw / step) * (sh / step), out);
             fflush(out);   /* test runs end with the process killed */
             frames += due;
         }
@@ -172,6 +174,8 @@ void capture_on_device(IDirect3DDevice9 *dev)
         fps = 8.0;
     interval = 1.0 / fps;
     start_after = GetEnvironmentVariableA("JERICHO_RECORD_START", v, sizeof v) ? atof(v) : 0.0;
+    if (GetEnvironmentVariableA("JERICHO_RECORD_FULL", v, sizeof v) && v[0] == '1')
+        step = 1;
     created_at = now();
     out = fopen(path, "wb");
     if (!out)

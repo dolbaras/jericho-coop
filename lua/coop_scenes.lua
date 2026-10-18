@@ -522,10 +522,22 @@ function S.ensureBody(class)
       act.RotSpeed = a.turn or 0
       act.AngRotLimit = 90
       act.UseDisp = 0
-      act.NodeModifier = -1
+      act.NodeModifier = Coop.cfg.bodynm or -1   -- experiment knob (dev): head/aim modifier
       act.AngleModifierSpeed = 5
       act.AnimAbsMove = 1
     end
+  end
+  -- First-person models have no head bone ("Bip <Char> Head" is missing in fp_*.sm3), so
+  -- their animations leave the full body headless. The character's own facial animation
+  -- runs on channel 1 on top (as the game does with char.Action = "Facial_Relax") and
+  -- drives the head. Ross's model uses Jones' skeleton.
+  local faceDir = model == "Ross" and "Jones" or model
+  if ac:GetAct("CoopFace") == nil then
+    local face = ac:NewAct("CoopFace")
+    face.AnmFilePath = "Models/Chars/" .. faceDir .. "/Anm/" .. faceDir .. "_Facial_Relax.M3D"
+    face.isLoop = 1
+    face.Chanel = 1
+    face.InterpTime = 0.2
   end
   ac.DefAction = fpc.DefAction or rec[1].name
   Scene.SceneName, Scene.lastActorName = sceneName, last
@@ -551,8 +563,23 @@ function S.updateBody()
   if not b or not Scene.SceneName or string.sub(Scene.SceneName, 10) ~= b.class then return end
   local fp, body = Game.GetEntity(b.fp), Game.GetEntity(b.entity)
   if not fp or not body then return end
+  if not b.faceOn then
+    b.faceOn = true
+    body.Action = "CoopFace"   -- channel 1: the head, on top of the scene animation
+  end
+  b.n = (b.n or 0) + 1
+  if b.n % 90 == 1 then
+    local pre = "NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " "
+    local function at(part) local v = body[pre .. part] return v and Coop.v3(v) or "-" end
+    Coop.log(string.format("scene body dbg: action=%s pos=%s head=%s neck=%s spine2=%s pelvis=%s fphead=%s",
+      tostring(body.Action), Coop.v3(body.Pos), at("Head"), at("Neck"), at("Spine2"), at("Pelvis"),
+      (fp["NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " Neck"] and Coop.v3(fp["NodePosHierarchy_Bip " .. (b.char == "Ross" and "Jones" or b.char) .. " Neck"])) or "-"))
+  end
+  -- Mirror branch changes of the FP actor (tracked: Action reads back the face channel).
   local act = fp.Action
-  if act and act ~= "" and body.Action ~= act then
+  if b.lastAct == nil then b.lastAct = act end
+  if act and act ~= "" and act ~= b.lastAct then
+    b.lastAct = act
     body.ForceAction = act
     body.ForceDefLoop = act
   end
