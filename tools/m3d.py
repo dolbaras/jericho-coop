@@ -11,7 +11,7 @@ u32 that is 0 for plain chunks and the payload size for sized chunks (only
 NABK is sized). Strings are u32 length (including the NUL) + bytes + NUL; an
 empty string is a single u32 0.
 """
-import re, struct
+import math, re, struct
 
 M3D_VERSION = 0x65226E
 
@@ -188,6 +188,9 @@ def sm3_nodes(d):
         q = n['end']
     for i, n in enumerate(nodes):
         n['index'] = i
+        # first u32 of the record (EscenaNodo+0x48): the node's animation slot,
+        # the index into a CM3's ANI remap table
+        n['slot'] = struct.unpack_from('<i', n['pre'], 0)[0]
     return dict(magic=magic, version=ver, hashes=hashes, materials=nmat,
                 count=count, nodes=nodes)
 
@@ -262,19 +265,59 @@ class Track:
             out.append(self.eva)
         return b''.join(out)
 
-    # ---- decoding helpers (only for uncompressed channels)
-    def values(self, flag):
-        """Decoded per-frame values for 'const'/'frames' channels, else None."""
+    # ---- decoding
+    def decode(self, flag):
+        """All nframes values of a channel: pos -> (x,y,z), rot -> quaternion
+        (x,y,z,w), f04/f08/f10 -> float, b80 -> int. None if absent."""
         k = self.kind(flag)
-        if k not in ('const', 'frames'):
+        if k is None:
             return None
-        elt = {f: e for f, e, _ in CHANNELS}[flag]
-        n = 1 if k == 'const' else self.nframes
         raw = self.data[flag]
-        if flag == 0x80:
-            return list(raw[:n])
-        fmt = '<%df' % (elt // 4)
-        return [struct.unpack_from(fmt, raw, i * elt) for i in range(n)]
+        elt = {f: e for f, e, _ in CHANNELS}[flag]
+        unpack = _UNPACK[flag]
+        if k == 'const':
+            return [unpack(raw, 0)] * self.nframes
+        if k == 'frames':
+            return [unpack(raw, i * elt) for i in range(self.nframes)]
+        words, sflags, start, cnt = struct.unpack_from('<4H', raw, 0)
+        if not sflags & 0x8000:                      # stream, not quantised
+            vals = [unpack(raw, 8 + i * elt) for i in range(cnt)]
+        elif flag == 0x01:                           # quantised positions
+            base = struct.unpack_from('<3f', raw, 8)
+            scale = struct.unpack_from('<f', raw, 20)[0]
+            vals = []
+            for i in range(cnt):
+                q = struct.unpack_from('<3h', raw, 24 + 6 * i)
+                vals.append(tuple(base[j] + q[j] * scale for j in range(3)))
+        elif flag == 0x02:                           # quantised euler deltas
+            base = struct.unpack_from('<3f', raw, 8)
+            scale = struct.unpack_from('<f', raw, 20)[0]
+            vals = []
+            for i in range(cnt):
+                v = struct.unpack_from('<I', raw, 24 + 4 * i)[0]
+                d = (((v >> 21) - 0x400) * scale / 2,
+                     (((v >> 10) & 0x7FF) - 0x400) * scale / 2,
+                     ((v & 0x3FF) - 0x200) * scale)
+                vals.append(engine_euler_to_quat(tuple(base[j] + d[j] for j in range(3))))
+        else:
+            raise FormatError(f'quantised stream for channel {flag:#x} not supported')
+        tail = self.nframes - start - cnt
+        return [vals[0]] * start + vals + [vals[-1]] * tail
+
+    def value_at(self, flag, frame):
+        v = self.decode(flag)
+        return None if v is None else v[min(frame, len(v) - 1)]
+
+    def set_const(self, flag, value):
+        """Replace one channel by a constant (pos/rot/f04 only: OPT_SUPPORTED)."""
+        if flag not in (0x01, 0x02, 0x04):
+            raise ValueError('only pos, rot and f04 can be constant')
+        one = make_track(self.primer, self.nframes, {flag: value})
+        self.flags |= flag
+        self.opt |= flag
+        self.stm &= ~flag
+        self.stream_size.pop(flag, None)
+        self.data[flag] = one.data[flag]
 
     def copy(self):
         t = Track()
@@ -282,6 +325,168 @@ class Track:
             v = getattr(self, s)
             setattr(t, s, dict(v) if isinstance(v, dict) else v)
         return t
+
+
+def _u_vec3(raw, o):
+    return struct.unpack_from('<3f', raw, o)
+
+
+def _u_quat(raw, o):
+    return struct.unpack_from('<4f', raw, o)
+
+
+def _u_f32(raw, o):
+    return struct.unpack_from('<f', raw, o)[0]
+
+
+def _u_byte(raw, o):
+    return raw[o]
+
+
+_UNPACK = {0x01: _u_vec3, 0x02: _u_quat, 0x04: _u_f32, 0x08: _u_f32, 0x10: _u_f32, 0x80: _u_byte}
+
+
+def make_track(primer, nframes, values):
+    """Build an uncompressed Track.
+
+    values: {flag: value} with value as returned by Track.value_at() (one
+    constant) or a list of nframes such values (per-frame channel).
+    Constant pos/rot/f04 are stored 'optimized' (one element); f08/f10/b80
+    cannot be optimized (OPT_SUPPORTED = 7) and are repeated for every frame.
+    """
+    t = Track()
+    t.primer, t.nframes = primer, nframes
+    t.flags = t.opt = t.stm = 0
+    for f, elt, _ in CHANNELS:
+        if f not in values:
+            continue
+        v = values[f]
+        t.flags |= f
+        if isinstance(v, list) and f in (0x01, 0x02, 0x04):
+            # per-frame pos/rot/f04: an unquantised stream (opt+stm), the form
+            # the game's own files use; plain per-frame arrays never occur there
+            if len(v) != nframes:
+                raise ValueError('a per-frame channel needs nframes values')
+            body = b''.join(struct.pack('<%df' % (elt // 4), *(x if f != 0x04 else (x,))) for x in v)
+            size = 8 + len(body)
+            size += -size % 4
+            if size // 4 > 0xFFFF:
+                raise ValueError('stream too long')
+            raw = struct.pack('<4H', size // 4, 0, 0, nframes) + body
+            raw += b'\0' * (size - len(raw))
+            t.opt |= f
+            t.stm |= f
+            t.stream_size[f] = size
+            t.data[f] = raw
+            continue
+        if isinstance(v, list):
+            if len(v) != nframes:
+                raise ValueError('a per-frame channel needs nframes values')
+            seq = v
+        elif f in (0x01, 0x02, 0x04):
+            t.opt |= f
+            seq = [v]
+        else:
+            seq = [v] * nframes
+        if f == 0x80:
+            raw = bytes(x & 0xFF for x in seq)
+        elif f in (0x04, 0x08, 0x10):
+            raw = struct.pack('<%df' % len(seq), *seq)
+        else:
+            raw = b''.join(struct.pack('<%df' % (elt // 4), *x) for x in seq)
+        raw += b'\0' * (-len(raw) % 4)
+        t.data[f] = raw
+    return t
+
+
+# ------------------------------------------------------------- rotations
+# Quantised rotation streams store negated euler angles of
+# D3DXMatrixRotationQuaternion(x, y, z, -w), decomposed as
+# D3DXMatrixRotationYawPitchRoll(yaw=e[1], pitch=e[0], roll=e[2])
+# (Animacion.cpp 0x64b3c0 -> 0x5ef580).
+
+def _ypr_matrix(yaw, pitch, roll):
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    # Rz(roll) * Rx(pitch) * Ry(yaw), D3D row-vector convention
+    return ((cr * cy + sr * sp * sy, sr * cp, -cr * sy + sr * sp * cy),
+            (-sr * cy + cr * sp * sy, cr * cp, sr * sy + cr * sp * cy),
+            (cp * sy, -sp, cp * cy))
+
+
+def _matrix_to_quat(m):
+    t = m[0][0] + m[1][1] + m[2][2]
+    if t > 0:
+        s = math.sqrt(t + 1) * 2
+        return ((m[1][2] - m[2][1]) / s, (m[2][0] - m[0][2]) / s, (m[0][1] - m[1][0]) / s, s / 4)
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1 + m[0][0] - m[1][1] - m[2][2]) * 2
+        return (s / 4, (m[0][1] + m[1][0]) / s, (m[2][0] + m[0][2]) / s, (m[1][2] - m[2][1]) / s)
+    if m[1][1] > m[2][2]:
+        s = math.sqrt(1 + m[1][1] - m[0][0] - m[2][2]) * 2
+        return ((m[0][1] + m[1][0]) / s, s / 4, (m[1][2] + m[2][1]) / s, (m[2][0] - m[0][2]) / s)
+    s = math.sqrt(1 + m[2][2] - m[0][0] - m[1][1]) * 2
+    return ((m[2][0] + m[0][2]) / s, (m[1][2] + m[2][1]) / s, s / 4, (m[0][1] - m[1][0]) / s)
+
+
+def _quat_to_matrix(x, y, z, w):
+    return ((1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w)),
+            (2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w)),
+            (2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)))
+
+
+def engine_euler_to_quat(stored):
+    """Stored (negated) euler triple -> quaternion (x, y, z, w) as in const tracks."""
+    pitch, yaw, roll = (-v for v in stored)
+    x, y, z, w = _matrix_to_quat(_ypr_matrix(yaw, pitch, roll))
+    return (x, y, z, -w)
+
+
+def engine_quat_to_euler(q):
+    """Quaternion -> stored (negated) euler triple (inverse of the above)."""
+    m = _quat_to_matrix(q[0], q[1], q[2], -q[3])
+    pitch = math.atan2(-m[2][1], math.hypot(m[2][0], m[2][2]))
+    yaw = math.atan2(m[2][0], m[2][2])
+    roll = math.atan2(m[0][1], m[1][1])
+    return (-pitch, -yaw, -roll)
+
+
+# Local node transforms as (3x3 rotation, translation) with row vectors
+# (v_parent = v_local * R + t), the D3D convention the engine uses.
+
+def xf(q, t):
+    return (_quat_to_matrix(q[0], q[1], q[2], -q[3]), tuple(t))
+
+
+def xf_quat(a):
+    x, y, z, w = _matrix_to_quat(a[0])
+    return (x, y, z, -w)
+
+
+def xf_mul(a, b):
+    """a (child local) followed by b (its parent's local)."""
+    ra, ta = a
+    rb, tb = b
+    r = tuple(tuple(sum(ra[i][k] * rb[k][j] for k in range(3)) for j in range(3)) for i in range(3))
+    t = tuple(sum(ta[k] * rb[k][j] for k in range(3)) + tb[j] for j in range(3))
+    return (r, t)
+
+
+def xf_inv(a):
+    r, t = a
+    rt = tuple(tuple(r[j][i] for j in range(3)) for i in range(3))
+    return (rt, tuple(-sum(t[k] * rt[k][j] for k in range(3)) for j in range(3)))
+
+
+def quat_angle_deg(a, b):
+    """Rotation angle between two quaternions (numerically stable near 0)."""
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(x * x for x in b)) or 1.0
+    a = [x / na for x in a]
+    b = [x / nb for x in b]
+    d = min(math.dist(a, b), math.dist(a, [-x for x in b]))
+    return math.degrees(4 * math.asin(min(1.0, d / 2)))
 
 
 def _skip_eva(d, p):
@@ -392,6 +597,10 @@ class CM3:
         out.extend(t.nam() for t in self.tracks)
         out.append(self.tail)
         return b''.join(out)
+
+    def slot_map(self):
+        """{model node slot: track index} from the ANI remap table."""
+        return {s: v - 1 for s, v in enumerate(self.ani_blob) if v}
 
     @property
     def fps_value(self):

@@ -12,6 +12,11 @@ Version 0 archives (Music.packed): entries are stored raw, `size` bytes.
 
 Extraction writes the stored record (u32 + zlib) by default, as in the
 archive; `--decompress` writes the plain file content instead.
+
+Writing: `--create OUT.packed --root DIR [existing archives...]` packs every
+file under DIR (plain content, entry name = relative path in lowercase) the
+same way as the originals; names already present in the listed archives
+are refused. write_archive() does the same from Python.
 """
 import argparse, collections, fnmatch, os, struct, sys, zlib
 
@@ -88,9 +93,35 @@ def write_archive(path, files, version=1):
         f.write(b''.join(out))
 
 
+def create(out, root, version=1, existing=()):
+    """Pack every file under root as '<relative path, lowercase, />'.
+
+    Refuses names that already exist in the archives listed in existing
+    (the engine keeps the first entry of a name, so a duplicate would be
+    ignored or would shadow the original)."""
+    taken = set()
+    for arc in existing:
+        taken.update(e[0].lower() for e in read_index(arc)[1])
+    items = []
+    for dirpath, _, files in os.walk(root):
+        for fn in sorted(files):
+            full = os.path.join(dirpath, fn)
+            name = os.path.relpath(full, root).replace(os.sep, '/').lower()
+            if name in taken:
+                raise SystemExit(f'{name} already exists in the game archives')
+            with open(full, 'rb') as f:
+                items.append((name, f.read()))
+    items.sort()
+    write_archive(out, items, version)
+    return len(items)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('archives', nargs='+')
+    ap.add_argument('archives', nargs='*')
+    ap.add_argument('--create', metavar='OUT', help='write a new archive from the files under --root')
+    ap.add_argument('--root', help='with --create: folder whose relative paths become entry names')
+    ap.add_argument('--raw', action='store_true', help='with --create: version 0 (uncompressed) archive')
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--stats', action='store_true')
     ap.add_argument('--extract', metavar='OUT_DIR')
@@ -100,6 +131,12 @@ def main():
                     help='decompress every selected entry and check its size against the index')
     ap.add_argument('--filter', default='*', help='fnmatch pattern on entry names')
     a = ap.parse_args()
+    if a.create:
+        if not a.root:
+            ap.error('--create needs --root')
+        n = create(a.create, a.root, 0 if a.raw else 1, a.archives)
+        print(f'# {a.create}: {n} entries', file=sys.stderr)
+        return
     for arc in a.archives:
         version, entries = read_index(arc)
         entries = [e for e in entries if fnmatch.fnmatch(e[0].lower(), a.filter.lower())]
