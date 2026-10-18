@@ -30,7 +30,8 @@ function Start-One([string] $name, [string] $cfg, [string] $winpos, [string] $ad
     if ($adapter) { $env:JERICHO_ADAPTER = $adapter }
     if ($multi) { $env:JERICHO_MULTI = "1" }
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_FULL = "1" }
-    $p = Start-Process -FilePath $exe -ArgumentList "$common -OutDebugFile:`"$(Join-Path $run "$name.log")`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
+    $extra = if ($adapter) { " -Antialiasing:0" } else { "" }   # see run_pair.ps1
+    $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$(Join-Path $run "$name.log")`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
     foreach ($v in "JERICHO_COOP_LOG", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_FULL") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }

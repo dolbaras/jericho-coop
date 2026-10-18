@@ -51,7 +51,10 @@ function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string]
     if ($multi) { $env:JERICHO_MULTI = "1" }
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_START = "$recStart" }
     if ($Record -and $RecordFull) { $env:JERICHO_RECORD_FULL = "1" }
-    $p = Start-Process -FilePath $exe -ArgumentList "$common -OutDebugFile:`"$log`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
+    # The instance on the integrated GPU drops the owner's 8x MSAA (game.cfg Antialiasing = 8),
+    # which alone took it to a few frames per second; command-line values are not saved.
+    $extra = if ($adapter) { " -Antialiasing:0" } else { "" }
+    $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$log`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
     foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }

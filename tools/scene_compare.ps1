@@ -14,7 +14,7 @@ function Latest([string] $sub) {
 
 # Seconds into the video where the scene starts (the capture writes in real time from its
 # first frame, logged as "capture: WxH").
-function SceneOffset([string] $log) {
+function SceneOffset([string] $log, [string] $video) {
     $lines = Get-Content $log
     $cap = $lines | Where-Object { $_ -match "capture: \d+x\d+" } | Select-Object -First 1
     $pattern = if ($Scene) { "lua: scene start $Scene$" } else { "lua: scene start " }
@@ -22,7 +22,20 @@ function SceneOffset([string] $log) {
     if (-not $cap -or -not $st) { return $null }
     $t0 = [datetime]::ParseExact($cap.Substring(0, 12), "HH:mm:ss.fff", $null)
     $t1 = [datetime]::ParseExact($st.Substring(0, 12), "HH:mm:ss.fff", $null)
-    return ($t1 - $t0).TotalSeconds
+    $real = ($t1 - $t0).TotalSeconds
+    # The capture drops repeats after long hitches; <name>.raw.times maps written frames to
+    # real time ("<frame> <seconds>"), 8 frames per second of video.
+    $times = [IO.Path]::ChangeExtension($video, ".raw.times")
+    if (Test-Path $times) {
+        $best = $null
+        foreach ($l in Get-Content $times) {
+            $p = $l.Split(' ')
+            $sec = [double]::Parse($p[1], [Globalization.CultureInfo]::InvariantCulture)
+            if ($sec -le $real) { $best = @([int]$p[0], $sec) } else { break }
+        }
+        if ($best) { return $best[0] / 8.0 + [math]::Min(0.5, $real - $best[1]) }
+    }
+    return $real
 }
 
 $ref = Latest "ref"; $pair = Latest "pair"
@@ -37,7 +50,7 @@ $filters = @()
 $n = 0
 foreach ($in in $inputs) {
     if (-not (Test-Path $in.video)) { continue }
-    $off = SceneOffset $in.log
+    $off = SceneOffset $in.log $in.video
     if ($null -eq $off) { "no scene start in $($in.log)"; continue }
     $ss = [math]::Max(0, $off - $Lead)
     "{0}: scene at {1:N1} s" -f $in.label, $off

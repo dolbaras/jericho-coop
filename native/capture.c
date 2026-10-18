@@ -30,7 +30,9 @@ static IDirect3DSurface9 *sysmem;
 static UINT sw, sh;
 static D3DFORMAT sf;
 static unsigned char *frame;   /* one half-resolution frame */
-static int frames;
+static int frames;              /* capture intervals elapsed (real time) */
+static int written;             /* frames written to the file */
+static FILE *times;             /* <file>.times: "<written index> <seconds since first frame>" */
 static double first_at = -1;
 static UINT step = 2;          /* 2 = half resolution, 1 = full */
 
@@ -131,12 +133,23 @@ static void grab(IDirect3DDevice9 *dev)
             int due = (int)((t - first_at) / interval) + 1 - frames;
             if (due < 1)
                 due = 1;
-            if (due > 240)   /* a long hitch (level load): at most 30 s */
-                due = 240;
+            /* At most half a second of repeats per grab: writing seconds of full frames at once
+             * stalled the game, which made the next hitch longer (a feedback loop that took
+             * the iGPU client below 1 fps). Longer hitches shift the video; scene_compare.ps1
+             * aligns on log times anyway. */
+            if (due > 4) {
+                frames += due - 4;   /* keep counting real time, drop the extra repeats */
+                due = 4;
+            }
+            if (times) {
+                fprintf(times, "%d %.3f\n", written, t - first_at);
+                fflush(times);
+            }
             for (int i = 0; i < due; i++)
                 fwrite(frame, 4, (size_t)(sw / step) * (sh / step), out);
             fflush(out);   /* test runs end with the process killed */
             frames += due;
+            written += due;
         }
     }
     if (resolved)
@@ -178,6 +191,9 @@ void capture_on_device(IDirect3DDevice9 *dev)
         step = 1;
     created_at = now();
     out = fopen(path, "wb");
+    char tpath[MAX_PATH + 8];
+    snprintf(tpath, sizeof tpath, "%s.times", path);
+    times = fopen(tpath, "w");
     if (!out)
         return;
     void **vt = *(void ***)dev;
