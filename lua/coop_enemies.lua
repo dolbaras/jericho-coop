@@ -657,8 +657,13 @@ function E.onMessage(peer, f)
   elseif kind == "espawn" and Coop.isClient() then
     local name, class, group = f[2], f[3], f[4]
     if not Game.GetEntity(name) and E.origCreate then
+      -- Lists the mod adds on the host (story splits' waves) exist here only from their
+      -- first enemy on.
+      if NPC.Groups and not NPC.Groups[group] and CoopSplits and CoopSplits.newList then
+        CoopSplits.newList(group)
+      end
       local e = fromHost(NPC.CreateWithAI, class, tonumber(f[5]), tonumber(f[6]), tonumber(f[7]), group)
-      if e and e.Name ~= name then e.Name = name end
+      if type(e) ~= "string" and e and e.Name ~= name then e.Name = name end
     end
     E.stats.spawns = E.stats.spawns + 1
   elseif kind == "egroup" and Coop.isClient() then
