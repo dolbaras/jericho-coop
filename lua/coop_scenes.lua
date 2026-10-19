@@ -152,6 +152,7 @@ end
 function S.stop(ending)
   S.stopStandIn(ending)
   S.smooth, S.focus, S.eye, S.look, S.headCache = nil, nil, nil, nil, nil
+  S.lean, S.leanWant, S.leanNext = nil, nil, nil
   -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
   -- deleted, as EndOfScene does with the main camera, or the engine asserts on the node's
   -- references (objref.h "!Refs").
@@ -345,6 +346,54 @@ S.SELF_FOCUS = 180        -- the scene camera looks at this player's own head
 S.LOOK_TAU = 0.35
 S.EYE_MAX = 2000
 
+-- A seated character's head is boxed in by the seat (HelicopterTrip: padded wings beside
+-- every head), so looking sideways at a neighbour stared into the padding. When a wall
+-- right in front of the eye hides the target, the eye leans out (up to LEAN_STEPS units,
+-- the nearest clear direction first) as a person would lean forward to look.
+S.LEAN_NEAR = 90
+S.LEAN_STEPS = {25, 50, 75}
+S.LEAN_TAU = 0.5
+S.ZERO = V3D(0, 0, 0)
+
+local function len(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+
+function S.blockedNear(from, to)
+  local hit = Game.TestLine(from, to, "")
+  if not hit then return false end
+  local d = len(hit - from)
+  return d < S.LEAN_NEAR and d < len(to - from) - 30
+end
+
+function S.findLean(eye, target)
+  S.leanNext = (S.leanNext or 0) - 1
+  if S.leanNext > 0 then return S.leanWant or S.ZERO end
+  S.leanNext = 8   -- frames between searches
+  if not S.blockedNear(eye, target) then
+    S.leanWant = S.ZERO
+    return S.ZERO
+  end
+  local t = target - eye
+  local tl = math.sqrt(t.x * t.x + t.z * t.z)
+  local cands = {}
+  for k = 0, 7 do
+    local a = k * math.pi / 4
+    local dx, dz = math.cos(a), math.sin(a)
+    cands[#cands + 1] = {dx = dx, dz = dz, score = tl > 0 and (dx * t.x + dz * t.z) / tl or 0}
+  end
+  table.sort(cands, function(x, y) return x.score > y.score end)
+  for _, r in ipairs(S.LEAN_STEPS) do
+    for _, c in ipairs(cands) do
+      local off = V3D(c.dx * r, 0, c.dz * r)
+      local at = eye + off
+      if not Game.TestLine(eye, at, "") and not S.blockedNear(at, target) then
+        S.leanWant = off
+        return off
+      end
+    end
+  end
+  return S.leanWant or S.ZERO
+end
+
 function S.updatePOV(dt)
   local a = Game.GetEntity(S.pov.actor)
   local cam = Game.GetEntity(S.CAM)
@@ -355,13 +404,14 @@ function S.updatePOV(dt)
   local off = hp - p
   if math.sqrt(off.x * off.x + off.y * off.y + off.z * off.z) > S.EYE_MAX then hp = p end
   S.eye = lowpass(S.eye, hp, S.EYE_TAU, dt)
-  local pos = S.eye
-  cam.Pos = pos
   -- When the scene camera looks at this character (the speaker turns to them), they look
   -- back at the speaker instead of into their own face.
   local focus = S.updateFocus(dt, p, dir)
-  local toSelf = focus - pos
+  local toSelf = focus - S.eye
   local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and S.speakerPos(p) or focus
+  S.lean = lowpass(S.lean, S.findLean(S.eye, target), S.LEAN_TAU, dt)
+  local pos = S.eye + S.lean
+  cam.Pos = pos
   S.look = lowpass(S.look, target, S.LOOK_TAU, dt)
   local look = S.look - pos
   if math.sqrt(look.x * look.x + look.y * look.y + look.z * look.z) < S.FOCUS_MIN then look = dir end

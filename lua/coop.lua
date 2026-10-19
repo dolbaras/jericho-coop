@@ -27,6 +27,7 @@ Coop.NUDGE_DIST = 10       -- units; below this the puppet is left alone
 Coop.NUDGE = 0.25          -- fraction of the error removed per tick
 Coop.owners = {}           -- char name -> peer id (0 = host)
 Coop.remote = {}           -- char name -> latest received state
+Coop.storyDriven = {}      -- char name -> true while a story walk drives it (coop_story.lua)
 Coop.frame = 0
 
 local cfg = Coop.cfg
@@ -177,19 +178,19 @@ function Coop.sendStates()
   if Coop.isHost() then
     for _, name in ipairs(Coop.SQUAD) do
       local e = Game.GetEntity(name)
-      if e and not Coop.isRemoteOwned(name) then
+      if e and (not Coop.isRemoteOwned(name) or Coop.storyDriven[name]) then
         Net.CoopSend(-1, 0, Coop.stateOf(e))
       end
     end
     -- Relay remote players' latest states to the other clients.
     for name, st in pairs(Coop.remote) do
-      if Coop.isRemoteOwned(name) and st.raw then
+      if Coop.isRemoteOwned(name) and not Coop.storyDriven[name] and st.raw then
         Net.CoopSend(-1, 0, st.raw)
       end
     end
   else
     local usr = Game.UsrEntity(0)
-    if usr then Net.CoopSend(0, 0, Coop.stateOf(usr)) end
+    if usr and not Coop.storyDriven[usr.Name] then Net.CoopSend(0, 0, Coop.stateOf(usr)) end
   end
 end
 
@@ -199,6 +200,8 @@ end
 
 -- Which bodies this machine drives from the network.
 function Coop.isPuppet(name)
+  -- A story walk (coop_story.lua): the host's AI walks the body, everyone else follows it.
+  if Coop.storyDriven and Coop.storyDriven[name] then return not Coop.isHost() end
   if name == Coop.localChar() then return false end
   if Coop.isHost() then return Coop.isRemoteOwned(name) end
   return Coop.isClient() and cfg.myId ~= nil
@@ -272,6 +275,7 @@ function Coop.onMessage(peer, data)
   if CoopWorld and CoopWorld.onMessage(peer, f, data) then return end
   if CoopClaim and CoopClaim.onMessage(peer, f) then return end
   if CoopSave and CoopSave.onMessage(peer, f) then return end
+  if CoopStory and CoopStory.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -304,7 +308,9 @@ function Coop.onMessage(peer, data)
     Coop.broadcastOwners()
   elseif kind == "claim" and Coop.isHost() then
     local name = f[2]
-    if not Coop.isRemoteOwned(name) or Coop.owners[name] == peer then
+    -- Bodies the story has taken away (coop_story.lua) cannot be claimed.
+    local unav = CoopStory and CoopStory.taken and CoopStory.taken(name)
+    if not unav and (not Coop.isRemoteOwned(name) or Coop.owners[name] == peer) then
       for n, p in pairs(Coop.owners) do
         if p == peer then Coop.owners[n] = nil end
       end
@@ -520,6 +526,13 @@ function Coop.update()
       Coop.log("claim error: " .. tostring(err))
     end
   end
+  if CoopStory and Coop.inSession() then
+    local ok, err = pcall(CoopStory.update)
+    if not ok and (Coop.storyErrors or 0) < 5 then
+      Coop.storyErrors = (Coop.storyErrors or 0) + 1
+      Coop.log("story error: " .. tostring(err))
+    end
+  end
   if CoopSession and Coop.inSession() then
     local ok, err = pcall(CoopSession.update)
     if not ok and (Coop.sessionErrors or 0) < 5 then
@@ -613,6 +626,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("claim load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_session.lua")
   if not ok then Coop.log("session load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_story.lua")
+  if not ok then Coop.log("story load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.
