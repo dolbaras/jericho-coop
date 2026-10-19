@@ -20,7 +20,9 @@ if (-not $screen) { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
 $run = Join-Path $OutDir (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force $run | Out-Null
 $luaDir = $LuaDirForward
-$boot = "COOP_DIR='$luaDir' COOP_CFG={$Cfg} dofile(COOP_DIR..'boot.lua')"
+$boot = $BootLine
+$env:JERICHO_COOP_DIR = $luaDir
+$env:JERICHO_COOP_CFG = "{$Cfg}"
 $winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
 $winH = [int][math]::Floor($winW * 9 / 16)
 $aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
@@ -35,7 +37,7 @@ $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "game.raw"; $env:JERICHO_RECORD_START = "$RecordStart"; $Shots = @() }
 $p = Start-Process -FilePath (Join-Path $Game "bin\Jericho.exe") -ArgumentList $args -WorkingDirectory $Game -PassThru
-foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_COOP_SAVEDIR") {
+foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG") {
     Remove-Item "Env:$v" -ErrorAction SilentlyContinue
 }
 try {

@@ -24,6 +24,9 @@
  *     "coop:" files live in %JERICHO_COOP_SAVEDIR% (tests) or
  *     Documents\Codemasters\Clive Barker's Jericho\Coop, apart from the game's profile.
  *     Only "coop:" files can be read or written; names are [A-Za-z0-9_.-].
+ *   Net.CoopBoot()                      -> Lua chunk that starts the mod: sets COOP_DIR (the
+ *                                                 coop folder) and COOP_CFG (%JERICHO_COOP_CFG%
+ *                                                 in test runs, else {}), runs boot.lua
  *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
  *                                                 call (at most once a second) asks the LAN again
  *
@@ -41,6 +44,7 @@
 
 #include "coop_net.h"
 #include "display_hooks.h"
+#include "boot_inject.h"
 
 /* ---- Jericho.exe Lua 5.1.1 C API (cdecl) ---- */
 typedef struct lua_State lua_State;
@@ -601,6 +605,25 @@ static int l_file(lua_State *L)
     return 1;
 }
 
+static int l_boot(lua_State *L)
+{
+    char cfg[2048], chunk[4096], dir[2 * MAX_PATH];
+    size_t k = 0;
+    DWORD n = GetEnvironmentVariableA("JERICHO_COOP_CFG", cfg, sizeof cfg);
+    if (n == 0 || n >= sizeof cfg)
+        strcpy(cfg, "{}");
+    /* The folder as a Lua string body: the default install folder has a quote in it. */
+    for (const char *p = boot_inject_dir(); *p && k + 2 < sizeof dir; p++) {
+        if (*p == '\\' || *p == '\'')
+            dir[k++] = '\\';
+        dir[k++] = *p;
+    }
+    dir[k] = 0;
+    snprintf(chunk, sizeof chunk, "COOP_DIR='%s' COOP_CFG=%s dofile(COOP_DIR..'boot.lua')", dir, cfg);
+    lua_pushstring(L, chunk);
+    return 1;
+}
+
 static int l_key(lua_State *L)
 {
     lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
@@ -633,6 +656,7 @@ static const struct {
     {"SendUsrString", "CoopAnnounce", l_announce},
     {"SendChatString", "CoopDiscover", l_discover},
     {"SendCtrlString", "CoopFile", l_file},
+    {"PingInetSvrs", "CoopBoot", l_boot},
 };
 
 int coop_net_install(void)

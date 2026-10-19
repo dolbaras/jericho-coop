@@ -3,7 +3,9 @@
 -- every level load. Coop.rearm() (called from the level tick) writes the line back, built
 -- from COOP_CFG, which is the only Lua state that survives a level change.
 --
--- InitLuaLine: COOP_DIR='<dir>/' COOP_CFG={role='host',...} dofile(COOP_DIR..'boot.lua')
+-- The command line carries assert(loadstring(Net['CoopBoot']()))(): the DLL returns
+--   COOP_DIR='<dir>/' COOP_CFG={role='host',...} dofile(COOP_DIR..'boot.lua')
+-- (native/coop_net.c). Later levels get that full line through Game.Set("InitLuaLine").
 
 function COOP_SERIALIZE(v)
   if type(v) == "table" then
@@ -25,7 +27,7 @@ function COOP_SERIALIZE(v)
 end
 
 function COOP_BOOT_LINE()
-  return "COOP_DIR='" .. COOP_DIR .. "' COOP_CFG=" .. COOP_SERIALIZE(COOP_CFG) ..
+  return "COOP_DIR=" .. COOP_SERIALIZE(COOP_DIR) .. " COOP_CFG=" .. COOP_SERIALIZE(COOP_CFG) ..
          " dofile(COOP_DIR..'boot.lua')"
 end
 

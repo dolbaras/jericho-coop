@@ -36,7 +36,9 @@ $exe = Join-Path $Game "bin\Jericho.exe"
 $log = Join-Path $run "host.log"
 $coopLog = Join-Path $run "host.coop.txt"
 $luaDir = $LuaDirForward
-$boot = "COOP_DIR='$luaDir' COOP_CFG={${HostCfg}auto=true,role='host',level='$Level',port=$Port} dofile(COOP_DIR..'boot.lua')"
+$boot = $BootLine
+$env:JERICHO_COOP_DIR = $luaDir
+$env:JERICHO_COOP_CFG = "{${HostCfg}auto=true,role='host',level='$Level',port=$Port}"
 # Large 16:9 window on the secondary monitor; on the iGPU without the owner's 8x MSAA.
 $winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
 $winH = [int][math]::Floor($winW * 9 / 16)
@@ -55,7 +57,7 @@ if ($Record) { $env:JERICHO_RECORD = Join-Path $run "host.raw"; $env:JERICHO_REC
 if ($Record -and $RecordFull) { $env:JERICHO_RECORD_FULL = "1" }
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $Game -PassThru
 Remove-Item Env:JERICHO_COOP_LOG, Env:JERICHO_STACKDUMP, Env:JERICHO_WINPOS, Env:JERICHO_BACKGROUND
-foreach ($v in "JERICHO_COOP_SAVEDIR", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_COOP_SAVEDIR", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 try {
 try { $p.PriorityClass = 'BelowNormal' } catch {}
 "run=$run host pid=$($p.Id)"

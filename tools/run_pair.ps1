@@ -43,7 +43,9 @@ $common = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeigh
 
 function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string] $adapter, [bool] $multi, [int] $recStart) {
     $log = Join-Path $run "$name.log"
-    $boot = "COOP_DIR='$luaDir' COOP_CFG={$cfg} dofile(COOP_DIR..'boot.lua')"
+    $boot = $BootLine
+    $env:JERICHO_COOP_DIR = $luaDir
+    $env:JERICHO_COOP_CFG = "{$cfg}"
     $env:JERICHO_COOP_LOG = Join-Path $run "$name.coop.txt"
     $env:JERICHO_STACKDUMP = Join-Path $run "$name.stack.txt"
     $env:JERICHO_WINPOS = $winpos
@@ -57,7 +59,7 @@ function Start-Jericho([string] $name, [string] $cfg, [string] $winpos, [string]
     # which alone took it to a few frames per second; command-line values are not saved.
     $extra = if ($adapter) { " -Antialiasing:0" } else { "" }
     $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$log`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
-    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR") {
+    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }
     try { $p.PriorityClass = 'BelowNormal' } catch {}

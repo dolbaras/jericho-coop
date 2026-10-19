@@ -40,37 +40,53 @@ static void **find_import(const char *dll, const char *func)
     return NULL;
 }
 
+/* <game>\coop\ with forward slashes, or %JERICHO_COOP_DIR% (test runs). */
+static char coop_dir[MAX_PATH];
+
+const char *boot_inject_dir(void)
+{
+    return coop_dir;
+}
+
+/* The command line holds only a short, path-free boot line: the engine's command-line
+ * parser fails on long text after a '.' (App.cpp "iExt < sizeof(Ext)"), and the default
+ * install folder "Clive Barker's Jericho" has a quote. Net.CoopBoot() (coop_net.c) returns
+ * the real boot chunk with the folder and the test config. */
+#define BOOT_LINE "assert(loadstring(Net['CoopBoot']()))()"
+
 void boot_inject_install(HINSTANCE self)
 {
+    DWORD n = GetEnvironmentVariableA("JERICHO_COOP_DIR", coop_dir, sizeof coop_dir);
+    if (n == 0 || n >= sizeof coop_dir) {
+        /* <game>\bin\dinput8.dll -> <game>/coop/ */
+        char dir[MAX_PATH];
+        coop_dir[0] = 0;
+        if (!GetModuleFileNameA(self, dir, MAX_PATH))
+            return;
+        char *slash = strrchr(dir, '\\');
+        if (!slash)
+            return;
+        *slash = 0;                       /* <game>\bin */
+        slash = strrchr(dir, '\\');
+        if (!slash)
+            return;
+        strcpy(slash, "\\coop\\");        /* <game>\coop\ */
+        snprintf(coop_dir, sizeof coop_dir, "%s", dir);
+    }
+    for (char *p = coop_dir; *p; p++)
+        if (*p == '\\')
+            *p = '/';
+
     const char *orig = GetCommandLineA();
     if (!orig || strstr(orig, "-InitLuaLine") || strstr(orig, "-initlualine"))
         return;   /* test runs and users passing their own line keep it */
-
-    /* <game>\bin\dinput8.dll -> <game>/coop/ */
-    char dir[MAX_PATH];
-    if (!GetModuleFileNameA(self, dir, MAX_PATH))
-        return;
-    char *slash = strrchr(dir, '\\');
-    if (!slash)
-        return;
-    *slash = 0;                       /* <game>\bin */
-    slash = strrchr(dir, '\\');
-    if (!slash)
-        return;
-    strcpy(slash, "\\coop\\");        /* <game>\coop\ */
-    char probe[MAX_PATH];
-    snprintf(probe, sizeof probe, "%sboot.lua", dir);
+    char probe[MAX_PATH + 16];
+    snprintf(probe, sizeof probe, "%sboot.lua", coop_dir);
     if (GetFileAttributesA(probe) == INVALID_FILE_ATTRIBUTES)
         return;                       /* mod files not installed: plain game */
-    for (char *p = dir; *p; p++)
-        if (*p == '\\')
-            *p = '/';
-    if (strchr(dir, '\'') || strchr(dir, '"'))
-        return;                       /* would break the Lua/command line quoting */
 
-    int n = snprintf(cmdline, sizeof cmdline,
-                     "%s -InitLuaLine:\"COOP_DIR='%s' COOP_CFG={} dofile(COOP_DIR..'boot.lua')\"", orig, dir);
-    if (n <= 0 || n >= (int)sizeof cmdline)
+    int len = snprintf(cmdline, sizeof cmdline, "%s -InitLuaLine:\"" BOOT_LINE "\"", orig);
+    if (len <= 0 || len >= (int)sizeof cmdline)
         return;
     void **slot = find_import("KERNEL32.dll", "GetCommandLineA");
     DWORD old;
@@ -78,6 +94,6 @@ void boot_inject_install(HINSTANCE self)
         real_GetCommandLineA = (LPSTR (WINAPI *)(void))*slot;
         *slot = (void *)hook_GetCommandLineA;
         VirtualProtect(slot, sizeof *slot, old, &old);
-        coop_log("boot: mod at %s", dir);
+        coop_log("boot: mod at %s", coop_dir);
     }
 }
