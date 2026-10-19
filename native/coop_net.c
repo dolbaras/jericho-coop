@@ -133,18 +133,22 @@ static struct { enet_uint32 ip; char text[256]; double seen; } found[MAX_FOUND];
 static int query_pending;
 static HANDLE thread;
 static char log_path[MAX_PATH];
-static volatile LONG log_ready;
+static int log_resolved;
+static volatile LONG log_allowed;          /* set on the first Lua call (l_boot) */
+static CRITICAL_SECTION log_lock;
+static int log_lock_ok;
+static char log_early[8192];               /* lines before the path is known */
+static size_t log_early_len;
 static int coop_save_path(const char *name, char *out, size_t size);
 
 /* %JERICHO_COOP_LOG% (tests), else coop.log in the co-op save folder, the previous session's
- * kept as coop.prev.log. Resolved on the first line, not in DllMain (no shell calls under the
- * loader lock). */
-static void log_open(void)
+ * kept as coop.prev.log. The folder is looked up only once the game runs Lua (l_boot), never
+ * in DllMain: no shell calls under the loader lock. Called with log_lock held. */
+static void log_resolve(void)
 {
-    if (InterlockedExchange(&log_ready, 1))
+    if (log_path[0] || log_resolved || !log_allowed)
         return;
-    if (log_path[0])
-        return;
+    log_resolved = 1;
     char p[MAX_PATH], prev[MAX_PATH];
     if (!coop_save_path("coop:coop.log", p, sizeof p) || !coop_save_path("coop:coop.prev.log", prev, sizeof prev))
         return;
@@ -154,21 +158,38 @@ static void log_open(void)
 
 void coop_log(const char *fmt, ...)
 {
-    log_open();
-    if (!log_path[0])
-        return;
-    FILE *f = fopen(log_path, "a");
-    if (!f)
-        return;
+    char line[2048];
     SYSTEMTIME t;
     GetLocalTime(&t);
-    fprintf(f, "%02d:%02d:%02d.%03d ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    int n = snprintf(line, sizeof line, "%02d:%02d:%02d.%03d ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(f, fmt, ap);
+    int m = vsnprintf(line + n, sizeof line - n - 1, fmt, ap);
     va_end(ap);
-    fputc('\n', f);
-    fclose(f);
+    n += m < 0 ? 0 : (m >= (int)(sizeof line - n - 1) ? (int)(sizeof line - n - 2) : m);
+    line[n++] = '\n';
+    line[n] = 0;
+    if (!log_lock_ok)
+        return;
+    EnterCriticalSection(&log_lock);
+    log_resolve();
+    if (!log_path[0]) {
+        if (!log_resolved && log_early_len + n < sizeof log_early) {
+            memcpy(log_early + log_early_len, line, n);
+            log_early_len += n;
+        }
+    } else {
+        FILE *f = fopen(log_path, "a");
+        if (f) {
+            if (log_early_len) {
+                fwrite(log_early, 1, log_early_len, f);
+                log_early_len = 0;
+            }
+            fwrite(line, 1, n, f);
+            fclose(f);
+        }
+    }
+    LeaveCriticalSection(&log_lock);
 }
 
 static int peer_id(ENetPeer *p)
@@ -628,6 +649,7 @@ static int l_boot(lua_State *L)
 {
     /* static: the test config (story step chains) can be several kilobytes */
     static char cfg[16384], chunk[20480];
+    InterlockedExchange(&log_allowed, 1);   /* out of DllMain now: the log folder may be looked up */
     char dir[2 * MAX_PATH];
     size_t k = 0;
     DWORD n = GetEnvironmentVariableA("JERICHO_COOP_CFG", cfg, sizeof cfg);
@@ -685,6 +707,8 @@ int coop_net_install(void)
     luaL_Reg *reg = (luaL_Reg *)NET_REG_TABLE;
     DWORD old;
     int done = 0;
+    InitializeCriticalSection(&log_lock);
+    log_lock_ok = 1;
     GetEnvironmentVariableA("JERICHO_COOP_LOG", log_path, MAX_PATH);
     if (!VirtualProtect(reg, sizeof(luaL_Reg) * NET_REG_COUNT, PAGE_READWRITE, &old))
         return 0;

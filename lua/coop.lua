@@ -356,7 +356,19 @@ function Coop.onLeave(peer)
       if e then Coop.releasePuppet(e) end
     end
   end
-  if Coop.isHost() then Coop.broadcastOwners() end
+  if Coop.isHost() then
+    Coop.broadcastOwners()
+    -- A player who left is no longer expected at the next level start (CoopEnemies gate).
+    if cfg.seats then
+      local seats = {}
+      for item in string.gmatch(cfg.seats, "[^;]+") do
+        if not string.find(item, "^" .. peer .. ":") then seats[#seats + 1] = item end
+      end
+      cfg.seats = table.concat(seats, ";")
+      Net.CoopSend(-1, 1, "seats|" .. cfg.seats)
+      Coop.rearm()
+    end
+  end
   if CoopSession then CoopSession.onLeave(peer) end
 end
 

@@ -560,6 +560,7 @@ function S.install()
   Scene.EndOfScene = function(...)
     S.stop(true)
     S.unlinkModCams()
+    S.releaseIdleCtrl()   -- before the scene's end callback may lock or walk the body itself
     return orig(...)
   end
   -- A scene starts from the game's own camera: the spirit leaves first.
@@ -950,8 +951,17 @@ function S.endIdle(a)
   local e, body = Game.GetEntity(a.entity), Game.GetEntity(a.char)
   if e and not (S.pov and a.entity == S.pov.actor) then e.bObjectVisible = true end
   if body and not (S.extras and S.extras.watchers[a.char]) then body.Active = 0 end
-  if body and a.ignoreCtrl then body.IgnoreUsrControl = a.ignoreCtrl end
+  if body and a.ignoreCtrl and body.IgnoreUsrControl == 1 then body.IgnoreUsrControl = a.ignoreCtrl end
   a.idle, a.ignoreCtrl = false, nil
+end
+
+-- Our own idling body gets the keys back (only if the lock is still ours).
+function S.releaseIdleCtrl()
+  for _, a in pairs((S.extras and S.extras.actors) or {}) do
+    local body = a.ignoreCtrl and Game.GetEntity(a.char)
+    if body and body.IgnoreUsrControl == 1 then body.IgnoreUsrControl = a.ignoreCtrl end
+    a.ignoreCtrl = nil
+  end
 end
 
 function S.updateExtras(dt)
@@ -1003,7 +1013,7 @@ function S.stopExtras()
   for _, a in pairs(x.actors) do
     if a.idle then touched[a.char] = true end
     local body = a.ignoreCtrl and Game.GetEntity(a.char)
-    if body then body.IgnoreUsrControl = a.ignoreCtrl end
+    if body and body.IgnoreUsrControl == 1 then body.IgnoreUsrControl = a.ignoreCtrl end
   end
   for name in pairs(touched) do
     local e = Game.GetEntity(name)

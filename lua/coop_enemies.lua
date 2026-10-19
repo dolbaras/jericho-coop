@@ -220,6 +220,25 @@ local function cutInterpolation(camint)
   Scene.SkipRenderDo()
 end
 
+-- Some first-person scenes get their own end callback from the level (BehemothDead,
+-- NaziSacrificeA...), so Scene.EndOfFpScene never runs for them: when nothing plays any
+-- more, finish what it would have (body back in place, caption off).
+function E.finishFpLeftover()
+  if Scene.IsPlaying then return end
+  local keep = E.fpRestore
+  E.fpRestore, E.fpLabel, E.fpLabelPlay, E.fpBlackT = nil, nil, nil, nil
+  if not keep then return end
+  local body = Game.GetEntity(keep.name)
+  if body then
+    local d = keep.pos and body.Pos - keep.pos
+    local moved = d and d.x * d.x + d.y * d.y + d.z * d.z > 2500
+    body.Pos, body.Ang = keep.pos, keep.ang
+    body.IgnoreUsrControl = 0
+    if moved then E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.6) end
+  end
+  Coop.log("fp scene over (level's own end): " .. keep.name .. " back in place")
+end
+
 -- A scene played straight through a character's eyes (Scene.Play with CameraFrom FP_<X>:
 -- the torture, a speech chained after another scene) moves nobody, but is still seen
 -- through someone else's eyes: the same caption, until the scene ends.
@@ -324,28 +343,37 @@ function E.holdCurtain(on)
     E.curtain = {t0 = Game.GetTime()}
     Scorer.Clear(0)   -- a HUD built before the mod started would show on the black
     E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1)
-    local usr = Game.UsrEntity(0)
-    if usr then
-      E.curtain.name, E.curtain.ctrl = usr.Name, usr.IgnoreUsrControl or 0
-      usr.IgnoreUsrControl = 1
-    end
+    E.curtain.locked = {}
+    E.lockCurtainBody()
     Coop.log("curtain: black")
     return
   end
   local c = E.curtain
   if not c then return end
   E.curtain = nil
-  local body = c.name and Game.GetEntity(c.name)
-  if body then body.IgnoreUsrControl = c.ctrl end
+  for name, was in pairs(c.locked or {}) do
+    local body = Game.GetEntity(name)
+    if body and body.IgnoreUsrControl == 1 then body.IgnoreUsrControl = was end
+  end
   Scorer.Clear(0)
   local show = E.origShowScorer or (Menu and Menu.ShowScorer)
   if show then pcall(show) end
   E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.5)
 end
 
+-- The body held now (the switch to the lobby seat may come while the screen is black).
+function E.lockCurtainBody()
+  local c, usr = E.curtain, Game.UsrEntity(0)
+  if c and usr and c.locked[usr.Name] == nil then
+    c.locked[usr.Name] = usr.IgnoreUsrControl or 0
+    usr.IgnoreUsrControl = 1
+  end
+end
+
 function E.updateCurtain()
   local c = E.curtain
   if not c then return end
+  E.lockCurtainBody()
   -- The level-start curtain (no scene held) lifts once everyone has loaded.
   if c.gate and not E.heldScenes and E.gateOpen() then E.holdCurtain(false) return end
   -- Every frame: the level's own fade-in and HUD come up meanwhile (a scene clears the HUD
@@ -377,14 +405,15 @@ function E.updateSceneLabel()
   end
   local it = Scorer.GetItem(0, "CoopEyes")
   if E.fpLabel and (Scene.IsPlaying or E.fpBlackT) then
-    if not it then
+    local fresh = not it   -- a HUD clear (scene start, ShowScorer) deletes it
+    if fresh then
       it = Scorer.NewItem(0, "CoopEyes", "Text")
       it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
       it.Effect = "Shadow"
       it.Pos = V2D(320, 40)
     end
-    if E.fpLabelShown ~= E.fpLabel then
-      E.fpLabelShown, E.fpLabelT0 = E.fpLabel, Game.GetTime()
+    if E.fpLabelShown ~= E.fpLabel or fresh then
+      if E.fpLabelShown ~= E.fpLabel then E.fpLabelShown, E.fpLabelT0 = E.fpLabel, Game.GetTime() end
       local lang = E.lang()
       local name = Game.GetLangStr(E.fpLabel)
       if not name or name == "" then name = E.fpLabel end
@@ -477,6 +506,7 @@ function E.gateOpen()
   if E.gateOpened then return true end
   local ready = 0
   for _ in pairs(E.readyPeers) do ready = ready + 1 end
+  -- A player who left is out of cfg.seats (Coop.onLeave), so expectedAll no longer counts them.
   if ready >= E.expectedPeers() or Net.CoopTime() > (E.gateUntil or 0) then
     E.gateOpened = true
     Coop.log(string.format("scene gate open: %d of %d players loaded", ready, E.expectedPeers()))
@@ -510,6 +540,7 @@ function E.installSceneHost()
     if E.fpLabelPlay then E.fpLabel, E.fpLabelPlay = nil, nil end   -- a chained scene sets its own
     local ok, a, b = pcall(origEnd, ...)
     E.inEndOfScene = false
+    E.finishFpLeftover()
     if not ok then Coop.log("EndOfScene error: " .. tostring(a)) end
     return a, b
   end
@@ -601,6 +632,7 @@ function E.installSceneClient()
     if E.fpLabelPlay then E.fpLabel, E.fpLabelPlay = nil, nil end   -- a chained scene sets its own
     local ok, a, b = pcall(origEnd, ...)
     E.inEndOfScene = false
+    E.finishFpLeftover()
     if not ok then Coop.log("EndOfScene error: " .. tostring(a)) end
     return a, b
   end
@@ -609,7 +641,11 @@ function E.installSceneClient()
     E["scene_" .. fname] = orig
     Scene[fname] = function(class, ...)
       if E.dropScene and E.dropScene(class) then return false end
-      if Coop.fromHost or E.inEndOfScene or E.inReplay then
+      -- A first-person scene the host started goes on by itself: the game walks the body to
+      -- the scene's camera and calls Scene.Play from a scheduled function later.
+      local chain = E.fpChain
+      local continues = chain and chain.class == class and Net.CoopTime() - chain.t < E.FP_CHAIN_TIME
+      if Coop.fromHost or E.inEndOfScene or E.inReplay or continues then
         if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
         return orig(class, ...)
       end
@@ -628,6 +664,8 @@ function E.installSceneClient()
   end
 end
 
+E.FP_CHAIN_TIME = 15   -- the walk to the scene's camera takes a second or two
+
 function E.onScene(mode, class)
   E.votedScene = nil   -- a new scene (or a replay) can be voted on again
   E.stats.scenes = (E.stats.scenes or 0) + 1
@@ -637,6 +675,7 @@ function E.onScene(mode, class)
     return
   end
   local fname = E.SCENE_FUNCS[mode]
+  if mode ~= "play" then E.fpChain = {class = class, t = Net.CoopTime()} end
   if fname and Scene[fname] then fromHost(Scene[fname], class) end
 end
 
