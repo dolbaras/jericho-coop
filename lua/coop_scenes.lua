@@ -704,6 +704,10 @@ end
 -- yet): no body there.
 S.NO_BODY = {Apertura = true, Escalada = true, AperturaPuerta = true, DescensoA = true, DescensoB = true}
 
+-- Retargeted files the engine hangs on while loading (found by skipping actions one by one;
+-- the file passes every format check): the body has no such action.
+S.BODY_SKIP = {["RawlingsTorture.PlayI"] = true}
+
 function S.ensureBody(class)
   if S.NO_BODY[class] then return end
   -- Without the retargeted animations (Pack1.packed, built by install.ps1) there is no body:
@@ -725,6 +729,7 @@ function S.ensureBody(class)
     local a = fpc:GetAct(name)
     local skip = Coop.cfg.bodyskip   -- dev experiment knob: {"PlayH", ...} not given to the body
     if skip then for _, s in ipairs(skip) do if s == name then a = nil end end end
+    if S.BODY_SKIP[class .. "." .. name] then a = nil end
     if a then
       -- The FP file drives the first-person rig; Pack1.packed (tools/cm3_retarget.py, built by
       -- install.ps1 from the player's own game files) holds the same motion retargeted to the

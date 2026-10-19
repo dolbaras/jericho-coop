@@ -1,10 +1,12 @@
-# Install the co-op mod into a game folder: <game>\bin\dinput8.dll, <game>\coop\*.lua and
-# <game>\Pack1.packed (first-person scene animations retargeted to the full character
-# models, built here from the game's own Data*.packed by tools\cm3_retarget.py; needs
-# Python 3). Backs up an existing dinput8.dll that is not ours.
-# Usage: install.ps1 -Game <game dir> [-RebuildAnims] [-SkipAnims]
+# Install the co-op mod into a game folder: <game>\bin\dinput8.dll and <game>\coop\*.lua.
+# Backs up an existing dinput8.dll that is not ours.
+# -Anims also builds <game>\Pack1.packed (first-person scene animations retargeted to the
+# full character models, from the game's own Data*.packed by tools\cm3_retarget.py; needs
+# Python 3). Only the experimental own-character cutscene view (povall=true) uses it.
+# Usage: install.ps1 -Game <game dir> [-Anims] [-RebuildAnims]
 param(
     [Parameter(Mandatory)] [string] $Game,
+    [switch] $Anims,
     [switch] $RebuildAnims,
     [switch] $SkipAnims
 )
@@ -22,10 +24,10 @@ $coop = Join-Path $Game "coop"
 New-Item -ItemType Directory -Force $coop | Out-Null
 Copy-Item (Join-Path $root "lua\*.lua") $coop -Force
 
-# Scene animations. Without Pack1.packed the mod still works; other players' bodies in
-# first-person scenes then show the raw first-person poses.
+# Scene animations for the own-character cutscene view (experiment; the default view is
+# the original scene camera and needs none).
 $pack = Join-Path $Game "Pack1.packed"
-if (-not $SkipAnims -and ($RebuildAnims -or -not (Test-Path $pack))) {
+if (-not $SkipAnims -and ($RebuildAnims -or ($Anims -and -not (Test-Path $pack)))) {
     if ((Test-Path $pack) -and -not (Select-String -Path $pack -Pattern "coopbody_" -SimpleMatch -Quiet)) {
         Write-Warning "$pack exists and is not the co-op animation pack: left alone (scene bodies use raw poses)"
     } else {

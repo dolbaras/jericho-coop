@@ -25,11 +25,14 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 - A downed player moves to a free squad member; Rawlings' revive works for all players.
 - Cole's and Black's slow motion slows the world for everyone; human players keep their
   normal speed, as the power's owner does in the original.
-- First-person cutscenes: each player watches from their own character's head, looking at
-  what the original scene camera looks at; where that view is blocked (a pillar, a crate,
-  the head out of the scene's sight) the player sees the original scene camera. The
-  first-person character is shown to the others with its full body, playing the scene's
-  own motion (retargeted animations).
+- First-person cutscenes: every player sees the original scene camera, through the eyes of
+  the scene's character, with a short caption naming that character. Watching from each
+  player's own character was tried (head camera, full-body copy of the first-person
+  character with its retargeted scene motion) and checked scene by scene from two seats:
+  without collision in the scene sets and with speakers turned to the scene's owner, it
+  never framed a scene as well as the original, so it stays an experiment (`povall=true`).
+- An AI character that does a first-person traversal (climb, descent, door) ends up where
+  the scene ends, as the player's character does in the original.
 - QTEs: only the player holding the scene's character sees and plays them; the branch they
   take (success, fail, retry) is the same on every machine.
 - Cutscene skip is unanimous: every player presses Esc ("Skip scene: 1 of 2 players").
@@ -71,8 +74,8 @@ player (`docs/usrentity-audit.md`) as playtesting finds them.
     ready, chapter); Russian/English from the game's language
   - `coop_enemies.lua`: host-authoritative enemies, damage, story triggers, scenes, levels
   - `coop_team.lua`: downed players, Rawlings revives, game over, shared slow motion
-  - `coop_scenes.lua`: cutscenes from each player's own character, QTE routing, full-body
-    stand-ins for first-person characters
+  - `coop_scenes.lua`: cutscenes (original camera for everyone; own-character view as an
+    experiment), QTE routing
   - `coop_world.lua`: map callbacks (doors, levers, story steps) replicated to clients
   - `coop_claim.lua`: character-only actions offered to the players, AI fallback
   - `coop_spirit.lua`: spirit role for players without a body
@@ -93,7 +96,9 @@ powershell tools/install.ps1 -Game <game dir>
 
 `install.ps1` copies `dinput8.dll` to `<game dir>\bin` (backing up a foreign one) and the
 Lua files to `<game dir>\coop\`. Then start the game normally: the main menu has a
-"Co-op" entry.
+"Co-op" entry. `-Anims` also builds `Pack1.packed` from the game's own archives (needs
+Python 3): retargeted scene animations, used only by the experimental own-character
+cutscene view.
 
 ## Tests
 

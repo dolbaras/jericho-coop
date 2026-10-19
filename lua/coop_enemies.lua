@@ -228,6 +228,8 @@ function E.installFpRestore()
         body.Ang = keep.ang
         body.IgnoreUsrControl = 0
       end
+      -- The view jumps from the scene's end back to the own body: from black, not a cut.
+      if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.6) end
       Coop.log("fp scene over: " .. keep.name .. " back in place")
     end
     if not r[1] then Coop.log("EndOfFpScene error: " .. tostring(r[2])) end
