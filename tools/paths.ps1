@@ -15,4 +15,13 @@ New-Item -ItemType Directory -Force $SaveRoot | Out-Null
 # real one from JERICHO_COOP_DIR and JERICHO_COOP_CFG (the engine's command-line parser fails
 # on long text after a '.').
 $BootLine = "assert(loadstring(Net['CoopBoot']()))()"
+# A game window that fills a screen's working area (owner's wish: windowed, maximized),
+# its client size leaving room for the title bar and borders. Returns w, h, "x,y".
+function Get-FullWindow($screen) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $wa = $screen.WorkingArea
+    $bw = [System.Windows.Forms.SystemInformation]::FrameBorderSize.Width * 2
+    $cap = [System.Windows.Forms.SystemInformation]::CaptionHeight
+    return @(($wa.Width - $bw), ($wa.Height - $cap - $bw), "$($wa.X),$($wa.Y)")
+}
 $FfmpegBin = Join-Path $ToolsRoot "ffmpeg\ffmpeg-master-latest-win64-gpl\bin"

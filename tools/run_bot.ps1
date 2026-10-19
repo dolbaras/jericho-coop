@@ -39,9 +39,8 @@ $luaDir = $LuaDirForward
 $boot = $BootLine
 $env:JERICHO_COOP_DIR = $luaDir
 $env:JERICHO_COOP_CFG = "{${HostCfg}auto=true,role='host',level='$Level',port=$Port}"
-# Large 16:9 window on the secondary monitor; on the iGPU without the owner's 8x MSAA.
-$winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
-$winH = [int][math]::Floor($winW * 9 / 16)
+# Window filling the secondary monitor (windowed, maximized); on the iGPU without the owner's 8x MSAA.
+$winW, $winH, $winPos = Get-FullWindow $screen
 $aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 $ExtraArgs " +
@@ -49,7 +48,7 @@ $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:
 
 $env:JERICHO_COOP_LOG = $coopLog
 $env:JERICHO_STACKDUMP = Join-Path $run "host.stack.txt"
-$env:JERICHO_WINPOS = "$($screen.WorkingArea.X + 20),$($screen.WorkingArea.Y + 20)"
+$env:JERICHO_WINPOS = $winPos
 $env:JERICHO_BACKGROUND = "1"   # keep running unfocused, without reading the user's input
 $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "host"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }

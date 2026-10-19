@@ -23,15 +23,14 @@ $luaDir = $LuaDirForward
 $boot = $BootLine
 $env:JERICHO_COOP_DIR = $luaDir
 $env:JERICHO_COOP_CFG = "{$Cfg}"
-$winW = [int][math]::Min(1280, $screen.WorkingArea.Width - 60)
-$winH = [int][math]::Floor($winW * 9 / 16)
+$winW, $winH, $winPos = Get-FullWindow $screen
 $aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
         "-OutDebugFile:`"$(Join-Path $run 'game.log')`" -InitLuaLine:`"$boot`""
 $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt"
 $env:JERICHO_STACKDUMP = Join-Path $run "stack.txt"
-$env:JERICHO_WINPOS = "$($screen.WorkingArea.X + 20),$($screen.WorkingArea.Y + 20)"
+$env:JERICHO_WINPOS = $winPos
 $env:JERICHO_BACKGROUND = "1"
 $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
