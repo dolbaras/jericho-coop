@@ -8,7 +8,8 @@ param(
     [int] $Seconds = 30,
     [string] $Adapter = "window",       # "window" = the secondary monitor's GPU (the iGPU); "" = default GPU
     [switch] $Record,                  # in-game video capture (native/capture.c), no screenshots
-    [int] $RecordStart = 0
+    [int] $RecordStart = 0,
+    [switch] $DefaultLog               # no JERICHO_COOP_LOG: the mod logs to <save dir>\coop.log as for players
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -28,7 +29,7 @@ $aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the own
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
         "-OutDebugFile:`"$(Join-Path $run 'game.log')`" -InitLuaLine:`"$boot`""
-$env:JERICHO_COOP_LOG = Join-Path $run "coop.txt"
+if (-not $DefaultLog) { $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt" }
 $env:JERICHO_STACKDUMP = Join-Path $run "stack.txt"
 $env:JERICHO_WINPOS = $winPos
 $env:JERICHO_WINSIZE = "$winW,$winH"

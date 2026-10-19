@@ -2,3 +2,4 @@
 native/build/
 *.pdb
 __pycache__/
+dist/

@@ -133,9 +133,28 @@ static struct { enet_uint32 ip; char text[256]; double seen; } found[MAX_FOUND];
 static int query_pending;
 static HANDLE thread;
 static char log_path[MAX_PATH];
+static volatile LONG log_ready;
+static int coop_save_path(const char *name, char *out, size_t size);
+
+/* %JERICHO_COOP_LOG% (tests), else coop.log in the co-op save folder, the previous session's
+ * kept as coop.prev.log. Resolved on the first line, not in DllMain (no shell calls under the
+ * loader lock). */
+static void log_open(void)
+{
+    if (InterlockedExchange(&log_ready, 1))
+        return;
+    if (log_path[0])
+        return;
+    char p[MAX_PATH], prev[MAX_PATH];
+    if (!coop_save_path("coop:coop.log", p, sizeof p) || !coop_save_path("coop:coop.prev.log", prev, sizeof prev))
+        return;
+    MoveFileExA(p, prev, MOVEFILE_REPLACE_EXISTING);
+    strcpy(log_path, p);
+}
 
 void coop_log(const char *fmt, ...)
 {
+    log_open();
     if (!log_path[0])
         return;
     FILE *f = fopen(log_path, "a");
