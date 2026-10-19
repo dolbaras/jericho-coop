@@ -118,7 +118,18 @@ function St.onMessage(peer, f)
   Coop.storyDriven[name] = on or nil
   if name == Coop.localChar() then
     local usr = Game.UsrEntity(0)
-    if usr then usr.IgnoreUsrControl = on and 1 or 0 end
+    if usr then
+      usr.IgnoreUsrControl = on and 1 or 0
+      -- The player cannot fight back while the story walks their body (vanilla walks happen
+      -- between fights, but leftovers or a fast player can still be around).
+      if on then
+        St.walkInvul = St.walkInvul or usr.Invulnerable or 0
+        usr.Invulnerable = 1
+      elseif St.walkInvul then
+        usr.Invulnerable = St.walkInvul
+        St.walkInvul = nil
+      end
+    end
     Coop.log("story: my body " .. (on and "walked by the host" or "back to me"))
   end
   return true
