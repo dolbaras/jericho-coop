@@ -406,17 +406,36 @@ S.CLEAR_IN = 2.0
 S.BLOCK_MARGIN = 120      -- a wall this close to the target is the target itself
 S.BODY_CLEAR = 40         -- an eye this close to another actor's head is inside them
 S.BLOCK_EVERY = 6         -- frames between checks
+S.BODY_IN_WAY = 28        -- a head or chest this close to the line of sight blocks it
+S.BODY_PROBES = {0, 45}   -- below the head node: the head, the chest
 
 function S.viewBlocked(p, eye, target)
   local hit = Game.TestLine(eye, target, "")
   if hit and len(hit - eye) < len(target - eye) - S.BLOCK_MARGIN then return "wall" end
   hit = Game.TestLine(p, eye, "")
   if hit and len(hit - p) < len(eye - p) - 30 then return "hidden" end
+  -- World rays pass through characters: a body between the eye and the target (a back in
+  -- front of the face, scene audit 14 and 36) is found from the actors' heads and chests.
   local list = Scene.Actors and Scene.Actors[S.pov.class]
+  local ray = target - eye
+  local rl = len(ray)
   for _, info in pairs(list or {}) do
     if info[2] ~= S.pov.actor then
       local hp = S.actorHead(info)
-      if hp and len(hp - eye) < S.BODY_CLEAR then return "body" end
+      if hp then
+        if len(hp - eye) < S.BODY_CLEAR then return "body" end
+        if rl > 1 then
+          for _, drop in ipairs(S.BODY_PROBES) do
+            local q = hp - V3D(0, drop, 0)
+            local v = q - eye
+            local t = (v.x * ray.x + v.y * ray.y + v.z * ray.z) / (rl * rl)
+            if t > 0.05 and t < 0.85 then
+              local c = eye + V3D(ray.x * t, ray.y * t, ray.z * t)
+              if len(q - c) < S.BODY_IN_WAY then return "body" end
+            end
+          end
+        end
+      end
     end
   end
   return false
