@@ -956,7 +956,7 @@ function Sp.G4startSoul()
   local pts = {g.START}
   for _, p in ipairs(g.STATIONS) do pts[#pts + 1] = p end
   pts[#pts + 1] = g.BODY
-  CoopSpirit.startSoul({points = pts, radius = 1300, hint = Sp.G4hint})
+  CoopSpirit.startSoul({points = pts, radius = 700, hint = Sp.G4hint})
   Coop.log("split G4: Rawlings' soul on the Path of Souls")
 end
 

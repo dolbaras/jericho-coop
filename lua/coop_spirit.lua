@@ -126,12 +126,25 @@ local function forward()
   return V3D(-math.sin(y) * math.cos(e), math.sin(e), -math.cos(y) * math.cos(e))
 end
 
--- Anchors the spirit stays near: the squad, or a soul's path points (as fake entities).
+-- Anchors the spirit stays near: the squad, or the closest point of a soul's path (the
+-- polyline through its points, so the stretches between stations can be flown too).
 function P.anchors()
   if not P.soul then return P.squad() end
-  local list = {}
-  for _, p in ipairs(P.soul.points) do list[#list + 1] = {Pos = p} end
-  return list
+  local pts, best, bd = P.soul.points, nil, nil
+  for i = 1, #pts - 1 do
+    local a, b = pts[i], pts[i + 1]
+    local ab = b - a
+    local l2 = ab.x * ab.x + ab.z * ab.z
+    local t = 0
+    if l2 > 0 then
+      t = ((P.pos.x - a.x) * ab.x + (P.pos.z - a.z) * ab.z) / l2
+      t = math.max(0, math.min(1, t))
+    end
+    local q = V3D(a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t)
+    local d = (P.pos.x - q.x) ^ 2 + (P.pos.z - q.z) ^ 2
+    if not bd or d < bd then best, bd = q, d end
+  end
+  return {{Pos = best or pts[1]}}
 end
 
 function P.startSoul(def)
@@ -260,7 +273,7 @@ function P.frame(dt)
     -- Stay where the squad can be seen: open courtyards and single-sided walls would
     -- otherwise let the spirit leave the playable space.
     local head = e.Pos + V3D(0, 150, 0)
-    if Game.TestLine(P.pos, head, "") then
+    if not P.soul and Game.TestLine(P.pos, head, "") then
       P.lostSince = P.lostSince or Net.CoopTime()
       if Net.CoopTime() - P.lostSince > P.LOST_TIME and P.lastSeen then
         P.pos = P.lastSeen

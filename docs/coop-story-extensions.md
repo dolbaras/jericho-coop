@@ -34,7 +34,7 @@ Corrections they make to the table below:
 | G1 leg C | alk_city: Alpha holds its pocket until Omega breaks through | written |
 | G1 legs A, B | alk_tomb plateau, bunker_00 east tunnel | not started (need in-game checks of the routes) |
 | G3 | alk_bunker_01: the human Cole hacks the console herself | written |
-| G4 | wwii_pillboxes: Stations of the Path (soul walk, revive gate) | written, tested on the test PC |
+| G4 | wwii_pillboxes: Stations of the Path (soul walk, revive gate) | soul walk tested on the test PC; the revive by another player not yet |
 | G6 | wwii_brandenburg: Cole and Rawlings active on the gate top | written (captive "hold" mechanic not yet) |
 | G8 | cru_sewers: Hold the gate (three re-armed waves) | tested on the test PC |
 | G10 | rom_caldarium: The Torturers' Hall | written |
