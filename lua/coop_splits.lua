@@ -9,6 +9,8 @@
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
 --   G6 wwii_brandenburg "The gate top": Cole and Rawlings players stay active on the gate top
 --      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
+--   G1 (leg C) alk_city "Pinned at the north-east dig": Alpha's players keep their bodies in
+--      their sealed pocket and hold it until Omega breaks through.
 --   G3 alk_bunker_01 "Temporal restoration": a human Cole is the hacker; the restoration
 --      advances while she stays at the console, the others defend her.
 --   G15 sum_end "Break the blood link": players bound by the First Born's rune struggle free
@@ -40,6 +42,10 @@ Sp.TEXT = {
     struggle = "The blood link holds you. Hold E to break free (%d%%)",
     hack = "Cole restores the files: %d%%. Defend her!",
     hack_away = "Restoration paused at %d%%: Cole must be at the console.",
+    pinned1 = "Alpha is cut off in the dig. Hold out until Omega gets through.",
+    pinned2 = "More cultists from the dig!",
+    pinned3 = "They keep coming. Omega is fighting its way to you.",
+    omega_near = "Omega is close: you can hear their guns.",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -56,6 +62,10 @@ Sp.TEXT = {
     struggle = "Кровавая связь держит вас. Удерживайте E, чтобы вырваться (%d%%)",
     hack = "Коул восстанавливает файлы: %d%%. Защищайте её!",
     hack_away = "Восстановление стоит на %d%%: Коул должна быть у консоли.",
+    pinned1 = "Альфа отрезана на раскопе. Держитесь, пока Омега не пробьётся.",
+    pinned2 = "Из раскопа лезут ещё культисты!",
+    pinned3 = "Они не кончаются. Омега уже прорывается к вам.",
+    omega_near = "Омега близко: слышна их стрельба.",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -767,10 +777,128 @@ function Sp.installG3(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- A new enemy list for the mod's waves (every vanilla list of some levels counts its
+-- deaths for story flags). Created on every machine: clients mirror spawns into it.
+------------------------------------------------------------------------------
+
+function Sp.newList(name)
+  if not NPC or not NPC.Groups or NPC.Groups[name] then return NPC and NPC.Groups and NPC.Groups[name] ~= nil end
+  local ok, err = pcall(function()
+    local els = Game.CreateEntityList(name)
+    els.uData.isGenerator = false
+    NPC.Groups[name] = {}
+    NPC.Groups[name].uData = els.uData
+    AIEnemiesTeam.Create({[name] = {}}, name)
+  end)
+  Coop.log("split: enemy list " .. name .. (ok and " created" or (" failed: " .. tostring(err))))
+  return ok
+end
+
+function Sp.spawnWave(list, class, points, n, anim)
+  local spawned = {}
+  for k = 1, n do
+    local p = points[(k - 1) % #points + 1]
+    local off = math.floor((k - 1) / #points) * 60
+    local ok, e = pcall(NPC.CreateWithAI, class, p.x + off, p.y, p.z + off, list, 1)
+    if ok and e then
+      e.bActive = true
+      e.ForceAction = anim or "Emerge"
+      spawned[#spawned + 1] = e.Name
+    else
+      Coop.log("split: spawn " .. class .. " into " .. list .. " failed: " .. tostring(e))
+    end
+  end
+  return spawned
+end
+
+------------------------------------------------------------------------------
+-- G1 leg C alk_city: "Pinned at the north-east dig" (docs/story/act1-splits.md G1)
+-- Vanilla hides Alpha (Jones, Cole, Delgado) at the start and shows them at the reunion.
+-- Alpha's players keep their bodies in their sealed pocket and hold it against cultists
+-- crawling out of the dig, harder as Omega gets closer, until Omega breaks through.
+------------------------------------------------------------------------------
+
+Sp.G1C = {alpha = {Delgado = true, Jones = true, Cole = true}, list = {"Delgado", "Jones", "Cole"},
+          LIST = "CoopAlphaCity",
+          PITS = {V3D(582, 1, -11113), V3D(481, 88, -8080), V3D(-160, 5, -10704), V3D(-718, 104, -10786)}}
+
+function Sp.G1Cwave(n)
+  local g = Sp.G1C
+  local alpha = Sp.humansIn(g.alpha)
+  if alpha == 0 or g.done or (g.phase or 0) >= n then return end
+  g.phase = n
+  Coop.log("split G1C: wave " .. n .. ", " .. alpha .. " Alpha player(s)")
+  if n == 1 then
+    Sp.spawnWave(g.LIST, "CultistaMelee", g.PITS, 1 + alpha)
+    Sp.notice("pinned1", g.list)
+    Sp.radio("Jones", "Help_Alpha")
+  elseif n == 2 then
+    Sp.spawnWave(g.LIST, "CultistaMelee", g.PITS, 2 + alpha)
+    Sp.notice("pinned2", g.list)
+    Sp.radio("Cole", "Enemy_Ambush")
+  elseif n == 3 then
+    Sp.spawnWave(g.LIST, "CultistaMelee", g.PITS, 2 + alpha)
+    Sp.spawnWave(g.LIST, "CultistaExplosivo", g.PITS, 1)
+    Sp.notice("pinned3", g.list)
+    Sp.radio("Delgado", "Forboding_Sound")
+  end
+end
+
+function Sp.installG1C(isHost)
+  Sp.newList(Sp.G1C.LIST)
+  if MapInit.DisableAlpha and not Sp.hooked["G1Cdisable"] then
+    Sp.hooked["G1Cdisable"] = true
+    local orig = MapInit.DisableAlpha
+    MapInit.DisableAlpha = function(...)
+      if not Coop.inSession() or Sp.humansIn(Sp.G1C.alpha) == 0 then return orig(...) end
+      -- Only AI-held Alpha members are hidden; the players hold the pocket.
+      for _, n in ipairs(Sp.G1C.list) do
+        local e = Game.GetEntity(n)
+        if e and not human(n) then
+          e.oAI.bEnable = false
+          e.bActive = false
+        end
+      end
+      if isHost then Game.AddScheduledFunc(Game.GetTime() + 8, "CoopSplitG1C", "CoopSplits.G1Cwave", 1) end
+    end
+  end
+  -- AreaTriggerInit sits on Ross's start and may hide Alpha before the hook above: bring
+  -- the players' bodies back once, shortly after the start.
+  if not Sp.G1C.startChecked and Coop.frame > 40 then
+    Sp.G1C.startChecked = true
+    local fixed = false
+    for _, n in ipairs(Sp.G1C.list) do
+      local e = Game.GetEntity(n)
+      if e and human(n) and e.bActive == false then
+        e.bActive = true
+        fixed = true
+      end
+    end
+    if fixed and isHost and not Sp.G1C.phase then
+      Game.AddScheduledFunc(Game.GetTime() + 8, "CoopSplitG1C", "CoopSplits.G1Cwave", 1)
+    end
+  end
+  if not isHost then return end
+  Sp.after("MapCallbacks.AreaTrigger_3", function() Sp.G1Cwave(2) end)
+  Sp.after("MapCallbacks.AreaTrigger49_0", function() Sp.G1Cwave(3) end)
+  Sp.after("MapCallbacks.AreaTrigger133_0", function()
+    if Sp.G1C.phase and not Sp.G1C.done then
+      Sp.notice("omega_near", Sp.G1C.list)
+      Sp.radio("Cole", "Spot_Team")
+    end
+  end)
+  Sp.after("MapCallbacks.AreaTrigger119_1", function()
+    Sp.G1C.done = true
+    Sp.radio("Jones", "Rejoin_Team")
+  end)
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
              ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6,
-             ["levels/sum_end"] = Sp.installG15, ["levels/alk_bunker_01"] = Sp.installG3}
+             ["levels/sum_end"] = Sp.installG15, ["levels/alk_bunker_01"] = Sp.installG3,
+             ["levels/alk_city"] = Sp.installG1C}
 
 function Sp.onMessage(peer, f)
   if f[1] == "spp" and Coop.isClient() then
