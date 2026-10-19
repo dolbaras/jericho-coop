@@ -295,7 +295,7 @@ end
 -- this player in live play for a few seconds where the game shows the scene at once: the
 -- screen stays black and the keys do nothing until it starts; a long wait says why.
 E.WAIT = {en = "Waiting for players...", ru = "\206\230\232\228\224\237\232\229 \232\227\240\238\234\238\226..."}  -- "Ожидание игроков..." (cp1251)
-E.WAIT_TEXT_AFTER = 2
+E.WAIT_TEXT_AFTER = 0.5
 function E.holdCurtain(on)
   if on then
     if E.curtain then return end
@@ -321,6 +321,8 @@ end
 function E.updateCurtain()
   local c = E.curtain
   if not c then return end
+  -- The level-start curtain (no scene held) lifts once everyone has loaded.
+  if c.gate and not E.heldScenes and E.gateOpen() then E.holdCurtain(false) return end
   -- Every frame: the level's own fade-in and HUD come up meanwhile (a scene clears the HUD
   -- the same way when it starts, and puts it back when it ends).
   Scorer.Clear(0)
@@ -349,7 +351,7 @@ function E.updateSceneLabel()
     Coop.log("fp scene did not start: screen back")
   end
   local it = Scorer.GetItem(0, "CoopEyes")
-  if E.fpLabel and Scene.IsPlaying then
+  if E.fpLabel and (Scene.IsPlaying or E.fpBlackT) then
     if not it then
       it = Scorer.NewItem(0, "CoopEyes", "Text")
       it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
@@ -471,6 +473,12 @@ end
 function E.installSceneHost()
   E.installReplay()
   E.gateUntil = Net.CoopTime() + E.GATE_TIMEOUT
+  -- Everyone starts the level together: black from the first frame the mod sees (before the
+  -- level's opening scene or the switch to the lobby character shows) until all have loaded.
+  if not E.gateOpen() then
+    E.holdCurtain(true)
+    E.curtain.gate = true
+  end
   local origEnd = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     E.inEndOfScene = true
