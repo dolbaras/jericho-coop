@@ -9,6 +9,8 @@
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
 --   G6 wwii_brandenburg "The gate top": Cole and Rawlings players stay active on the gate top
 --      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
+--   G1 (leg A) alk_tomb "Perimeter recon": Alpha's players keep their bodies after the
+--      goodbye and hold against cultist waves until Omega reaches the blood door.
 --   G1 (leg C) alk_city "Pinned at the north-east dig": Alpha's players keep their bodies in
 --      their sealed pocket and hold it until Omega breaks through.
 --   G4 wwii_pillboxes "Stations of the Path": a human Rawlings, shot by Delgado, walks his
@@ -49,6 +51,11 @@ Sp.TEXT = {
     pinned2 = "More cultists from the dig!",
     pinned3 = "They keep coming. Omega is fighting its way to you.",
     omega_near = "Omega is close: you can hear their guns.",
+    recon = "Alpha: recon of the tomb's perimeter. No fighting without support.",
+    captive = "Keep Lichthammer bound: stand by her and press E (E again lets go).",
+    captive_summons = "Nobody holds Lichthammer: she calls her followers!",
+    recon_fail = "Cultists! The recon turns into a fight. Hold together.",
+    recon_more = "More of them come up from the sand.",
     soul_go = "RAWLINGS' SOUL: go back along the Path of Souls - station %d of %d",
     soul_pray = "Pray: hold E (%d%%)",
     soul_body = "Return to your body",
@@ -77,6 +84,11 @@ Sp.TEXT = {
     pinned2 = "Из раскопа лезут ещё культисты!",
     pinned3 = "Они не кончаются. Омега уже прорывается к вам.",
     omega_near = "Омега близко: слышна их стрельба.",
+    recon = "Альфа: разведка периметра гробницы. Без поддержки в бой не вступать.",
+    captive = "Держите Лихтхаммер: встаньте рядом и нажмите E (повторное E - отпустить).",
+    captive_summons = "Лихтхаммер никто не держит: она зовёт своих!",
+    recon_fail = "Культисты! Разведка превращается в бой. Держитесь вместе.",
+    recon_more = "Из песка лезут новые.",
     soul_go = "ДУША РОУЛИНГСА: вернитесь по Пути душ - станция %d из %d",
     soul_pray = "Молитва: удерживайте E (%d%%)",
     soul_body = "Вернитесь к своему телу",
@@ -557,11 +569,70 @@ function Sp.G6leash()
   end
 end
 
+-- The captive: one of the two must hold Lichthammer (stand by her, E: the sacrifice hold
+-- pose; E again lets go). Unheld for UNHELD seconds, she calls her followers onto the gate
+-- top. Each machine handles its own player; the host counts holders and summons.
+--   g6hold|<char>|<1/0>   holder -> host
+Sp.G6.HOLD_DIST = 170
+Sp.G6.UNHELD = 20
+Sp.G6.SUMMON_EVERY = 35
+Sp.G6.holders = {}
+
+function Sp.G6holdUpdate()
+  local g = Sp.G6
+  local me = Coop.localChar()
+  if g.free or not g.anchor[me or ""] or (Scene and Scene.IsPlaying) then return end
+  local e, b = Game.GetEntity(me), Game.GetEntity("Bitchie")
+  if not e or not b then return end
+  local down = Net.CoopKey(0x45) == 1
+  local pressed = down and not g.keyWas
+  g.keyWas = down
+  if not pressed then return end
+  local d = e.Pos - b.Pos
+  if not g.holding and math.sqrt(d.x * d.x + d.z * d.z) > g.HOLD_DIST then return end
+  g.holding = not g.holding
+  e.IgnoreUsrControl = g.holding and 1 or 0
+  e.ForceAction = g.holding and "NaziSacrifice" or "Relax"
+  Coop.log("split G6: " .. me .. (g.holding and " holds" or " lets go of") .. " the captive")
+  if Coop.isHost() then Sp.G6onHold(me, g.holding) else Net.CoopSend(0, 1, "g6hold|" .. me .. "|" .. (g.holding and 1 or 0)) end
+end
+
+function Sp.G6onHold(char, on)
+  Sp.G6.holders[char] = on or nil
+  Sp.G6.unheldSince = nil
+end
+
+-- Host: nobody holds her for a while -> she calls her followers.
+function Sp.G6summonCheck()
+  local g = Sp.G6
+  if g.free or not (human("Cole") or human("Rawlings")) then return end
+  if next(g.holders) then
+    g.unheldSince = nil
+    return
+  end
+  local now = Net.CoopTime()
+  g.unheldSince = g.unheldSince or now
+  if now - g.unheldSince < g.UNHELD or now < (g.nextSummon or 0) then return end
+  g.nextSummon = now + g.SUMMON_EVERY
+  local b = Game.GetEntity("Bitchie")
+  if not b then return end
+  Sp.newList("CoopGateTop")
+  local n = 1 + Sp.humansIn({Cole = true, Rawlings = true})
+  for i = 1, n do
+    local a = i / n * 2 * math.pi
+    local ok, e = pcall(NPC.CreateWithAI, "CultistaExplosivo", b.Pos.x + math.cos(a) * 260, b.Pos.y, b.Pos.z + math.sin(a) * 260, "CoopGateTop", 1)
+    if ok and e then e.bActive = true end
+  end
+  Sp.notice("captive_summons", g.chars)
+  Coop.log("split G6: the captive calls " .. n .. " followers")
+end
+
 function Sp.G6afterInit()
   if Sp.G6.initDone then return end
   Sp.G6.initDone = true
   Sp.G6keepHumans()
   Sp.G6takeSeat()
+  Sp.showNotice("captive", Sp.G6.chars)
 end
 
 function Sp.installG6(isHost)
@@ -582,6 +653,8 @@ function Sp.installG6(isHost)
   -- The sacrifice scenes take over; afterwards ReposPeople gathers everyone (vanilla).
   Sp.after("MapInit.HideRawlingsCole", function() Sp.G6.free = true end)
   if Coop.frame % 10 == 0 then Sp.G6leash() end
+  Sp.G6holdUpdate()
+  if isHost and Coop.frame % 40 == 0 then Sp.G6summonCheck() end
 end
 
 ------------------------------------------------------------------------------
@@ -1083,14 +1156,131 @@ function Sp.installG4(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- G1 leg A alk_tomb: "Perimeter recon" (docs/story/act1-splits.md G1)
+-- Ross sends Alpha (Jones, Cole, Delgado) on a recon; vanilla switches them off and lets
+-- three invulnerable walkers leave in their place. Alpha's players keep their bodies: they
+-- start where the walkers do, "do not engage without support" fails, and they hold against
+-- waves of cultists until Omega reaches the blood door (they meet again in alk_city).
+------------------------------------------------------------------------------
+
+Sp.G1A = {alpha = {Jones = true, Cole = true, Delgado = true}, list = {"Jones", "Cole", "Delgado"},
+          LIST = "CoopAlphaTomb",
+          WALKER = {Jones = {V3D(176, -2043, 16070), 123}, Delgado = {V3D(307, -2061, 15984), 123},
+                    Cole = {V3D(-132, -2068, 16046), 131}},
+          WAVES = {30, 100, 170}}
+
+-- Vanilla MapInit.StartSayGoodbye with Alpha's players kept, run on every machine.
+function Sp.G1Agoodbye()
+  local g = Sp.G1A
+  MapInit.GoodByeChars = {}
+  Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 1)
+  for _, n in ipairs(g.list) do
+    local w = g.WALKER[n]
+    if human(n) then
+      -- The player's body starts where its walker would.
+      if n == Coop.localChar() or (Coop.isHost() and not Coop.isRemoteOwned(n)) then
+        local e = Game.GetEntity(n)
+        if e then
+          e.Pos = w[1]
+          e.Ang = V3D(0, w[2], 0)
+          Game.SetOnFloor(n)
+        end
+      end
+    else
+      Game.GetEntity(n).bActive = false
+      local o = Game.CreateEntity("Fake" .. n, "WalkChar")
+      o.ActCtrl = n
+      o.Pos = w[1]
+      o.Ang = V3D(0, w[2], 0)
+      o.Invulnerable = 1
+      o.Action = "WalkInit"
+      o.DefLoop = "Walk"
+      MapInit.GoodByeChars[#MapInit.GoodByeChars + 1] = o
+    end
+  end
+  local places = {Ross = V3D(291, -2219, 15052), Church = V3D(92, -2220, 14439),
+                  Black = V3D(109, -2220, 14075), Rawlings = V3D(753, -2220, 14001)}
+  for n, p in pairs(places) do
+    local e = Game.GetEntity(n)
+    if e and (n == Coop.localChar() or not human(n)) then
+      e.Pos = p
+      Game.SetOnFloor(n)
+    end
+  end
+  local ross = Game.GetEntity("Ross")
+  if ross then ross.Ang = V3D(0, 164, 0) end
+  Game.AddScheduledFunc(Game.GetTime() + 20, "StartSayGoodbye", "MapInit.DeleteGoodByeChars")
+  -- Ross's walk and lock belong to Ross's player only (vanilla: "the player").
+  if Coop.localChar() == "Ross" then
+    Game.UsrEntity(0).IgnoreUsrControl = 1
+    Game.AddScheduledFunc(Game.GetTime() + 1, "StartSayGoodbye", "MapInit.MiraDetrasDeTi")
+  end
+  if Coop.isHost() and Sp.humansIn(g.alpha) > 0 then
+    Sp.notice("recon", g.list)
+    for i, t in ipairs(g.WAVES) do
+      Game.AddScheduledFunc(Game.GetTime() + t, "CoopSplitG1A", "CoopSplits.G1Awave", i)
+    end
+  end
+end
+
+function Sp.G1Awave(n)
+  local g = Sp.G1A
+  local alpha = Sp.humansIn(g.alpha)
+  if alpha == 0 or g.done then return end
+  -- Around Alpha's players, a short way out, on the floor.
+  local center, k = V3D(0, 0, 0), 0
+  for _, name in ipairs(g.list) do
+    local e = Game.GetEntity(name)
+    if e and human(name) and (e.Life or 0) > 0 then
+      center = center + e.Pos
+      k = k + 1
+    end
+  end
+  if k == 0 then return end
+  center = V3D(center.x / k, center.y / k, center.z / k)
+  local count = (n == 3 and 3 or 2) + alpha
+  local spawned = 0
+  for i = 1, count do
+    local a = (i / count + n * 0.17) * 2 * math.pi
+    local p = V3D(center.x + math.cos(a) * 750, center.y + 60, center.z + math.sin(a) * 750)
+    local ok, e = pcall(NPC.CreateWithAI, "CultistaMelee", p.x, p.y, p.z, g.LIST, 1)
+    if ok and e then
+      e.bActive = true
+      pcall(Game.SetOnFloor, e.Name)
+      spawned = spawned + 1
+    end
+  end
+  Coop.log("split G1A: wave " .. n .. ", " .. spawned .. " cultists around Alpha")
+  Sp.notice(n == 1 and "recon_fail" or "recon_more", g.list)
+  Sp.radio(n == 1 and "Jones" or "Delgado", n == 1 and "Enemy_Ambush" or "Forboding_Sound")
+end
+
+function Sp.installG1A(isHost)
+  Sp.newList(Sp.G1A.LIST)
+  if MapInit.StartSayGoodbye and not Sp.hooked["G1A"] then
+    Sp.hooked["G1A"] = true
+    local orig = MapInit.StartSayGoodbye
+    MapInit.StartSayGoodbye = function(...)
+      if not (Coop.inSession() and Sp.humansIn(Sp.G1A.alpha) > 0) then return orig(...) end
+      Sp.G1Agoodbye()
+    end
+  end
+  -- Omega reaches the blood door: the recon is over.
+  Sp.after("MapCallbacks.Borrame_cinematica_0", function() Sp.G1A.done = true end)
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
              ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6,
              ["levels/sum_end"] = Sp.installG15, ["levels/alk_bunker_01"] = Sp.installG3,
-             ["levels/alk_city"] = Sp.installG1C, ["levels/wwii_pillboxes"] = Sp.installG4}
+             ["levels/alk_city"] = Sp.installG1C, ["levels/alk_tomb"] = Sp.installG1A, ["levels/wwii_pillboxes"] = Sp.installG4}
 
 function Sp.onMessage(peer, f)
-  if f[1] == "spsoul" then
+  if f[1] == "g6hold" and Coop.isHost() then
+    if Coop.ownerOf(f[2] or "") == peer then Sp.G6onHold(f[2], f[3] == "1") end
+    return true
+  elseif f[1] == "spsoul" then
     Sp.G4onSoul(f[2], peer)
     return true
   elseif f[1] == "spp" and Coop.isClient() then

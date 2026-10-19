@@ -32,15 +32,16 @@ Corrections they make to the table below:
 | Split | Line | State |
 |---|---|---|
 | G1 leg C | alk_city: Alpha holds its pocket until Omega breaks through | tested on the test PC (three waves) |
-| G1 legs A, B | alk_tomb plateau, bunker_00 east tunnel | not started (need in-game checks of the routes) |
+| G1 leg A | alk_tomb: Alpha keeps its bodies after the goodbye and holds against waves | tested on the test PC (three waves); fights not yet seen on video |
+| G1 leg B | alk_bunker_00 east tunnel | not planned for now (Alpha players are spirits there with a story line) |
 | G3 | alk_bunker_01: the human Cole hacks the console herself | start tested on the test PC (walk, no FakeCole); progress at the console not yet |
 | G4 | wwii_pillboxes: Stations of the Path (soul walk, revive gate) | soul walk tested on the test PC; the revive by another player not yet |
-| G6 | wwii_brandenburg: Cole and Rawlings active on the gate top | seat tested on the test PC; captive "hold" mechanic not yet |
+| G6 | wwii_brandenburg: Cole and Rawlings active on the gate top, holding the captive (E) | seat tested on the test PC; the hold needs a real player |
 | G8 | cru_sewers: Hold the gate (three re-armed waves) | tested on the test PC |
 | G10 | rom_caldarium: The Torturers' Hall | tested on the test PC (three waves, stop at the lever) |
 | G11 | rom_palace_01: legionaries on Church's side after the crossing | tested on the test PC |
 | G15 | sum_end: break the blood link (hold E) | binding tested on the test PC; the struggle needs a real client |
-| G2, G5, G7 (default), G12-G14 | spirit role (`lua/coop_spirit.lua`) | the spirit exists; story subtitles for these splits not yet |
+| G2, G5, G7 (default), G12-G14 | spirit role (`lua/coop_spirit.lua`) | the spirit exists, with a one-line story reason per level |
 | G7 Lost Patrol (full) | side instance with its own authority (`lua/coop_inst.lua`, `lua/coop_patrol.lua`) | routing checked offline; T1, T2, T3 checked on the test PC one by one; the full split and merge with two machines not yet |
 
 "Written" means the code exists and loads in every level (level smoke test) but the line was
@@ -108,7 +109,7 @@ true), and it covers every level that has fewer bodies than players.
 | G3 | alk_bunker_01: the human Cole hacks the console herself | start tested on the test PC (walk, no FakeCole); progress at the console not yet |
 | G4 | wwii_pillboxes, Rawlings "killed" | The solo revive, with all AI switched off. | everyone but the reviver | Drop the solo lock: whoever reaches Rawlings first revives him while the others hold the final Nazi wave (`nazis_final` kept running). Rawlings' player watches as a spirit next to their own body until revived (a "dying spirit" view). | 1 + 2 |
 | G5 | wwii_vigil_inside | Only Cole, Church and Rawlings go inside. | the 4th player | Spirit with the inside team. Optional: the spirit's telekinesis is needed for one existing TK object in the level, so the extra player matters. | 2 |
-| G6 | wwii_brandenburg: Cole and Rawlings active on the gate top | seat tested on the test PC; captive "hold" mechanic not yet |
+| G6 | wwii_brandenburg: Cole and Rawlings active on the gate top, holding the captive (E) | seat tested on the test PC; the hold needs a real player |
 | G7 | cru_river → cru_catacomb (4 levels) | The bridge collapses and Jones, Cole and Rawlings are lost until the chapel rescue. Only 3 bodies exist. | with 4 players, one player | **Default:** the lost member's player is a spirit with the trio, and subtitle "echoes" tell what happened to the lost three (the orphan design note `cru_catacomb` `Tag_05` already imagines a rescue). **Big option (Tier 3), "The Lost Patrol":** the lost three get their own path through existing Crusades areas (for example cru_keep and cru_catacomb in reverse) as captives escaping, run by a second host, meeting the main group in cru_chapel where `TheRescue` plays. | 2 (3 optional) |
 | G8 | cru_sewers | Church climbs alone; Black and Delgado wait, then are switched off (`bActive=false`). | Black's and Delgado's players | **Hold the gate:** they stay active below and fight new crusader and cultist waves at the gate (reused groups) until Church opens the door (`AperturaPuerta`). The descent QTE plays only for Church; the others see the fight. | 1 |
 | G9 | rom_outskirts CenturiansTale | Forced switch to Rawlings, everyone locked. | — | The human holding Rawlings plays it; if nobody does, the host. Others watch from their own actor (it is a multi-character scene). | — |
