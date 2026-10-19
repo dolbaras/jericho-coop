@@ -206,6 +206,18 @@ function E.beforeFpScene(class)
   end
 end
 
+-- A scene played straight through a character's eyes (Scene.Play with CameraFrom FP_<X>:
+-- the torture, a speech chained after another scene) moves nobody, but is still seen
+-- through someone else's eyes: the same caption, until the scene ends.
+function E.labelPlayScene(class)
+  local owner = E.FP_OWNER[string.lower(tostring(class))]
+  local usr = Game.UsrEntity(0)
+  local mine = (usr and usr.Name) or Coop.cfg.char   -- no user entity inside a scene
+  if owner and mine ~= owner and not E.fpLabel then
+    E.fpLabel, E.fpLabelPlay = owner, true
+  end
+end
+
 function E.installFpRestore()
   local orig = Scene.EndOfFpScene
   Scene.EndOfFpScene = function(usr, ...)
@@ -255,7 +267,60 @@ end
 E.EYES = {en = "Through %s's eyes", ru = "\194\232\228 \227\235\224\231\224\236\232: %s"}  -- "Вид глазами: %s" (cp1251)
 E.EYES_SHOW = 5
 E.EYES_FADE = 1
+function E.lang()
+  return (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+end
+
+-- A scene held at the gate (the level's opening scene while others still load) would leave
+-- this player in live play for a few seconds where the game shows the scene at once: the
+-- screen stays black and the keys do nothing until it starts; a long wait says why.
+E.WAIT = {en = "Waiting for players...", ru = "\206\230\232\228\224\237\232\229 \232\227\240\238\234\238\226..."}  -- "Ожидание игроков..." (cp1251)
+E.WAIT_TEXT_AFTER = 2
+function E.holdCurtain(on)
+  if on then
+    if E.curtain then return end
+    E.curtain = {t0 = Game.GetTime()}
+    if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+    local usr = Game.UsrEntity(0)
+    if usr then
+      E.curtain.name, E.curtain.ctrl = usr.Name, usr.IgnoreUsrControl or 0
+      usr.IgnoreUsrControl = 1
+    end
+    return
+  end
+  local c = E.curtain
+  if not c then return end
+  E.curtain = nil
+  local body = c.name and Game.GetEntity(c.name)
+  if body then body.IgnoreUsrControl = c.ctrl end
+  Scorer.Clear(0)
+  if Menu and Menu.ShowScorer then pcall(Menu.ShowScorer) end
+  if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.5) end
+end
+
+function E.updateCurtain()
+  local c = E.curtain
+  if not c then return end
+  -- Every frame: the level's own fade-in and HUD come up meanwhile (a scene clears the HUD
+  -- the same way when it starts, and puts it back when it ends).
+  Scorer.Clear(0)
+  if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+  if Game.GetTime() - c.t0 < E.WAIT_TEXT_AFTER then return end
+  local it = Scorer.GetItem(0, "CoopWait")
+  if not it then
+    it = Scorer.NewItem(0, "CoopWait", "Text")
+    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
+    it.Effect = "Shadow"
+    it.Pos = V2D(320, 240)
+    it.Text = E.WAIT[E.lang()] or E.WAIT.en
+    it.CentralText = 1
+    it.Color = Color(230, 230, 230, 255)
+  end
+  it.Visible = 1
+end
+
 function E.updateSceneLabel()
+  E.updateCurtain()
   local it = Scorer.GetItem(0, "CoopEyes")
   if E.fpLabel and Scene.IsPlaying then
     if not it then
@@ -266,7 +331,7 @@ function E.updateSceneLabel()
     end
     if E.fpLabelShown ~= E.fpLabel then
       E.fpLabelShown, E.fpLabelT0 = E.fpLabel, Game.GetTime()
-      local lang = (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+      local lang = E.lang()
       local name = Game.GetLangStr(E.fpLabel)
       if not name or name == "" then name = E.fpLabel end
       it.Text = string.format(E.EYES[lang] or E.EYES.en, name)
@@ -369,6 +434,7 @@ function E.flushHeldScenes()
   local held = E.heldScenes
   if not held or not E.gateOpen() then return end
   E.heldScenes = nil
+  E.holdCurtain(false)
   for _, h in ipairs(held) do
     Coop.log("scene " .. h.fname .. " " .. tostring(h.class) .. " released")
     Scene[h.fname](h.class, unpack(h.args))
@@ -381,6 +447,7 @@ function E.installSceneHost()
   local origEnd = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     E.inEndOfScene = true
+    if E.fpLabelPlay then E.fpLabel, E.fpLabelPlay = nil, nil end   -- a chained scene sets its own
     local ok, a, b = pcall(origEnd, ...)
     E.inEndOfScene = false
     if not ok then Coop.log("EndOfScene error: " .. tostring(a)) end
@@ -397,6 +464,7 @@ function E.installSceneHost()
       if not E.inEndOfScene and not E.inReplay and not E.gateOpen() then
         E.heldScenes = E.heldScenes or {}
         table.insert(E.heldScenes, {fname = fname, class = class, args = {...}})
+        E.holdCurtain(true)
         Coop.log("scene " .. fname .. " " .. tostring(class) .. " held until the players have loaded")
         return false
       end
@@ -404,7 +472,7 @@ function E.installSceneHost()
       -- the client repeats that chain itself, so forward only its first call.
       local now = Net.CoopTime()
       local repeated = class == E.lastSceneClass and now - (E.lastSceneTime or 0) < 15
-      if mode ~= "play" then E.beforeFpScene(class) end
+      if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
       E.skip = nil   -- skip votes count for one showing of a scene
       if not E.inEndOfScene and not E.inReplay and not repeated then
         Net.CoopSend(-1, 1, "scene|" .. mode .. "|" .. tostring(class))
@@ -470,6 +538,7 @@ function E.installSceneClient()
   Scene.EndOfScene = function(...)
     Coop.log("scene ended " .. tostring(Scene.SceneName))
     E.inEndOfScene = true
+    if E.fpLabelPlay then E.fpLabel, E.fpLabelPlay = nil, nil end   -- a chained scene sets its own
     local ok, a, b = pcall(origEnd, ...)
     E.inEndOfScene = false
     if not ok then Coop.log("EndOfScene error: " .. tostring(a)) end
@@ -481,7 +550,7 @@ function E.installSceneClient()
     Scene[fname] = function(class, ...)
       if E.dropScene and E.dropScene(class) then return false end
       if Coop.fromHost or E.inEndOfScene or E.inReplay then
-        if mode ~= "play" then E.beforeFpScene(class) end
+        if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
         return orig(class, ...)
       end
       E.stats.dropped = E.stats.dropped + 1
