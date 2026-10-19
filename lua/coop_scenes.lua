@@ -256,7 +256,8 @@ end
 -- for finding who the scene camera looks at. World rays pass through characters, so a
 -- speaker looked at would otherwise give a point on the floor or wall behind them.
 S.HEAD_NODES = {"Bip01 Head", "Bip %s Head", "Bip Head"}
-S.LOOK_CONE_COS = 0.85   -- within about 32 degrees of the view ray (the subject is rarely centred)
+S.LOOK_PERP_MIN = 45     -- the view ray passes this close to a looked-at head ...
+S.LOOK_PERP_K = 0.12      -- ... or within about 7 degrees of it at a distance
 
 function S.actorHead(info)
   local e = Game.GetEntity(info[2])
@@ -288,9 +289,15 @@ function S.lookedAtActor(p, dir, maxDist)
       local dist = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
       local c = dist > 0 and (v.x * dir.x + v.y * dir.y + v.z * dir.z) / dist or 0
       if S.debugLook then S.debugLook[#S.debugLook + 1] = string.format("%s:%.0f/%.2f", tostring(info[3]), dist, c) end
-      if dist > 50 and dist < maxDist then
-        if c > S.LOOK_CONE_COS and (not bestCos or c > bestCos) then
-          best, bestCos, mine = hp, c, info[2] == S.pov.actor
+      -- Looked at: the view ray passes close to the head (a head merely somewhere in view,
+      -- e.g. a squad member at the edge while the camera looks at the blood door, is not
+      -- the subject; scene audit 10 turned the player away from the door).
+      local along = v.x * dir.x + v.y * dir.y + v.z * dir.z
+      if along > 50 and along < maxDist then
+        local perp = math.sqrt(math.max(0, dist * dist - along * along))
+        local ratio = perp / along
+        if perp < math.max(S.LOOK_PERP_MIN, along * S.LOOK_PERP_K) and (not bestCos or ratio < bestCos) then
+          best, bestCos, mine = hp, ratio, info[2] == S.pov.actor
         end
       end
     end
@@ -406,10 +413,14 @@ S.CLEAR_IN = 2.0
 S.BLOCK_MARGIN = 120      -- a wall this close to the target is the target itself
 S.BODY_CLEAR = 40         -- an eye this close to another actor's head is inside them
 S.BLOCK_EVERY = 6         -- frames between checks
+S.VIEW_MIN = 160          -- the target this close to the eye fills the view
 S.BODY_IN_WAY = 28        -- a head or chest this close to the line of sight blocks it
 S.BODY_PROBES = {0, 45}   -- below the head node: the head, the chest
 
 function S.viewBlocked(p, eye, target)
+  -- Nose against what the scene shows (a door, a wall the scene camera sees from afar);
+  -- a face at conversation distance is fine.
+  if S.focusActor == "world" and len(target - eye) < S.VIEW_MIN then return "close" end
   local hit = Game.TestLine(eye, target, "")
   if hit and len(hit - eye) < len(target - eye) - S.BLOCK_MARGIN then return "wall" end
   hit = Game.TestLine(p, eye, "")

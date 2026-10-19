@@ -35,8 +35,11 @@ DEFAULT_OUT = os.path.join(JERICHO, 'work', 'anim_rt')
 # FP actor -> full-body character folder, when the names differ
 FULL_MODEL_OF = {'rossnude': 'ross'}
 OUT_PREFIX = 'coopbody_'
-# Full bodies whose props are all hidden
-HIDE_ALL_PROPS = set()
+# Full bodies whose props are all hidden: Ross's model holds Jones' rifle, whose textures
+# live only in Jones' folder (untextured on Ross). Textures cannot be added through Pack1:
+# the game hangs loading a level when Pack1 holds model textures (tested 2026-10-19, also
+# with the whole folder and uncompressed).
+HIDE_ALL_PROPS = {'ross'}
 
 
 class GameFiles:
@@ -554,7 +557,7 @@ STANDIN_MODELS = ('black', 'church', 'cole', 'delgado', 'jones', 'rawlings', 'tr
 
 
 def texture_fixes(files):
-    """Textures a stand-in model names but its own dds folder lacks (TrueRoss holds Jones'
+    """Not used (Pack1 cannot carry textures, see HIDE_ALL_PROPS). Textures a stand-in model names but its own dds folder lacks (TrueRoss holds Jones'
     rifle: OB_Jones_01-02_Fusil-*), copied from the folder that has them, under the path
     the engine looks in. Returns [(archive name, data)]."""
     have = {}
@@ -599,7 +602,7 @@ def cmd_batch(a, files):
     with open(os.path.join(a.out, 'batch_report.json'), 'w') as f:
         json.dump({'files': reports, 'errors': errors}, f, indent=1)
     if a.pack and items:
-        n = write_pack(a.pack, items + texture_fixes(files))
+        n = write_pack(a.pack, items)
         print(f'packed {n} file(s) into {a.pack} ({os.path.getsize(a.pack)} bytes)')
     bad = 0
     for name, data in items:
