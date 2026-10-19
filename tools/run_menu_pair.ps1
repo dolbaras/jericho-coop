@@ -29,6 +29,7 @@ function Start-One([string] $name, [string] $cfg, [string] $winpos, [string] $ad
     $env:JERICHO_COOP_CFG = "{$cfg}"
     $env:JERICHO_COOP_LOG = Join-Path $run "$name.coop.txt"
     $env:JERICHO_WINPOS = $winpos
+    $env:JERICHO_WINSIZE = "$winW,$winH"
     $env:JERICHO_BACKGROUND = "1"
     $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot $name
     if ($adapter) { $env:JERICHO_ADAPTER = $adapter }
@@ -36,7 +37,7 @@ function Start-One([string] $name, [string] $cfg, [string] $winpos, [string] $ad
     if ($Record) { $env:JERICHO_RECORD = Join-Path $run "$name.raw"; $env:JERICHO_RECORD_FULL = "1" }
     $extra = if ($adapter) { " -Antialiasing:0" } else { "" }   # see run_pair.ps1
     $p = Start-Process -FilePath $exe -ArgumentList "$common$extra -OutDebugFile:`"$(Join-Path $run "$name.log")`" -InitLuaLine:`"$boot`"" -WorkingDirectory $Game -PassThru
-    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG") {
+    foreach ($v in "JERICHO_COOP_LOG", "JERICHO_WINPOS", "JERICHO_ADAPTER", "JERICHO_MULTI", "JERICHO_BACKGROUND", "JERICHO_RECORD", "JERICHO_RECORD_FULL", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE") {
         Remove-Item "Env:$v" -ErrorAction SilentlyContinue
     }
     try { $p.PriorityClass = 'BelowNormal' } catch {}

@@ -3,6 +3,9 @@
  *
  *   JERICHO_WINPOS=x,y      create the game window at x,y (screen coordinates) and keep it
  *                           there, so a test instance opens directly on a chosen monitor.
+ *   JERICHO_WINSIZE=w,h     make the game window's client area w x h and keep it so (the
+ *                           engine sizes its window on its own, smaller than the
+ *                           -WindowedWidth/-WindowedHeight back buffer on some machines).
  *   JERICHO_ADAPTER=window  create the Direct3D 9 device on the adapter that drives the
  *                           monitor holding the window (the game always asks for adapter 0).
  *   JERICHO_ADAPTER=<n>     use adapter n.
@@ -24,6 +27,17 @@
 #include "capture.h"
 
 static int win_x, win_y, have_winpos, run_in_background;
+static int win_w, win_h, have_winsize;
+static DWORD win_style, win_exstyle;
+
+/* Outer window size for the wanted client size. */
+static void outer_size(DWORD style, DWORD ex, int *w, int *h)
+{
+    RECT r = {0, 0, win_w, win_h};
+    AdjustWindowRectEx(&r, style, FALSE, ex);
+    *w = r.right - r.left;
+    *h = r.bottom - r.top;
+}
 static char adapter_mode[16];
 static HWND game_window;
 static WNDPROC game_wndproc;
@@ -270,6 +284,15 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWOR
         x = win_x;
         y = win_y;
     }
+    if (game && have_winsize) {
+        int ow, oh;
+        outer_size(style, ex, &ow, &oh);
+        coop_log("window size %dx%d -> %dx%d (client %dx%d)", w, h, ow, oh, win_w, win_h);
+        w = ow;
+        h = oh;
+        win_style = style;
+        win_exstyle = ex;
+    }
     if (game && test_mode) {
         ex |= WS_EX_NOACTIVATE;
         if (style & WS_VISIBLE) {
@@ -294,6 +317,8 @@ static BOOL WINAPI hook_SetWindowPos(HWND hw, HWND after, int x, int y, int w, i
         x = win_x;
         y = win_y;
     }
+    if (hw == game_window && have_winsize && !(flags & SWP_NOSIZE))
+        outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
     if (hw == game_window && test_mode)
         flags |= SWP_NOACTIVATE;
     return real_SetWindowPos(hw, after, x, y, w, h, flags);
@@ -305,6 +330,8 @@ static BOOL WINAPI hook_MoveWindow(HWND hw, int x, int y, int w, int h, BOOL rep
         x = win_x;
         y = win_y;
     }
+    if (hw == game_window && have_winsize)
+        outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
     return real_MoveWindow(hw, x, y, w, h, repaint);
 }
 
@@ -408,6 +435,24 @@ void display_hooks_install(void)
             if (!real_CreateWindowExA)
                 coop_log("winpos: CreateWindowExA not in import table");
             /* The hooks above dereference these; fall back to the real functions. */
+            if (!real_SetWindowPos)
+                real_SetWindowPos = SetWindowPos;
+            if (!real_MoveWindow)
+                real_MoveWindow = MoveWindow;
+        }
+    }
+    if (GetEnvironmentVariableA("JERICHO_WINSIZE", v, sizeof v) > 0) {
+        char *comma = strchr(v, ',');
+        if (comma && atoi(v) > 0 && atoi(comma + 1) > 0) {
+            win_w = atoi(v);
+            win_h = atoi(comma + 1);
+            have_winsize = 1;
+            if (!real_CreateWindowExA)
+                real_CreateWindowExA = (CreateWindowExA_t)patch_iat("USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
+            if (!real_SetWindowPos)
+                real_SetWindowPos = (SetWindowPos_t)patch_iat("USER32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
+            if (!real_MoveWindow)
+                real_MoveWindow = (MoveWindow_t)patch_iat("USER32.dll", "MoveWindow", (void *)hook_MoveWindow);
             if (!real_SetWindowPos)
                 real_SetWindowPos = SetWindowPos;
             if (!real_MoveWindow)
