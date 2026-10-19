@@ -169,6 +169,20 @@ function S.stop(ending)
   S.pov = nil
 end
 
+-- Watching a first-person scene from the own character works where the scene's set has
+-- room and collision for it; elsewhere (seats and props of scene models without collision,
+-- a camera boxed in by the set) the view stares at padding, so those scenes show the
+-- original camera ("through X's eyes") to everyone. POV_SCENES lists the scene classes
+-- checked clean in the scene audit; nil: every scene (dev audits). cfg.povall / povoff
+-- force it on / off (dev).
+S.POV_SCENES = nil
+
+function S.povAllowed(class)
+  if Coop.cfg.povoff == true then return false end
+  if Coop.cfg.povall == true or S.POV_SCENES == nil then return true end
+  return S.POV_SCENES[class] == true
+end
+
 function S.update(dt)
   if not Scene or not Scene.IsPlaying or not Scene.SceneName then
     if S.pov then S.stop() end
@@ -181,7 +195,7 @@ function S.update(dt)
     S.checked = class
     local me = Coop.localChar() or Coop.cfg.char   -- UsrEntity(0) is empty during FP scenes
     local owner = CoopEnemies and CoopEnemies.FP_OWNER[string.lower(class)]
-    if me and owner and me ~= owner and Coop.cfg.povoff ~= true then   -- povoff: dev bisect knob
+    if me and owner and me ~= owner and S.povAllowed(class) then
       local actor = S.findActor(class, me)
       if actor then
         S.start(class, me, actor)
