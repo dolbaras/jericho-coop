@@ -201,7 +201,7 @@ function E.beforeFpScene(class)
   local owner = E.FP_OWNER[string.lower(tostring(class))]
   local usr = Game.UsrEntity(0)
   if owner and usr and usr.Name ~= owner and not E.fpRestore then
-    E.fpRestore = {name = usr.Name, pos = usr.Pos, ang = usr.Ang}
+    E.fpRestore = {name = usr.Name, pos = usr.Pos, ang = usr.Ang, owner = owner}
     E.fpLabel = owner
   end
 end
@@ -213,6 +213,15 @@ function E.installFpRestore()
     local keep = E.fpRestore
     E.fpRestore, E.fpLabel = nil, nil
     if keep then
+      -- The game put the local body where the scene ends (the top of a climb, past a
+      -- door). That is where the scene's character is now: an AI owner (no human holds it)
+      -- goes there, the local body goes back.
+      local owner = keep.owner and Game.GetEntity(keep.owner)
+      if owner and r[1] and Coop.isHost() and not Coop.isRemoteOwned(keep.owner) then
+        owner.Pos = usr.Pos
+        owner.Ang = usr.Ang
+        Coop.log("fp scene over: " .. keep.owner .. " (AI) at the scene's end")
+      end
       local body = Game.GetEntity(keep.name)
       if body then
         body.Pos = keep.pos
@@ -226,24 +235,36 @@ function E.installFpRestore()
   end
 end
 
--- During a first-person scene seen through someone else's eyes, say whose.
-E.EYES = {en = "Through %s's eyes", ru = "\195\235\224\231\224\236\232 %s"}  -- "Глазами %s" (cp1251)
+-- During a first-person scene seen through someone else's eyes, say whose: for the first
+-- seconds of the scene, then the caption fades. The name is the game's own (language file
+-- keys Church, Cole...: "Черч").
+E.EYES = {en = "Through %s's eyes", ru = "\194\232\228 \227\235\224\231\224\236\232: %s"}  -- "Вид глазами: %s" (cp1251)
+E.EYES_SHOW = 5
+E.EYES_FADE = 1
 function E.updateSceneLabel()
   local it = Scorer.GetItem(0, "CoopEyes")
   if E.fpLabel and Scene.IsPlaying then
     if not it then
       it = Scorer.NewItem(0, "CoopEyes", "Text")
       it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-      it.Color = Color(230, 230, 230, 255)
       it.Effect = "Shadow"
       it.Pos = V2D(320, 40)
     end
-    local lang = (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
-    it.Text = string.format(E.EYES[lang] or E.EYES.en, E.fpLabel)
-    it.CentralText = 1
-    it.Visible = 1
-  elseif it then
-    it.Visible = 0
+    if E.fpLabelShown ~= E.fpLabel then
+      E.fpLabelShown, E.fpLabelT0 = E.fpLabel, Game.GetTime()
+      local lang = (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+      local name = Game.GetLangStr(E.fpLabel)
+      if not name or name == "" then name = E.fpLabel end
+      it.Text = string.format(E.EYES[lang] or E.EYES.en, name)
+      it.CentralText = 1
+    end
+    local t = Game.GetTime() - E.fpLabelT0
+    local a = t < E.EYES_SHOW and 1 or math.max(0, 1 - (t - E.EYES_SHOW) / E.EYES_FADE)
+    it.Color = Color(230, 230, 230, math.floor(255 * a))
+    it.Visible = a > 0 and 1 or 0
+  else
+    E.fpLabelShown = nil
+    if it then it.Visible = 0 end
   end
 end
 

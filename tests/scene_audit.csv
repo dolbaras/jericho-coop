@@ -27,4 +27,4 @@
 35;Rom_Palace_02;MapCallbacks.AreaTrigger_3;;Black;105;TheTrap
 36;Sum_Ziggurat_05;;;Church;240;IntoTheUnknown
 37;Sum_End;;;Church;130;TheEndA
-39;Sum_End;MapInit.EndOfGame;;Delgado;60;TheEndC
+39;Sum_End;MapInit.EndOfGame;;Delgado;300;TheEndC

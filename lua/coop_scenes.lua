@@ -169,13 +169,14 @@ function S.stop(ending)
   S.pov = nil
 end
 
--- Watching a first-person scene from the own character works where the scene's set has
--- room and collision for it; elsewhere (seats and props of scene models without collision,
--- a camera boxed in by the set) the view stares at padding, so those scenes show the
--- original camera ("through X's eyes") to everyone. POV_SCENES lists the scene classes
--- checked clean in the scene audit; nil: every scene (dev audits). cfg.povall / povoff
--- force it on / off (dev).
-S.POV_SCENES = nil
+-- Watching a first-person scene from the own character needs a set with room and collision
+-- for a second camera. The scene audit (two viewers per scene, 2026-10-19) found none where
+-- it framed the scene as well as the original: scene models have no collision (helicopter
+-- seats), the eye ends up behind other people's backs, and a speaker who turns to the
+-- scene's owner turns away from everyone else. So every player sees the original camera
+-- ("through X's eyes"), as the game shows it. POV_SCENES lists scene classes allowed the own
+-- view (none); cfg.povall forces it on everywhere (experimental), cfg.povoff off.
+S.POV_SCENES = {}
 
 function S.povAllowed(class)
   if Coop.cfg.povoff == true then return false end
@@ -677,7 +678,9 @@ function S.installBodyActor()
   local origLoad = Scene.Load
   Scene.Load = function(SceneClass, ...)
     local r = {origLoad(SceneClass, ...)}
-    if Coop.inSession() and Coop.cfg.bodyoff ~= true then   -- bodyoff: dev experiment knob
+    -- The body is seen only from another player's own view (S.povAllowed); through the
+    -- owner's eyes it stays hidden, so it is not loaded at all then.
+    if Coop.inSession() and Coop.cfg.bodyoff ~= true and S.povAllowed(SceneClass) then   -- bodyoff: dev experiment knob
       local ok, err = pcall(S.ensureBody, SceneClass)
       if not ok then Coop.log("scene body error: " .. tostring(err)) end
     end
@@ -720,6 +723,8 @@ function S.ensureBody(class)
   local rec = {}
   for _, name in ipairs(S.fpActionNames(class)) do
     local a = fpc:GetAct(name)
+    local skip = Coop.cfg.bodyskip   -- dev experiment knob: {"PlayH", ...} not given to the body
+    if skip then for _, s in ipairs(skip) do if s == name then a = nil end end end
     if a then
       -- The FP file drives the first-person rig; Pack1.packed (tools/cm3_retarget.py, built by
       -- install.ps1 from the player's own game files) holds the same motion retargeted to the
