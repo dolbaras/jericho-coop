@@ -133,7 +133,7 @@ function S.updateStandIn(dt)
   body.InCtrl_Sprint = 0
 end
 
-function S.stopStandIn()
+function S.stopStandIn(ending)
   local si = S.standIn
   if not si then return end
   local body = Game.GetEntity(si.body)
@@ -141,19 +141,28 @@ function S.stopStandIn()
     body.InCtrl_Walk = 0
     if body.owc then body.owc.Crouch = 0 end
   end
-  local fp = si.fp and Game.GetEntity(si.fp)
+  local fp = not ending and si.fp and Game.GetEntity(si.fp)
   if fp then fp.bObjectVisible = true end
   S.standIn = nil
 end
 
-function S.stop()
-  S.stopStandIn()
+-- ending: called from Scene.EndOfScene, which deletes the scene actors right after. They
+-- must not be shown again there: an entity made visible and deleted in the same frame
+-- leaves its render nodes referenced and the engine asserts (objref.h "!Refs").
+function S.stop(ending)
+  S.stopStandIn(ending)
   S.smooth, S.focus, S.eye, S.look, S.headCache = nil, nil, nil, nil, nil
+  -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
+  -- deleted, as EndOfScene does with the main camera, or the engine asserts on the node's
+  -- references (objref.h "!Refs").
   local eye = Game.GetEntity(S.EYE_CAM)
-  if eye then eye:Del() end
+  if eye then
+    eye.EntityLink = ""
+    eye:Del()
+  end
   if not S.pov then return end
   if Game.GetCam(0) == S.CAM then Game.SetCam(0, S.prevCam or "MainCam") end
-  local actor = Game.GetEntity(S.pov.actor)
+  local actor = not ending and Game.GetEntity(S.pov.actor)
   if actor then actor.bObjectVisible = true end
   S.pov = nil
 end
@@ -371,7 +380,7 @@ function S.install()
   S.installed = true
   local orig = Scene.EndOfScene
   Scene.EndOfScene = function(...)
-    S.stop()
+    S.stop(true)
     return orig(...)
   end
 end
@@ -476,7 +485,7 @@ function S.installBodyActor()
   local origLoad = Scene.Load
   Scene.Load = function(SceneClass, ...)
     local r = {origLoad(SceneClass, ...)}
-    if Coop.inSession() then
+    if Coop.inSession() and Coop.cfg.bodyoff ~= true then   -- bodyoff: dev experiment knob
       local ok, err = pcall(S.ensureBody, SceneClass)
       if not ok then Coop.log("scene body error: " .. tostring(err)) end
     end
@@ -549,7 +558,7 @@ function S.ensureBody(class)
   -- runs on channel 1 on top (as the game does with char.Action = "Facial_Relax") and
   -- drives the head. Ross's model uses Jones' skeleton.
   local faceDir = model == "Ross" and "Jones" or model
-  if ac:GetAct("CoopFace") == nil then
+  if ac:GetAct("CoopFace") == nil and Coop.cfg.bodyface ~= false then
     local face = ac:NewAct("CoopFace")
     face.AnmFilePath = "Models/Chars/" .. faceDir .. "/Anm/" .. faceDir .. "_Facial_Relax.M3D"
     face.isLoop = 1
@@ -558,7 +567,8 @@ function S.ensureBody(class)
   end
   ac.DefAction = fpc.DefAction or rec[1].name
   Scene.SceneName, Scene.lastActorName = sceneName, last
-  S.body = {class = class, char = char == "RossNude" and "Ross" or char, fp = fpInfo[2], entity = class .. "CoopBody"}
+  S.body = {class = class, char = char == "RossNude" and "Ross" or char, fp = fpInfo[2], entity = class .. "CoopBody",
+            face = ac:GetAct("CoopFace") ~= nil}
   Coop.log(string.format("scene body: %s gets %s with %d actions of %s (%s)", class, model, #rec, fpInfo[2], rec[1].file))
 end
 
@@ -570,7 +580,7 @@ function S.showBody(class)
   if not b or b.class ~= class then return end
   local e = Game.GetEntity(b.entity)
   if not e then return end
-  b.hidden = S.pov == nil
+  b.hidden = S.pov == nil or Coop.cfg.bodyhide == true   -- bodyhide: dev experiment knob
   e.bObjectVisible = not b.hidden
   Coop.log("scene body: " .. b.entity .. (b.hidden and " hidden (seen through its eyes)" or " shown"))
 end
@@ -580,7 +590,7 @@ function S.updateBody()
   if not b or not Scene.SceneName or string.sub(Scene.SceneName, 10) ~= b.class then return end
   local fp, body = Game.GetEntity(b.fp), Game.GetEntity(b.entity)
   if not fp or not body then return end
-  if not b.faceOn then
+  if not b.faceOn and b.face then
     b.faceOn = true
     body.Action = "CoopFace"   -- channel 1: the head, on top of the scene animation
   end

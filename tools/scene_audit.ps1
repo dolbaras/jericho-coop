@@ -8,7 +8,8 @@ param(
     # bot (default): one game on the iGPU as host holding the row's non-owner character, plus
     # the headless bot as client: the host then sees the scene the way a client would, and the
     # owner's NVIDIA card stays free. pair: two game instances (host on the default GPU).
-    [ValidateSet("bot", "pair")] [string] $Coop = "bot"
+    [ValidateSet("bot", "pair")] [string] $Coop = "bot",
+    [string] $Extra = ""             # extra COOP_CFG fields for every run, e.g. "bodyface=false,"
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -22,7 +23,7 @@ foreach ($line in Get-Content $list) {
     if ($Ids.Count -and ($Ids | ForEach-Object { "$_".PadLeft(2, '0') }) -notcontains $id) { continue }
     $dir = Join-Path $out "${id}_$level"
     # QTEMode 2: the engine passes QTEs, so the scenes run their vanilla (success) path.
-    $exp = "dev=true,qtemode=2,"
+    $exp = "dev=true,qtemode=2,$Extra"
     if ($trigger) {
         $exp += "exp='trigger',trigger='$trigger',trigat=40,"
         if ($targs) { $exp += "trigargs={$targs}," }
