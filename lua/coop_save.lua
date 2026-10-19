@@ -106,7 +106,8 @@ function CS.apply(rec)
 end
 
 function CS.write(file, level)
-  if not Net.CoopFile then return false end
+  -- A side instance (Lost Patrol) is not the campaign: only the main group's host saves.
+  if not Net.CoopFile or Coop.cfg.inst then return false end
   local ok = Net.CoopFile(file, "w", CS.encode(level)) == 1
   Coop.log("save: wrote " .. file .. " level=" .. tostring(level) .. " ok=" .. tostring(ok))
   return ok

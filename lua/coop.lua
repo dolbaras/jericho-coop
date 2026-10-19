@@ -605,7 +605,10 @@ end
 if cfg.owners then Coop.owners = Coop.parseOwn(cfg.owners) end
 
 do
-  local ok, err = pcall(dofile, COOP_DIR .. "coop_save.lua")
+  -- Side instances (the Lost Patrol) wrap the network calls: load before anything sends.
+  local ok, err = pcall(dofile, COOP_DIR .. "coop_inst.lua")
+  if not ok then Coop.log("inst load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_save.lua")
   if not ok then Coop.log("save load error: " .. tostring(err)) end
 end
 
@@ -619,6 +622,7 @@ elseif not cfg.auto and Coop.level == "levels/menu" and not string.find(status, 
   Net.CoopClose()
   if CoopSave then pcall(CoopSave.endSession) end
   cfg.role, cfg.myId, cfg.char, cfg.owners, cfg.seats, cfg.loaded = nil, nil, nil, nil, nil, nil
+  cfg.inst, cfg.instAuth, cfg.instIds, cfg.instOf, cfg.instAuthOnHub, cfg.netRole, cfg.realId = nil, nil, nil, nil, nil, nil, nil
   status = Net.CoopStatus()
 end
 
