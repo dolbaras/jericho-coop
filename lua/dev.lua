@@ -809,3 +809,27 @@ if cfg.skiptest and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'campaignstep' (host): after that many ticks in each level, end it the real way
+-- (SaveGame.NewLevelNow to the next campaign level), through to Sum_End.
+if cfg.campaignstep and Coop.isHost() and Coop.level ~= "levels/menu" then
+  local ORDER = {"Alk_Desert", "Alk_Tomb", "Alk_Bunker_00", "Alk_City", "Alk_Bunker_01", "Alk_Final",
+    "WWII_BigGates", "WWII_PillBoxes", "WWII_Mosque", "WWII_Mosque_Inside", "WWII_Vigil", "WWII_Vigil_Inside",
+    "WWII_Brandenburg", "Cru_River", "Cru_Labyrinth", "Cru_Sewers", "Cru_Keep", "Cru_Catacomb", "Cru_Chapel",
+    "Rom_Outskirts", "Rom_Caldarium", "Rom_Tepidarium", "Rom_Palace_01", "Rom_Palace_02", "Rom_Coloseum",
+    "Rom_Chamber", "Sum_Ziggurat_01", "Sum_Ziggurat_02", "Sum_Ziggurat_03", "Sum_Ziggurat_04",
+    "Sum_Ziggurat_Meat", "Sum_Ziggurat_05", "Sum_End"}
+  local nextLevel
+  for i, l in ipairs(ORDER) do
+    if Coop.level == "levels/" .. string.lower(l) then nextLevel = ORDER[i + 1] end
+  end
+  local prevCamp = Coop.dev
+  function Coop.dev()
+    if prevCamp then prevCamp() end
+    if nextLevel and Coop.frame == cfg.campaignstep then
+      Coop.log("campaign: " .. Coop.level .. " -> " .. nextLevel)
+      local ok, err = pcall(SaveGame.NewLevelNow, nextLevel)
+      if not ok then Coop.log("campaign error: " .. tostring(err)) end
+    end
+  end
+end

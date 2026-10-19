@@ -607,7 +607,9 @@ static int l_file(lua_State *L)
 
 static int l_boot(lua_State *L)
 {
-    char cfg[2048], chunk[4096], dir[2 * MAX_PATH];
+    /* static: the test config (story step chains) can be several kilobytes */
+    static char cfg[16384], chunk[20480];
+    char dir[2 * MAX_PATH];
     size_t k = 0;
     DWORD n = GetEnvironmentVariableA("JERICHO_COOP_CFG", cfg, sizeof cfg);
     if (n == 0 || n >= sizeof cfg)
