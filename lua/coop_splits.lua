@@ -1074,6 +1074,12 @@ end
 -- Every machine learns of the soul's progress; the host also turns it into pressure.
 function Sp.G4onSoul(what, peer)
   local g = Sp.G4
+  if what == "begin" or what == "end" then
+    if not Coop.isHost() then
+      if what == "begin" then Sp.G4begin() else Sp.G4end() end
+    end
+    return
+  end
   if Coop.isHost() then
     if peer ~= 0 and Coop.ownerOf("Rawlings") ~= peer then return end
     Net.CoopSend(-1, 1, "spsoul|" .. what)
@@ -1100,11 +1106,22 @@ function Sp.G4begin()
   g.active = true
   Coop.log("split G4: Stations of the Path (Rawlings is a player)")
   if Coop.isHost() then
+    -- Clients start too, also when Delgado's shot did not play on their machine.
+    Net.CoopSend(-1, 1, "spsoul|begin")
     Sp.rearm("nazis_final", 1 + Sp.humansIn({Black = true, Church = true, Cole = true, Delgado = true, Jones = true}))
     Sp.notice("soul_defend", g.squad)
     Sp.radio("Jones", "Help_Rawlings")
   end
-  if Coop.localChar() == "Rawlings" then Sp.G4startSoul() end
+  if Coop.localChar() == "Rawlings" then
+    -- The body is the holder's: it lies down here, or the host's copy would follow it up.
+    local raw = Game.GetEntity("Rawlings")
+    if CoopTeam then CoopTeam.holdDowned.Rawlings = true end
+    if raw and raw.Life > 0 then
+      raw.Invulnerable = 0
+      raw.Life = 0
+    end
+    Sp.G4startSoul()
+  end
 end
 
 function Sp.G4end()
@@ -1114,7 +1131,10 @@ function Sp.G4end()
   if g.soulOn and CoopSpirit then CoopSpirit.endSoul() end
   g.soulOn = false
   if CoopTeam then CoopTeam.holdDowned.Rawlings = nil end
-  if Coop.isHost() then pcall(EnemyGen.Stop, "nazis_final", true) end
+  if Coop.isHost() then
+    Net.CoopSend(-1, 1, "spsoul|end")
+    pcall(EnemyGen.Stop, "nazis_final", true)
+  end
   Coop.log("split G4: Rawlings revived")
 end
 
