@@ -757,3 +757,55 @@ if cfg.spriteprobe and Coop.level == "levels/menu" then
     Coop.log("spriteprobe placed")
   end
 end
+
+-- 'chain': one story step per level, run once when that level has been up for the given ticks
+-- (host): chain={{'Cru_River',300,'Scene.PlayFP','BridgeCollapses'},{'Cru_Labyrinth',900,'SaveGame.LoadLevel','Cru_Sewers'}}
+if cfg.chain and Coop.isHost() and Coop.level ~= "levels/menu" then
+  local prevChain = Coop.dev
+  local item
+  for _, it in ipairs(cfg.chain) do
+    if Coop.level == "levels/" .. string.lower(it[1]) then item = it end
+  end
+  function Coop.dev()
+    if prevChain then prevChain() end
+    if not item or Coop.frame ~= (item[2] or 300) then return end
+    local ok, fn = pcall(loadstring("return " .. item[3]))
+    Coop.log("chain: " .. item[1] .. " -> " .. item[3] .. "(" .. tostring(item[4]) .. ")")
+    if ok and type(fn) == "function" then
+      local r, err = pcall(fn, item[4])
+      if not r then Coop.log("chain error: " .. tostring(err)) end
+    end
+  end
+end
+
+-- 'pausetest' (host): open the pause menu at that tick, log whether game time goes on, close it.
+if cfg.pausetest and Coop.level ~= "levels/menu" then
+  local prevPause = Coop.dev
+  function Coop.dev()
+    if prevPause then prevPause() end
+    if Coop.frame == cfg.pausetest then
+      Coop.devPauseT = Game.GetTime()
+      pcall(Menu.Init)
+      Coop.log("pausetest: menu open, time speed " .. tostring(Game.GetTimeSpeed()))
+    elseif Coop.frame == cfg.pausetest + 100 and Coop.devPauseT then
+      Coop.log(string.format("pausetest: game time went on %.1f s in 5 s of menu, speed %s",
+        Game.GetTime() - Coop.devPauseT, tostring(Game.GetTimeSpeed())))
+      pcall(Menu.BackToGame, 0, "")
+    end
+  end
+end
+
+-- 'skiptest' (every machine): 3 s into the first scene, press skip once.
+if cfg.skiptest and Coop.level ~= "levels/menu" then
+  local prevSkipT = Coop.dev
+  function Coop.dev()
+    if prevSkipT then prevSkipT() end
+    if Coop.devSkipped or not (Scene and Scene.IsPlaying) then return end
+    Coop.devSceneSeen = Coop.devSceneSeen or Coop.frame
+    if Coop.frame - Coop.devSceneSeen == 60 + (Coop.isHost() and 0 or 60) then
+      Coop.devSkipped = true
+      Coop.log("skiptest: skip pressed in " .. tostring(Scene.SceneName))
+      pcall(Scene.AbortScene)
+    end
+  end
+end
