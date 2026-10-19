@@ -1,6 +1,6 @@
 # Build the release archive: dist\jericho-coop-<version>.zip, laid out like the game folder
 # (bin\dinput8.dll, coop\*.lua) plus the player's readme and the licenses. Run native\build.sh
-# first. The test helpers (dev.lua) are left out.
+# first. The test helpers (dev.lua, probe.lua) are left out.
 # Usage: package.ps1 -Version 0.1.0
 param([Parameter(Mandatory)] [string] $Version)
 $root = Split-Path $PSScriptRoot -Parent
@@ -10,7 +10,7 @@ $stage = Join-Path $root "dist\jericho-coop-$Version"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $stage "bin"), (Join-Path $stage "coop") | Out-Null
 Copy-Item $dll (Join-Path $stage "bin")
-Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object Name -ne "dev.lua" |
+Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $stage "coop")
 Copy-Item (Join-Path $root "docs\release-readme.txt") (Join-Path $stage "README-COOP.txt")
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $stage "LICENSE.txt")

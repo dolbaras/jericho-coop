@@ -3,9 +3,12 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: work in progress, not released. QA level: automated tests with two real game
-instances on two PCs over a LAN and a headless bot (see `tools/`); the whole campaign runs
-through level by level in a test, a full human playthrough is still to come.
+Status: first test release (0.1.0, see Releases): download the zip, extract it into the game
+folder, and read `README-COOP.txt` inside (Russian and English). QA level: automated tests with
+two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
+campaign runs through level by level in a test and every in-engine cutscene is compared with
+the original frame by frame; a full human playthrough is what this release is for. Please
+report problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log`.
 
 Tested game: retail DVD release, `Jericho.exe` SHA-256
 `7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11.
@@ -89,6 +92,8 @@ player (`docs/usrentity-audit.md`) as playtesting finds them.
 
 ## Build and install
 
+Players: use the release zip. From the sources:
+
 ```
 sh native/build.sh                         # needs Zig (see ../../../tools/zig)
 powershell tools/install.ps1 -Game <game dir>
@@ -98,7 +103,7 @@ powershell tools/install.ps1 -Game <game dir>
 Lua files to `<game dir>\coop\`. Then start the game normally: the main menu has a
 "Co-op" entry. `-Anims` also builds `Pack1.packed` from the game's own archives (needs
 Python 3): retargeted scene animations, used only by the experimental own-character
-cutscene view.
+cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\`.
 
 ## Tests
 
