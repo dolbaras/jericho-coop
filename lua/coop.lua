@@ -279,6 +279,7 @@ function Coop.onMessage(peer, data)
   if CoopSave and CoopSave.onMessage(peer, f) then return end
   if CoopStory and CoopStory.onMessage(peer, f) then return end
   if CoopSplits and CoopSplits.onMessage(peer, f) then return end
+  if CoopPatrol and CoopPatrol.onMessage(peer, f) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
@@ -543,6 +544,13 @@ function Coop.update()
       Coop.log("story error: " .. tostring(err))
     end
   end
+  if CoopPatrol and Coop.inSession() then
+    local ok, err = pcall(CoopPatrol.update)
+    if not ok and (Coop.patrolErrors or 0) < 5 then
+      Coop.patrolErrors = (Coop.patrolErrors or 0) + 1
+      Coop.log("patrol error: " .. tostring(err))
+    end
+  end
   if CoopSplits and Coop.inSession() then
     local ok, err = pcall(CoopSplits.update)
     if not ok and (Coop.splitErrors or 0) < 5 then
@@ -651,6 +659,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("story load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_splits.lua")
   if not ok then Coop.log("splits load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_patrol.lua")
+  if not ok then Coop.log("patrol load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.

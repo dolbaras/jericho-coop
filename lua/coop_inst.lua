@@ -217,7 +217,9 @@ function I.onControl(peer, data)
     cfg.level = f[6]
     Coop.log("inst: joining side instance " .. cfg.inst .. " as " .. cfg.role .. " in " .. f[6])
     if CoopPatrol and CoopPatrol.onSplit then pcall(CoopPatrol.onSplit) end
-    I.loadLevel(f[6])
+    -- The authority loads the level; its members follow its level message (with its save
+    -- vars), as clients always do.
+    if cfg.role == "host" then I.loadLevel(f[6]) else Coop.rearm() end
   elseif what == "main" and peer == 0 then
     if CoopPatrol and CoopPatrol.onMainLevel then pcall(CoopPatrol.onMainLevel, f[3]) end
   elseif what == "merge" and peer == 0 then
@@ -228,7 +230,8 @@ function I.onControl(peer, data)
     cfg.owners = nil
     Coop.owners = {}
     cfg.level = f[3]
-    I.loadLevel(f[3])
+    -- The hub's own level change (sent right after) brings this machine to the level.
+    Coop.rearm()
   end
 end
 

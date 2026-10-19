@@ -56,7 +56,7 @@ end
 hub.CoopInst.startSide("trio", 2, {2, 3}, "Cru_River")
 drain(m2) drain(m3)   -- control messages are consumed inside recv
 assert(m2.Coop.cfg.role == "host" and m2.Coop.cfg.inst == "trio", "authority role")
-assert(m3.Coop.cfg.role == "client" and m3.loaded == "Levels/Cru_River", "member loaded the side level")
+assert(m3.Coop.cfg.role == "client" and m3.loaded == nil, "member waits for the authority")
 -- (the synthetic joins were consumed above too; queue a fresh exchange)
 
 -- Hub's main broadcast reaches only peer 1.
@@ -85,7 +85,7 @@ assert(string.find(hub.Net.CoopStatus(), "peers=1"), "hub status: " .. hub.Net.C
 -- Merge: both go back to the main instance and load the chapel.
 hub.CoopInst.merge("Cru_Chapel")
 drain(m2) drain(m3)
-assert(m2.Coop.cfg.inst == nil and m2.Coop.cfg.role == "client" and m2.loaded == "Levels/Cru_Chapel", "merge")
+assert(m2.Coop.cfg.inst == nil and m2.Coop.cfg.role == "client", "merge")
 hub.Net.CoopSend(-1, 1, "s|all")
 assert(#drain(m2) == 1 and #drain(m3) == 1 and #drain(m1) == 1, "everyone back in the main instance")
 print("inst mock test ok")
