@@ -182,7 +182,13 @@ function P.enter()
     usr.IgnoreUsrControl = 1
     usr.InCtrl_Walk, usr.InCtrl_Str = 0, 0
   end
-  if AstralCamera and AstralCamera.CreateEffects then pcall(AstralCamera.CreateEffects) end
+  -- FX.InitEffect loads the aura's particle model; loading it again while the first copy is
+  -- still referenced asserts in the engine (objref.h "!Refs": client in cru_chapel, spirit
+  -- on, TheRescue, spirit on again). Once per level is enough.
+  if not P.fxReady and AstralCamera and AstralCamera.CreateEffects then
+    P.fxReady = true
+    pcall(AstralCamera.CreateEffects)
+  end
   if not Coop.cfg.spiritnofx and EffectsFrame and EffectsFrame.Jones_Ini then pcall(EffectsFrame.Jones_Ini) end
   for _, n in ipairs(P.HUD_ITEMS) do
     local it = Scorer.GetItem(0, n)

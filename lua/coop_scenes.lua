@@ -153,6 +153,7 @@ function S.stop(ending)
   S.stopStandIn(ending)
   S.smooth, S.focus, S.eye, S.look, S.headCache = nil, nil, nil, nil, nil
   S.lean, S.leanWant, S.leanNext = nil, nil, nil
+  S.fallback, S.blockedFor, S.clearFor, S.blockFrames = nil, nil, nil, nil
   -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
   -- deleted, as EndOfScene does with the main camera, or the engine asserts on the node's
   -- references (objref.h "!Refs").
@@ -394,6 +395,48 @@ function S.findLean(eye, target)
   return S.leanWant or S.ZERO
 end
 
+-- The levels are dressed for the scene camera only. From a character's head the view can
+-- end on a pillar, a crate or a seat back, or the head is where the scene camera cannot see
+-- (under a bridge, inside another body): such a view shows nothing of the scene (scene audit
+-- 04:40: 10, 11, 23, 24, 25, 31, 36). After BLOCK_IN seconds of that the player sees the
+-- scene camera's own view, and goes back to their character's eyes after CLEAR_IN seconds
+-- of a clear view.
+S.BLOCK_IN = 0.5
+S.CLEAR_IN = 2.0
+S.BLOCK_MARGIN = 120      -- a wall this close to the target is the target itself
+S.BODY_CLEAR = 40         -- an eye this close to another actor's head is inside them
+S.BLOCK_EVERY = 6         -- frames between checks
+
+function S.viewBlocked(p, eye, target)
+  local hit = Game.TestLine(eye, target, "")
+  if hit and len(hit - eye) < len(target - eye) - S.BLOCK_MARGIN then return "wall" end
+  hit = Game.TestLine(p, eye, "")
+  if hit and len(hit - p) < len(eye - p) - 30 then return "hidden" end
+  local list = Scene.Actors and Scene.Actors[S.pov.class]
+  for _, info in pairs(list or {}) do
+    if info[2] ~= S.pov.actor then
+      local hp = S.actorHead(info)
+      if hp and len(hp - eye) < S.BODY_CLEAR then return "body" end
+    end
+  end
+  return false
+end
+
+-- Switches between the character's eyes and the scene camera (the camera current when
+-- the scene started); the player's own actor is shown while the scene camera is used.
+function S.setFallback(on, why)
+  if (S.fallback or false) == on then return end
+  S.fallback = on
+  local a = Game.GetEntity(S.pov.actor)
+  if a then a.bObjectVisible = on end
+  if on then
+    Game.SetCam(0, S.prevCam or "MainCam")
+  else
+    S.eye, S.look, S.lean, S.leanWant = nil, nil, nil, nil   -- a cut, no glide through walls
+  end
+  Coop.log("scene POV: " .. (on and ("scene camera (" .. tostring(why) .. ")") or "own eyes again"))
+end
+
 function S.updatePOV(dt)
   local a = Game.GetEntity(S.pov.actor)
   local cam = Game.GetEntity(S.CAM)
@@ -411,6 +454,23 @@ function S.updatePOV(dt)
   local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and S.speakerPos(p) or focus
   S.lean = lowpass(S.lean, S.findLean(S.eye, target), S.LEAN_TAU, dt)
   local pos = S.eye + S.lean
+  S.blockFrames = (S.blockFrames or 0) + 1
+  if S.blockFrames >= S.BLOCK_EVERY then
+    local step = S.blockFrames * (dt or 0.033)
+    S.blockFrames = 0
+    local why = Coop.cfg.povfallback ~= false and S.viewBlocked(p, pos, target)
+    if why then
+      S.clearFor, S.blockedFor = 0, (S.blockedFor or 0) + step
+      if S.blockedFor >= S.BLOCK_IN then S.setFallback(true, why) end
+    else
+      S.blockedFor, S.clearFor = 0, (S.clearFor or 0) + step
+      if S.clearFor >= S.CLEAR_IN then S.setFallback(false) end
+    end
+  end
+  if S.fallback then
+    S.frames = (S.frames or 0) + 1
+    return
+  end
   cam.Pos = pos
   S.look = lowpass(S.look, target, S.LOOK_TAU, dt)
   local look = S.look - pos
@@ -525,7 +585,9 @@ function S.haveCoopAnims()
   return S.coopAnims
 end
 
-S.BODY_MODEL = {RossNude = "Ross"}   -- FP models without a full-body twin of the same name
+-- FP models without a full-body twin of the same name. Ross's own model has no textures
+-- (the game never shows it; its scenes use TrueRoss, same Jones skeleton, textured).
+S.BODY_MODEL = {RossNude = "TrueRoss", Ross = "TrueRoss"}
 
 -- Levels load most scenes when they start, before the mod, so the body is added when a
 -- scene is played: Scene.Play calls Scene.Load every time (it returns early if loaded).
@@ -616,7 +678,7 @@ function S.ensureBody(class)
   -- their animations leave the full body headless. The character's own facial animation
   -- runs on channel 1 on top (as the game does with char.Action = "Facial_Relax") and
   -- drives the head. Ross's model uses Jones' skeleton.
-  local faceDir = model == "Ross" and "Jones" or model
+  local faceDir = model == "TrueRoss" and "Jones" or model
   if ac:GetAct("CoopFace") == nil and Coop.cfg.bodyface ~= false then
     local face = ac:NewAct("CoopFace")
     face.AnmFilePath = "Models/Chars/" .. faceDir .. "/Anm/" .. faceDir .. "_Facial_Relax.M3D"

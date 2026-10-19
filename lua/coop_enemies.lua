@@ -292,6 +292,17 @@ E.GATE_TIMEOUT = 90
 E.readyPeers = {}
 
 function E.expectedPeers()
+  -- Players away in a side instance (the Lost Patrol trio) load their own levels: the hub's
+  -- main instance does not wait for them.
+  if CoopInst and not Coop.cfg.inst and CoopInst.split() then
+    local away = 0
+    for _ in pairs(CoopInst.sideMembers()) do away = away + 1 end
+    return math.max(0, E.expectedAll() - away)
+  end
+  return E.expectedAll()
+end
+
+function E.expectedAll()
   if Coop.cfg.waitpeers then return Coop.cfg.waitpeers end
   -- A side instance (coop_inst.lua) waits for its own players only.
   if Coop.cfg.inst then

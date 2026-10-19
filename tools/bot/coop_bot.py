@@ -72,6 +72,7 @@ class Bot:
         self.pos = None
         self.yaw = 0.0
         self.received = 0
+        self.ready_at = None
 
     def log(self, msg):
         line = time.strftime('%H:%M:%S ') + msg
@@ -112,6 +113,11 @@ class Bot:
                 lvl = [l for l in f[1].split('%0A') if l.startswith('level%09')]
                 extra = f' bytes={len(f[1])} vars={f[1].count("%0Av%09")} {lvl[0][8:] if lvl else ""}'
             self.log(f'{f[0]}{extra} {f[1] if f[0] == "level" else ""}')
+            if f[0] == 'level' and len(f) > 1:
+                # A real client loads the next level too and reports it (the host holds that
+                # level's opening scenes until then): report after a typical load time.
+                self.level = f[1]
+                self.ready_at = time.time() + 10
         elif f[0] == 'own':
             if f[1] != getattr(self, 'last_own', None):
                 self.last_own = f[1]
@@ -199,6 +205,10 @@ class Bot:
             elif now >= next_send:
                 last = now
                 next_send = now + 0.05
+            if self.ready_at and now >= self.ready_at:
+                self.ready_at = None
+                self.send('lready|' + self.level, True)
+                self.log('lready ' + self.level)
             if now >= next_report:
                 next_report = now + 5
                 seen = ','.join(sorted(self.states))
