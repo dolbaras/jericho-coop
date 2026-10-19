@@ -239,6 +239,43 @@ function LP.installT1()
   if Behemoth and Behemoth.HintsMedalions then
     table.insert(Behemoth.HintsMedalions, {"Cole", "86_L3_Medallions"})
   end
+  if cfg.role == "host" then Game.AddScheduledFunc(Game.GetTime() + 25, "CoopPatrol", "CoopPatrol.T1wave") end
+end
+
+-- T1 pressure: flying cultists of the river's own group, at its members' places.
+LP.T1 = {LIST = "Enemy_Group_09", spawned = {}, EVERY = 50}
+
+function LP.T1wave()
+  if not cfg.inst or Coop.level ~= "levels/cru_river" then return end
+  local g = NPC and NPC.Groups and NPC.Groups[LP.T1.LIST]
+  local places = {}
+  for i = 1, #(g or {}) do
+    local e = g[i]
+    if e and e.bValidBaseType and e.Pos then places[#places + 1] = e.Pos end
+  end
+  local alive = 0
+  for _, n in ipairs(LP.T1.spawned) do
+    local e = Game.GetEntity(n)
+    if e and (e.Life or 0) > 0 then alive = alive + 1 end
+  end
+  local want = 2 + LP.players()
+  if #places > 0 and alive < want then
+    for k = 1, want - alive do
+      local p = places[(k - 1) % #places + 1]
+      local ok, e = pcall(NPC.CreateWithAI, "CultistaVolador", p.x, p.y, p.z, LP.T1.LIST, 0)
+      if ok and e then
+        e.bActive = true
+        e.ForceAction = "Aparittion"
+        LP.T1.spawned[#LP.T1.spawned + 1] = e.Name
+      end
+    end
+    Coop.log("patrol: T1 wave, " .. (want - alive) .. " flying cultists")
+  end
+  Game.AddScheduledFunc(Game.GetTime() + LP.T1.EVERY, "CoopPatrol", "CoopPatrol.T1wave")
+end
+
+function LP.players()
+  return CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() or 1
 end
 
 -- T2 cru_catacomb: the children's crypt, walked backwards. The level does not spawn the
@@ -304,6 +341,36 @@ end
 -- T3 cru_chapel: the torture chamber, without the rescue scene (the rescue is the merge).
 function LP.installT3()
   if MapInit and MapInit.PlayTheRescue then MapInit.PlayTheRescue = function() end end
+  -- The chamber's door stays shut until the main group comes (the merge).
+  if MapCallbacks and MapCallbacks.bebes_cruzados_0 then MapCallbacks.bebes_cruzados_0 = function() end end
+  if cfg.role == "host" then Game.AddScheduledFunc(Game.GetTime() + 10, "CoopPatrol", "CoopPatrol.T3wave") end
+end
+
+-- T3: hold the torture chamber; the children come back in waves at their own places.
+LP.T3 = {LIST = "bebes_cruzados", spawned = {}, EVERY = 40}
+
+function LP.T3wave()
+  if not cfg.inst or Coop.level ~= "levels/cru_chapel" then return end
+  local t = LP.T3
+  if not t.started then
+    t.started = true
+    NPC.ActivateEnemyGroup(t.LIST)
+    Coop.log("patrol: T3 the children attack")
+  elseif not LP.groupAlive(t.LIST) then
+    local g = NPC.Groups[t.LIST]
+    local places = {}
+    for i = 1, #(g or {}) do
+      if g[i] and g[i].bValidBaseType and g[i].Pos then places[#places + 1] = g[i].Pos end
+    end
+    local n = 2 + LP.players()
+    for k = 1, math.min(n, #places) do
+      local p = places[k]
+      local ok, e = pcall(NPC.CreateWithAI, "GhostChildCruzader", p.x, p.y, p.z, t.LIST, 1)
+      if ok and e then e.bActive = true end
+    end
+    Coop.log("patrol: T3 wave of " .. math.min(n, #places))
+  end
+  Game.AddScheduledFunc(Game.GetTime() + t.EVERY, "CoopPatrol", "CoopPatrol.T3wave")
 end
 
 -- The chapel's rescue scene plays on every load of the level; in the trio's chapel segment it

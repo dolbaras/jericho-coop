@@ -670,6 +670,12 @@ Coop.log("coop.lua loaded level=" .. Coop.level .. " role=" .. tostring(cfg.role
 
 function Coop.menuLoad()
   cfg.loaded = true
+  -- Tests: start the level at a given spawn point (checkpoint).
+  if cfg.dev and cfg.prespawn then
+    local var = "level." .. string.lower(cfg.level) .. ".Spawn.Point"
+    Game.CreateSaveVar(var, tostring(cfg.prespawn))
+    Game.SetSaveVar(var, tostring(cfg.prespawn))
+  end
   Game.Set("InitLuaLine", COOP_BOOT_LINE())
   Coop.log("loading " .. cfg.level)
   Game.LoadLevel("Levels/" .. cfg.level)
