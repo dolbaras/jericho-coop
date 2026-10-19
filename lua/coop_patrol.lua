@@ -173,6 +173,10 @@ end
 function LP.installSide()
   if LP.sideHooked == Coop.level then return end
   LP.sideHooked = Coop.level
+  local seg = Coop.level == "levels/cru_river" and "t1" or Coop.level == "levels/cru_catacomb" and "t2" or
+              Coop.level == "levels/cru_chapel" and "t3" or nil
+  -- The trio's bodies first (the crypt creates them), then the main group's go.
+  if seg == "t2" then LP.installT2(cfg.role == "host") end
   for _, n in ipairs(LP.MAIN) do
     local e = Game.GetEntity(n)
     if e then
@@ -191,11 +195,36 @@ function LP.installSide()
       end
     end
   end
-  local seg = Coop.level == "levels/cru_river" and "t1" or Coop.level == "levels/cru_catacomb" and "t2" or
-              Coop.level == "levels/cru_chapel" and "t3" or nil
   if seg then Scorer.SetMsgText(LP.text(seg), Game.GetTime() + 8) end
   if seg == "t1" then LP.installT1() elseif seg == "t3" then LP.installT3() end
   Coop.log("patrol: segment " .. tostring(seg) .. " in " .. Coop.level)
+end
+
+-- A squad member the level did not spawn (cru_catacomb loads the trio's classes but spawns
+-- only Delgado, Church and Black): create the body as Team.CreateTeam does, with its squad
+-- AI and its first-person set.
+LP.TEAM_OF = {Jones = "Alpha", Cole = "Alpha", Delgado = "Alpha", Church = "Omega", Rawlings = "Omega", Black = "Omega"}
+
+function LP.createBody(name, pos, yaw)
+  if Game.GetEntity(name) then return Game.GetEntity(name) end
+  if not Act.GetClass(name) then
+    Coop.log("patrol: no class for " .. name .. " in this level")
+    return nil
+  end
+  local team = LP.TEAM_OF[name]
+  Team.Data[team] = Team.Data[team] or {}
+  Team.Data[team][name] = {pos, yaw or 0}
+  Team.CreateMainChar(name, name, pos, yaw or 0, team)
+  local ok, err = pcall(function()
+    AISpec.CreateAI(name, 1, name, 0)
+    AITeamList.InsertMember(team, AISquad.Name, name)
+    AIMemberSquad.Init(Game.GetEntity(name), team, Team.Data[team])
+  end)
+  if not ok then Coop.log("patrol: AI for " .. name .. " failed: " .. tostring(err)) end
+  local okFP, errFP = pcall(BuildFP.LoadSet, name)
+  if not okFP then Coop.log("patrol: first-person set for " .. name .. " failed: " .. tostring(errFP)) end
+  Coop.log("patrol: created " .. name .. " at " .. Coop.v3(pos))
+  return Game.GetEntity(name)
 end
 
 -- T1 cru_river: the riverbed. Behemoth_03 belongs to Church's QTE: it stays asleep.
@@ -212,9 +241,75 @@ function LP.installT1()
   end
 end
 
+-- T2 cru_catacomb: the children's crypt, walked backwards. The level does not spawn the
+-- trio: every trio machine creates the three bodies in the last children's room (where the
+-- ghost children of Enemy_Group stand) and its player moves in. The main group's triggers
+-- and group callbacks of the crypt are off here; the authority wakes the children's groups
+-- in reverse order as each one dies.
+LP.T2 = {spots = {"Enemy506", "Enemy536", "Enemy521"}, order = {"Enemy_Group", "Enemy_Group_nens2", "Enemy_Group_nens1"}}
+
+function LP.installT2(isAuth)
+  for _, cb in ipairs({"Enemy_Group_3", "Enemy_Group_nens1_0", "Enemy_Group_nens2_0", "AreaTrigger1354_0",
+                       "AreaTrigger1335_1", "AreaTrigger1336_1", "ninyos4_0", "Next_Level_0"}) do
+    if MapCallbacks and MapCallbacks[cb] then MapCallbacks[cb] = function() end end
+  end
+  local trio = {"Jones", "Cole", "Rawlings"}
+  -- Together, a little away from the first child's spot.
+  local spot = Game.GetEntity(LP.T2.spots[1])
+  local base = spot and spot.Pos or V3D(126, 190, -9275)
+  for i, n in ipairs(trio) do
+    LP.createBody(n, V3D(base.x + 250 + (i - 2) * 90, base.y, base.z + 250), 0)
+  end
+  -- Into the trio's own body (the start switch ran before the bodies existed).
+  local want, me = cfg.char, Coop.localChar()
+  if want and LP.TRIO[want] and me ~= want then
+    local locks = Team.UnavaliablePlayers
+    if locks then locks[want] = nil end
+    Coop.log("patrol: into " .. want .. ": " .. tostring(Team.SwitchSoldier(me, want)))
+  end
+  if isAuth then
+    LP.T2.step = 0
+    Game.AddScheduledFunc(Game.GetTime() + 6, "CoopPatrol", "CoopPatrol.T2next")
+  end
+end
+
+function LP.groupAlive(name)
+  local g = NPC and NPC.Groups and NPC.Groups[name]
+  if not g then return false end
+  for i = 1, #g do
+    local e = g[i]
+    if e and e.bValidBaseType and e.bActive and (e.Life or 0) > 0 then return true end
+  end
+  return false
+end
+
+function LP.T2next()
+  local t = LP.T2
+  local cur = t.order[t.step]
+  if cur and LP.groupAlive(cur) then
+    Game.AddScheduledFunc(Game.GetTime() + 2, "CoopPatrol", "CoopPatrol.T2next")
+    return
+  end
+  t.step = t.step + 1
+  local g = t.order[t.step]
+  if not g then
+    Coop.log("patrol: T2 crypt cleared")
+    return
+  end
+  Coop.log("patrol: T2 wakes " .. g)
+  NPC.ActivateEnemyGroup(g)
+  Game.AddScheduledFunc(Game.GetTime() + 8, "CoopPatrol", "CoopPatrol.T2next")
+end
+
 -- T3 cru_chapel: the torture chamber, without the rescue scene (the rescue is the merge).
 function LP.installT3()
   if MapInit and MapInit.PlayTheRescue then MapInit.PlayTheRescue = function() end end
+end
+
+-- The chapel's rescue scene plays on every load of the level; in the trio's chapel segment it
+-- is left out (it plays at the merge). Hooked into the scene layer, which sees it first.
+if CoopEnemies then
+  CoopEnemies.dropScene = function(class) return cfg.inst ~= nil and class == "TheRescue" end
 end
 
 function LP.onMessage(peer, f)

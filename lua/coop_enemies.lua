@@ -293,6 +293,12 @@ E.readyPeers = {}
 
 function E.expectedPeers()
   if Coop.cfg.waitpeers then return Coop.cfg.waitpeers end
+  -- A side instance (coop_inst.lua) waits for its own players only.
+  if Coop.cfg.inst then
+    local n = 0
+    for _ in string.gmatch(Coop.cfg.instIds or "", "%d+") do n = n + 1 end
+    return math.max(0, n - 1)
+  end
   local n = 0
   for item in string.gmatch(Coop.cfg.seats or "", "[^;]+") do
     if not string.find(item, "^0:") then n = n + 1 end
@@ -335,6 +341,11 @@ function E.installSceneHost()
   for mode, fname in pairs(E.SCENE_FUNCS) do
     local orig = Scene[fname]
     Scene[fname] = function(class, ...)
+      -- Scenes a story line leaves out (the Lost Patrol's chapel segment skips TheRescue).
+      if E.dropScene and E.dropScene(class) then
+        Coop.log("scene " .. tostring(class) .. " left out here")
+        return false
+      end
       if not E.inEndOfScene and not E.inReplay and not E.gateOpen() then
         E.heldScenes = E.heldScenes or {}
         table.insert(E.heldScenes, {fname = fname, class = class, args = {...}})
@@ -420,6 +431,7 @@ function E.installSceneClient()
     local orig = Scene[fname]
     E["scene_" .. fname] = orig
     Scene[fname] = function(class, ...)
+      if E.dropScene and E.dropScene(class) then return false end
       if Coop.fromHost or E.inEndOfScene or E.inReplay then
         if mode ~= "play" then E.beforeFpScene(class) end
         return orig(class, ...)

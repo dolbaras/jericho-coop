@@ -689,3 +689,39 @@ if cfg.menuprobe and Coop.level == "levels/menu" then
     end
   end
 end
+
+-- 'charprobe': log the squad's bodies (exists, active, life, place) after the level start.
+if cfg.charprobe and Coop.level ~= "levels/menu" then
+  local prevChar = Coop.dev
+  function Coop.dev()
+    if prevChar then prevChar() end
+    if Coop.frame ~= 80 then return end
+    for _, n in ipairs({"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black", "Ross"}) do
+      local e = Game.GetEntity(n)
+      if e then
+        Coop.log(string.format("charprobe %s active=%s Active=%s life=%s pos=%s", n, tostring(e.bActive), tostring(e.Active), tostring(e.Life), Coop.v3(e.Pos)))
+      else
+        Coop.log("charprobe " .. n .. " missing")
+      end
+    end
+  end
+end
+
+-- 'trioprobe': create Jones next to the player (CoopPatrol.createBody) and switch into him.
+if cfg.trioprobe and Coop.level ~= "levels/menu" then
+  local prevTrio = Coop.dev
+  function Coop.dev()
+    if prevTrio then prevTrio() end
+    local usr = Game.UsrEntity(0)
+    if Coop.frame == 100 and usr and CoopPatrol then
+      local e = CoopPatrol.createBody("Jones", usr.Pos + V3D(150, 0, 0), usr.Ang.y)
+      Coop.log("trioprobe: Jones " .. tostring(e ~= nil))
+    elseif Coop.frame == 200 and usr then
+      Coop.log("trioprobe: switch " .. tostring(Team.SwitchSoldier(usr.Name, "Jones")))
+    elseif Coop.frame == 400 then
+      local j = Game.GetEntity("Jones")
+      Coop.log("trioprobe: me=" .. tostring(Coop.localChar()) .. " jones life=" .. tostring(j and j.Life) ..
+               " pos=" .. tostring(j and Coop.v3(j.Pos)) .. " fp=" .. tostring(j and j.oFPSEntity ~= nil))
+    end
+  end
+end
