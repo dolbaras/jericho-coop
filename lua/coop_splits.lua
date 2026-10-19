@@ -9,6 +9,8 @@
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
 --   G6 wwii_brandenburg "The gate top": Cole and Rawlings players stay active on the gate top
 --      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
+--   G15 sum_end "Break the blood link": players bound by the First Born's rune struggle free
+--      (hold E) and fight on; the kill stays Church's.
 --   G11 rom_palace_01 "Alone on the far side": after Church's crossing legionaries emerge on
 --      his side; the others cover him from the edge; the plates work once the wave is down.
 --
@@ -33,6 +35,7 @@ Sp.TEXT = {
     delgado_back = "Delgado is behind the door. Get ready.",
     abyss1 = "The legion door opens again! Cover Church from the edge.",
     abyss2 = "Church's side is clear. Stand on the plates.",
+    struggle = "The blood link holds you. Hold E to break free (%d%%)",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -46,6 +49,7 @@ Sp.TEXT = {
     delgado_back = "Дельгадо за дверью. Приготовьтесь.",
     abyss1 = "Дверь легиона снова открывается! Прикройте Чёрча с края.",
     abyss2 = "На стороне Чёрча чисто. Встаньте на плиты.",
+    struggle = "Кровавая связь держит вас. Удерживайте E, чтобы вырваться (%d%%)",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -546,12 +550,131 @@ function Sp.installG6(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- G15 sum_end: "Break the blood link" (docs/story/act45-splits.md section 8)
+-- In the final phase the First Born's blood rune binds Black, Delgado and Rawlings
+-- (stunned, forever) and the kill is Church's. In co-op each bound player struggles: hold
+-- the use key (E) for a few seconds to break the link and fight on; a new rune binds again.
+-- The kill stays Church's (coop_story.lua resolves "the player is Church").
+--   spstun|<char>   host -> all: <char> is bound (its holder struggles)
+--   spfree|<char>   holder -> host -> all: <char> broke free
+------------------------------------------------------------------------------
+
+Sp.G15 = {bound = {"Black", "Delgado", "Rawlings"}, freed = {}, HOLD = 6, struggle = nil, told = {}}
+
+function Sp.G15stun(e)
+  e.oAI.bEnable = false
+  if e.Action ~= "Stupid" and e.Action ~= "StupidInit" then e.ForceAction = "StupidInit" end
+end
+
+-- Host: vanilla re-applies the stun every 0.1 s; members who broke free are skipped until
+-- the next rune, and each bound holder is told once per rune.
+function Sp.G15schedule()
+  local g = Sp.G15
+  Team.UnavaliablePlayers = Team.UnavaliablePlayers or {}
+  for _, n in ipairs(g.bound) do
+    local e = Game.GetEntity(n)
+    if e and not g.freed[n] then
+      if not Coop.isRemoteOwned(n) then Sp.G15stun(e) end
+      Team.UnavaliablePlayers[n] = true
+      if human(n) and not g.told[n] then
+        g.told[n] = true
+        Net.CoopSend(-1, 1, "spstun|" .. n)
+        Sp.G15onStun(n)
+      end
+    end
+  end
+  Game.AddScheduledFunc(Game.GetTime() + 0.1, "", "EvilFirstBorn.SchMakeAllUnavailable")
+end
+
+-- Any machine: its own bound body starts the struggle.
+function Sp.G15onStun(n)
+  if n ~= Coop.localChar() then return end
+  local e = Game.GetEntity(n)
+  if e then
+    e.IgnoreUsrControl = 1
+    Sp.G15stun(e)
+  end
+  Sp.G15.struggle = {char = n, held = 0}
+  Coop.log("split G15: " .. n .. " is bound, struggle")
+end
+
+function Sp.G15onFree(n)
+  Sp.G15.freed[n] = true
+  if Team.UnavaliablePlayers then Team.UnavaliablePlayers[n] = nil end
+  local e = Game.GetEntity(n)
+  if e then e.ForceAction = "StupidEnd" end
+  if n == Coop.localChar() and e then e.IgnoreUsrControl = 0 end
+  Coop.log("split G15: " .. n .. " broke free")
+  if Coop.isHost() then
+    -- Fight the stolen powers: wake the First Born's helpers if the engine left them idle.
+    for _, h in ipairs({"EvilAbabanili", "EGHBlack", "EGHChurch", "EGHDelgado"}) do
+      local x = Game.GetEntity(h)
+      if x and x.bActive == false and (x.Life or 0) > 0 then x.bActive = true end
+    end
+    Sp.radio(n, "Help_Church")
+  end
+end
+
+function Sp.G15updateStruggle(dt)
+  local s = Sp.G15.struggle
+  local it = Scorer.GetItem(0, "CoopSplit")
+  if not s then return end
+  if Net.CoopKey(0x45) == 1 then s.held = s.held + dt end
+  if s.held >= Sp.G15.HOLD then
+    Sp.G15.struggle = nil
+    if it then it.Visible = 0 end
+    if Coop.isHost() then
+      Net.CoopSend(-1, 1, "spfree|" .. s.char)
+    else
+      Net.CoopSend(0, 1, "spfree|" .. s.char)
+    end
+    Sp.G15onFree(s.char)
+    return
+  end
+  if not it then
+    it = Scorer.NewItem(0, "CoopSplit", "Text")
+    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
+    it.Color = Color(255, 120, 120, 255)
+    it.Effect = "Shadow"
+    it.Pos = V2D(320, 90)
+  end
+  it.Text = string.format(Sp.text("struggle"), math.floor(100 * s.held / Sp.G15.HOLD))
+  it.CentralText = 1
+  it.Visible = 1
+end
+
+function Sp.installG15(isHost)
+  if not isHost or not EvilFirstBorn or Sp.hooked["G15"] then return end
+  Sp.hooked["G15"] = true
+  EvilFirstBorn.SchMakeAllUnavailable = function()
+    if not Coop.inSession() then return Sp.G15schedule() end
+    Sp.G15schedule()
+  end
+  -- A new rune binds everyone again.
+  Sp.after("EvilFirstBorn.DoBloodRune", function()
+    Sp.G15.freed, Sp.G15.told = {}, {}
+  end)
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
-             ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6}
+             ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6,
+             ["levels/sum_end"] = Sp.installG15}
 
 function Sp.onMessage(peer, f)
-  if f[1] == "spc" and Coop.isClient() then
+  if f[1] == "spstun" and Coop.isClient() then
+    Sp.G15onStun(f[2])
+    return true
+  elseif f[1] == "spfree" then
+    -- From the holder (to the host, which tells everyone) or from the host.
+    if Coop.isHost() then
+      if Coop.ownerOf(f[2] or "") ~= peer then return true end
+      Net.CoopSend(-1, 1, "spfree|" .. f[2])
+    end
+    if f[2] ~= Coop.localChar() then Sp.G15onFree(f[2]) end
+    return true
+  elseif f[1] == "spc" and Coop.isClient() then
     Sp.offer(f[2])
     return true
   elseif f[1] == "spn" and Coop.isClient() then
@@ -566,4 +689,5 @@ end
 function Sp.update()
   if Sp.LEVELS[Coop.level] and MapCallbacks and MapInit then Sp.LEVELS[Coop.level](Coop.isHost()) end
   Sp.updateChoice()
+  if Sp.G15.struggle then Sp.G15updateStruggle(Coop.TICK) end
 end
