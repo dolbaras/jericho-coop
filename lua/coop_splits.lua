@@ -5,6 +5,8 @@
 --   G8 cru_sewers "Hold the gate": Church climbs alone; Black and Delgado stay active below
 --      and hold the jumpers' hall against waves (the level's own generators, re-armed) in
 --      three phases that follow Church's progress, until Church opens the door.
+--   G10 rom_caldarium "The Torturers' Hall": Delgado walks through the fire alone; the others
+--      stay active and hold the pinned hall against cultists emerging from the blood pits.
 --
 -- Messages:
 --   spc|<split>|<target>     host -> all: choose (shown to the players the split leaves behind)
@@ -21,6 +23,10 @@ Sp.TEXT = {
     hold2 = "Second wave! Hold until Church opens the door.",
     hold3 = "They come from below! Keep Church's way back open.",
     held = "The door is open. Church is back.",
+    hall1 = "Cultists crawl out of the blood pits! Hold the hall until Delgado gets through.",
+    hall2 = "More of them! Delgado is past the first door.",
+    hall3 = "They keep coming. Delgado is close to the lever.",
+    delgado_back = "Delgado is behind the door. Get ready.",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -28,6 +34,10 @@ Sp.TEXT = {
     hold2 = "Вторая волна! Держитесь, пока Чёрч не откроет дверь.",
     hold3 = "Они лезут снизу! Не дайте отрезать Чёрчу путь назад.",
     held = "Дверь открыта. Чёрч вернулся.",
+    hall1 = "Культисты лезут из кровавых ям! Держите зал, пока Дельгадо идёт через огонь.",
+    hall2 = "Их ещё больше! Дельгадо прошёл первую дверь.",
+    hall3 = "Они не кончаются. Дельгадо уже у рычага.",
+    delgado_back = "Дельгадо за дверью. Приготовьтесь.",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -49,6 +59,7 @@ end
 Sp.SPLITS = {
   -- split id = {goes on, stays behind}
   G8 = {goes = "Church", stays = {Black = true, Delgado = true}},
+  G10 = {goes = "Delgado", stays = {Black = true, Church = true, Cole = true, Jones = true, Rawlings = true}},
 }
 
 function Sp.offer(id)
@@ -161,7 +172,9 @@ function Sp.after(path, fn)
   local tname, fname = string.match(path, "^([%w_]+)%.([%w_]+)$")
   local tbl = _G[tname]
   local f = tbl and tbl[fname]
-  if type(f) ~= "function" or (Sp.hooked[tbl] and Sp.hooked[tbl][fname] == f) then return end
+  -- Once per name: the Lua state is rebuilt on every level load, and other modules wrap
+  -- the same functions later (CoopWorld), so the function itself is not a reliable mark.
+  if type(f) ~= "function" or Sp.hooked[path] then return end
   local orig = f
   local w = function(...)
     local r = {orig(...)}
@@ -170,10 +183,9 @@ function Sp.after(path, fn)
     return unpack(r)
   end
   tbl[fname] = w
-  Sp.hooked[tbl] = Sp.hooked[tbl] or {}
-  Sp.hooked[tbl][fname] = w
+  Sp.hooked[path] = true
 end
-Sp.hooked = setmetatable({}, {__mode = "k"})
+Sp.hooked = {}
 
 ------------------------------------------------------------------------------
 -- G8 cru_sewers: "Hold the gate"
@@ -203,7 +215,8 @@ function Sp.G8phase(n)
   end
 end
 
-function Sp.installG8()
+function Sp.installG8(isHost)
+  if not isHost then return end
   -- Church starts the climb (use object or area trigger): the choice, then phase 1 when
   -- the scene hands control back.
   local function climb()
@@ -235,8 +248,100 @@ function Sp.installG8()
 end
 
 ------------------------------------------------------------------------------
+-- G10 rom_caldarium: "The Torturers' Hall" (docs/story/act45-splits.md section 3)
+-- Delgado walks through the fire alone (vanilla, fire-proof). The others stay active in the
+-- pinned hall (vanilla freezes them with Active = 0) and hold it against cultists emerging
+-- from the blood pits, in waves tied to Delgado's route, until he drops down by the lever.
+------------------------------------------------------------------------------
 
-Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8}
+Sp.G10 = {stays = {Black = true, Church = true, Cole = true, Jones = true, Rawlings = true},
+          list = {"Black", "Church", "Cole", "Jones", "Rawlings"}}
+-- Hall spawn points of melee_emb_final (vanilla uses them only after the lever) and ke_putada.
+Sp.G10.PITS = {V3D(-30527, -176, -5569), V3D(-30755, -159, -5557), V3D(-30502, -166, -5250)}
+Sp.G10.FAR = V3D(-32276, 165, -5533)
+Sp.G10.LIST = "Primer_cultista_torturador"   -- activated at the same step, no story callback
+
+-- Vanilla freezes the five (fire exit, checkpoint loads); a body a human holds stays active.
+-- Runs on every machine: clients replay the callback on their own copies.
+function Sp.G10keepHumans()
+  for _, n in ipairs(Sp.G10.list) do
+    local e = Game.GetEntity(n)
+    if e and human(n) then e.Active = 1 end
+  end
+end
+
+function Sp.G10spawn(class, pos, n)
+  for k = 1, n do
+    local p = pos or Sp.G10.PITS[(k - 1) % #Sp.G10.PITS + 1]
+    local ok, e = pcall(NPC.CreateWithAI, class, p.x + (k - 1) * 40, p.y, p.z, Sp.G10.LIST, 1)
+    if ok and e then
+      e.bActive = true
+      e.ForceAction = "Emerge"
+    else
+      Coop.log("split G10: spawn " .. class .. " failed: " .. tostring(e))
+    end
+  end
+end
+
+function Sp.G10wave(n)
+  local g = Sp.G10
+  local hall = Sp.humansIn(g.stays)
+  if hall == 0 or g.phase == "done" or (g.phase or 0) >= n then return end
+  g.phase = n
+  Coop.log("split G10: wave " .. n .. ", " .. hall .. " player(s) in the hall")
+  if n == 1 then
+    Sp.G10spawn("CultistaMelee", nil, 2 + hall)
+    Sp.notice("hall1", g.list)
+    Sp.radio("Black", "150_L4_Hot_Coals")
+  elseif n == 2 then
+    Sp.G10spawn("CultistaMelee", nil, 1 + hall)
+    Sp.G10spawn("CultistaExplosivo", g.FAR, 1)
+    Sp.notice("hall2", g.list)
+    Sp.radio("Jones", "Enemy_Ambush")
+  elseif n == 3 then
+    Sp.G10spawn("CultistaMelee", nil, 2 + hall)
+    Game.AddScheduledFunc(Game.GetTime() + 6, "CoopSplitG10", "CoopSplits.G10late")
+    Sp.notice("hall3", g.list)
+    Sp.radio("Rawlings", "Under_Heavy_Fire")
+  end
+end
+
+function Sp.G10late()
+  if Sp.G10.phase ~= "done" then
+    Sp.G10spawn("CultistaMelee", nil, 1)
+    Sp.G10spawn("CultistaExplosivo", Sp.G10.FAR, 1)
+  end
+end
+
+function Sp.installG10(isHost)
+  Sp.after("MapCallbacks.AreaTriggerOutFire_0", function()
+    Sp.G10keepHumans()
+    if isHost then Sp.G10wave(1) end
+  end)
+  Sp.after("MapInit.SetSoloMission", Sp.G10keepHumans)
+  if not isHost then return end
+  Sp.after("MapCallbacks.AreaTrigger_Fire_0", function()
+    if not Sp.G10.offered then
+      Sp.G10.offered = true
+      Net.CoopSend(-1, 1, "spc|G10")
+      Sp.offer("G10")
+    end
+  end)
+  Sp.after("MapCallbacks.puerta_delgado_1_0", function() Sp.G10wave(2) end)
+  Sp.after("MapCallbacks.AreaTrigger308_0", function() Sp.G10wave(3) end)
+  Sp.after("MapCallbacks.AreaTriggerDelgadoCae_0", function()
+    if Sp.G10.phase and Sp.G10.phase ~= "done" then
+      Sp.G10.phase = "done"
+      Sp.notice("delgado_back", Sp.G10.list)
+      Sp.radio("Black", "161_L4_Lift_Door")
+      Coop.log("split G10: Delgado is back")
+    end
+  end)
+end
+
+------------------------------------------------------------------------------
+
+Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10}
 
 function Sp.onMessage(peer, f)
   if f[1] == "spc" and Coop.isClient() then
@@ -252,6 +357,6 @@ function Sp.onMessage(peer, f)
 end
 
 function Sp.update()
-  if Coop.isHost() and Sp.LEVELS[Coop.level] and MapCallbacks then Sp.LEVELS[Coop.level]() end
+  if Sp.LEVELS[Coop.level] and MapCallbacks and MapInit then Sp.LEVELS[Coop.level](Coop.isHost()) end
   Sp.updateChoice()
 end
