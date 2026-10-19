@@ -650,3 +650,26 @@ if cfg.skipscenes and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'trigseq': story steps one after another (host), e.g. the G8 test:
+--   trigseq={{'MapCallbacks.TriggerEscalada_0',100,'Church','TriggerEscalada'},{'MapCallbacks.TriggerBloodWar_3',900},...}
+-- each item: function path, ticks after the previous step, then its arguments.
+if cfg.trigseq and Coop.isHost() and Coop.level ~= "levels/menu" then
+  local prevSeq = Coop.dev
+  local step, nextAt = 1, nil
+  function Coop.dev()
+    if prevSeq then prevSeq() end
+    local item = cfg.trigseq[step]
+    if not item then return end
+    if Scene and Scene.IsPlaying and not cfg.seqinscene then return end
+    nextAt = nextAt or (Coop.frame + (item[2] or 100))
+    if Coop.frame < nextAt then return end
+    step, nextAt = step + 1, nil
+    local ok, fn = pcall(loadstring("return " .. item[1]))
+    Coop.log("trigseq " .. (step - 1) .. ": " .. item[1] .. (ok and fn and "" or " (not found)"))
+    if ok and type(fn) == "function" then
+      local r, err = pcall(fn, unpack(item, 3))
+      if not r then Coop.log("trigseq error: " .. tostring(err)) end
+    end
+  end
+end
