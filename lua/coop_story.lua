@@ -130,6 +130,10 @@ end
 -- wrapped call UsrEntity(0) resolves to:
 --   char = "Church"   that character, if any human holds it (else vanilla: the local body)
 --   attacker = 2      the attacker named by argument 2, if a human holds it
+--   triggered = 2     the body that entered the area trigger (argument 2 = Playerid), if human
+--   pick = function   custom choice
+-- clientNoop: do nothing on clients (story steps the host decides and replicates);
+-- clientNoSwitch: on clients run it without its forced Team.SwitchSoldier.
 ------------------------------------------------------------------------------
 
 local function humanBody(name)
@@ -143,7 +147,17 @@ St.AS = {
   -- wwii_pillboxes: Rawlings tutorial group.
   {"MapInit", "ActivateBigFuckerGroup", char = "Rawlings", level = "wwii_pillboxes"},
   -- rom_outskirts: CenturiansTale starts as soon as a human holds Rawlings.
-  {"MapInit", "BeginPlayScene", char = "Rawlings", level = "rom_outskirts"},
+  {"MapInit", "BeginPlayScene", char = "Rawlings", level = "rom_outskirts", clientNoop = true},
+  -- cru_labyrinth: the last speech plays when Black looks at the prisoner; the bridge hitter
+  -- takes damage only from the right side of the chasm (the attacker's, not the host's).
+  {"MapCallbacks", "TriggerLastScene_0", char = "Black", level = "cru_labyrinth"},
+  {"MapCallbacks", "bridgeBHitter4_1", attacker = 2, level = "cru_labyrinth"},
+  -- rom_chamber: any player entering starts the walk to Vicus.
+  {"MapCallbacks", "AreaTrigger43_0", triggered = 2, level = "rom_chamber"},
+  -- sum_ziggurat_02: the vortex leaves only Black playable; vanilla switches "the player" to
+  -- him on every machine. Clients must not grab Black for themselves.
+  {"MapInit", "Init", level = "sum_ziggurat_02", clientNoSwitch = true},
+  {"MapCallbacks", "trigDisableBlack_0", char = "Black", level = "sum_ziggurat_02"},
   -- sum_ziggurat_04: the squad walks to the urn; the fight goes on when "the player"
   -- arrives, and only Black, Delgado or Jones count (as the host's Rawlings it never did).
   {"MapInit", "ReposSquad", level = "sum_ziggurat_04", pick = function()
@@ -198,10 +212,24 @@ function St.installAs()
       local orig = f
       local w = function(...)
         if not Coop.inSession() then return orig(...) end
+        if spec.clientNoop and Coop.isClient() then return end
+        if spec.clientNoSwitch and Coop.isClient() then
+          local sw = Team.SwitchSoldier
+          Team.SwitchSoldier = function() return false end
+          local r = {pcall(orig, ...)}
+          Team.SwitchSoldier = sw
+          if not r[1] then error(r[2], 0) end
+          return unpack(r, 2)
+        end
         local who
         if spec.pick then who = spec.pick(...)
         elseif spec.char then who = humanBody(spec.char)
-        elseif spec.attacker then who = humanBody((select(spec.attacker, ...))) end
+        elseif spec.attacker then who = humanBody((select(spec.attacker, ...)))
+        elseif spec.triggered then
+          local ok, nam = pcall(Game.GetTriggeredEntity, (select(spec.triggered, ...)))
+          if CoopWorld and CoopWorld.replaying then nam = CoopWorld.replayTriggered end
+          who = ok and humanBody(nam) or nil
+        end
         return St.asPlayer(who, orig, ...)
       end
       St.markKind(w, orig, "as")
@@ -427,11 +455,24 @@ function St.onEvict(f)
   end
 end
 
+-- cru_chapel: the squad gathers around Maltheus; AI on/off and moves apply to AI bodies only
+-- (a remote player's body is driven by its owner).
+function St.installChapel()
+  if Coop.level ~= "levels/cru_chapel" or not MapInit or not MapInit.MemberOnOff or St.chapelHooked == MapInit then return end
+  St.chapelHooked = MapInit
+  local orig = MapInit.MemberOnOff
+  MapInit.MemberOnOff = function(name, ...)
+    if Coop.inSession() and Coop.isRemoteOwned(name) then return end
+    return orig(name, ...)
+  end
+end
+
 function St.update()
   St.installWalks()
   St.installAs()
   St.installEvents()
   St.installFire()
+  St.installChapel()
   if Coop.isHost() then
     St.installFirstBorn()
     if Coop.frame % 20 == 0 then St.evictCheck() end

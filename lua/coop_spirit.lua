@@ -8,6 +8,9 @@
 --   * E takes the nearest free squad body, with the squad's own "Ross enters" line.
 -- (No square brackets in on-screen text: the engine treats "[...]" as markup.)
 --   mark|<entity>    any -> host -> everyone
+-- A story may run the spirit as a soul on a path instead (P.startSoul: Rawlings' soul in
+-- wwii_pillboxes, coop_splits.lua G4): it starts at a given place, is leashed to the path's
+-- points instead of the squad, shows the story's hint, and E belongs to the story.
 -- Jones' AstralCam was tried first: the engine places it from its linked entity, and a
 -- stale position left it outside the level's sectors (nothing but sky drawn).
 CoopSpirit = {}
@@ -32,6 +35,49 @@ P.TEXT = {
   en = {hint = "SPIRIT:  F - mark enemy,  E - take a free body", none = "no free body"},
   ru = {hint = "ДУХ:  F - отметить врага,  E - занять свободное тело", none = "свободных тел нет"},
 }
+
+-- Why a player is a spirit here: one line when the spirit starts in a level where the story
+-- leaves characters out (docs/coop-story-extensions.md G2, G5, G7, G12-G14).
+P.STORY = {
+  ["levels/alk_bunker_00"] = {
+    en = "Only Ross and Rawlings go down to Muriel. The others guard the way in above.",
+    ru = "К Мюриэль спускаются только Росс и Роулингс. Остальные охраняют вход наверху."},
+  ["levels/wwii_vigil_inside"] = {
+    en = "Only Cole, Church and Rawlings got into the Vigil. You follow them as an echo of Ross.",
+    ru = "В Бдение вошли только Коул, Чёрч и Роулингс. Вы следуете за ними эхом Росса."},
+  ["levels/cru_labyrinth"] = {
+    en = "The bridge took Jones, Cole and Rawlings. The children have them now.",
+    ru = "Мост забрал Джонса, Коула и Роулингса. Теперь они у детей."},
+  ["levels/cru_sewers"] = {
+    en = "Jones, Cole and Rawlings are lost. Their souls are somewhere below.",
+    ru = "Джонс, Коул и Роулингс потеряны. Их души где-то внизу."},
+  ["levels/cru_keep"] = {
+    en = "Jones, Cole and Rawlings are still the children's captives.",
+    ru = "Джонс, Коул и Роулингс всё ещё в плену у детей."},
+  ["levels/cru_catacomb"] = {
+    en = "Somewhere in these catacombs the children hold Jones, Cole and Rawlings.",
+    ru = "Где-то в этих катакомбах дети держат Джонса, Коула и Роулингса."},
+  ["levels/sum_ziggurat_01"] = {
+    en = "Jones is possessed. Fight for his body: stay with the squad.",
+    ru = "Джонс одержим. Боритесь за его тело: держитесь рядом с отрядом."},
+  ["levels/sum_ziggurat_02"] = {
+    en = "The vortex scattered the squad. Search with Black.",
+    ru = "Вихрь раскидал отряд. Ищите вместе с Блэком."},
+  ["levels/sum_ziggurat_03"] = {
+    en = "Delgado and Rawlings are still lost in the vortex.",
+    ru = "Дельгадо и Роулингс всё ещё потеряны в вихре."},
+  ["levels/sum_ziggurat_04"] = {
+    en = "Cole and Church are hidden by the vortex until the end of the ziggurat.",
+    ru = "Коул и Чёрч скрыты вихрем до конца зиккурата."},
+}
+
+function P.storyLine()
+  local t = P.STORY[Coop.level]
+  if not t then return nil end
+  local lang = Coop.lang()
+  local s = t[lang] or t.en
+  return lang == "ru" and Coop.cp1251(s) or s
+end
 
 function P.text(key)
   local lang = Coop.lang()
@@ -80,14 +126,40 @@ local function forward()
   return V3D(-math.sin(y) * math.cos(e), math.sin(e), -math.cos(y) * math.cos(e))
 end
 
+-- Anchors the spirit stays near: the squad, or a soul's path points (as fake entities).
+function P.anchors()
+  if not P.soul then return P.squad() end
+  local list = {}
+  for _, p in ipairs(P.soul.points) do list[#list + 1] = {Pos = p} end
+  return list
+end
+
+function P.startSoul(def)
+  P.soul = def
+  if P.active then P.leave() end
+  P.enter()
+end
+
+function P.endSoul()
+  P.soul = nil
+  if P.active then P.leave() end
+end
+
 function P.enter()
-  local squad = P.squad()
   local usr = Game.UsrEntity(0)
-  local anchor = usr and usr.Pos and nearest(squad, usr.Pos) or squad[1]
-  if not anchor then return end
-  P.yaw, P.el = anchor.Ang.y, -10
-  local f = forward()
-  P.pos = anchor.Pos + V3D(-f.x * 150, 200, -f.z * 150)
+  if P.soul then
+    local a, b = P.soul.points[1], P.soul.points[2] or P.soul.points[1]
+    local d = b - a
+    P.yaw, P.el = math.deg(math.atan2(-d.x, -d.z)), -5
+    P.pos = a + V3D(0, 150, 0)
+  else
+    local squad = P.squad()
+    local anchor = usr and usr.Pos and nearest(squad, usr.Pos) or squad[1]
+    if not anchor then return end
+    P.yaw, P.el = anchor.Ang.y, -10
+    local f = forward()
+    P.pos = anchor.Pos + V3D(-f.x * 150, 200, -f.z * 150)
+  end
   local cam = Game.GetEntity(P.CAM) or Game.CreateEntity(P.CAM, "FCam")
   local main = Game.GetEntity("MainCam")
   if main and main.Fov then cam.Fov = main.Fov end
@@ -107,7 +179,12 @@ function P.enter()
   P.keys = {}
   P.lastSeen, P.lostSince = P.pos, nil
   P.place(cam)
-  Coop.log("spirit: on near " .. anchor.Name)
+  local story = not P.soul and P.storyLine()
+  if story and not P.storyShown then
+    P.storyShown = true
+    P.flash = {text = story, untilT = Net.CoopTime() + 10}
+  end
+  Coop.log("spirit: on" .. (P.soul and " (soul on a path)" or ""))
 end
 
 function P.leave()
@@ -170,12 +247,13 @@ function P.frame(dt)
     local probe = P.pos + V3D(move.x / len * (len + P.WALL_GAP), move.y / len * (len + P.WALL_GAP), move.z / len * (len + P.WALL_GAP))
     if not Game.TestLine(P.pos, probe, "") then P.pos = target end
   end
-  local e = nearest(P.squad(), P.pos)
+  local e = nearest(P.anchors(), P.pos)
+  local radius = P.soul and P.soul.radius or P.RADIUS
   if e then
     local v = P.pos - e.Pos
     local h = math.sqrt(v.x * v.x + v.z * v.z)
-    if h > P.RADIUS then
-      local s = P.RADIUS / h
+    if h > radius then
+      local s = radius / h
       P.pos = V3D(e.Pos.x + v.x * s, P.pos.y, e.Pos.z + v.z * s)
     end
     P.pos = V3D(P.pos.x, math.max(e.Pos.y + P.LOW, math.min(e.Pos.y + P.HIGH, P.pos.y)), P.pos.z)
@@ -273,7 +351,7 @@ function P.updateHud()
     it.Effect = "Shadow"
     it.Pos = V2D(320, 60)
   end
-  local text = P.text("hint")
+  local text = P.soul and P.soul.hint and P.soul.hint() or P.text("hint")
   if P.flash and Net.CoopTime() < P.flash.untilT then text = P.flash.text end
   it.Text = text
   it.CentralText = 1
@@ -294,7 +372,9 @@ function P.update()
     if P.active then P.leave() end
     return
   end
-  if P.bodiless() then
+  if P.soul then
+    if not P.active then P.enter() end
+  elseif P.bodiless() then
     P.since = P.since or Net.CoopTime()
     if not P.active and Net.CoopTime() - P.since > P.ENTER_DELAY then P.enter() end
   else
@@ -306,7 +386,7 @@ function P.update()
     local e = P.lookedAtEnemy()
     if e then P.mark(e.Name, true) end
   end
-  if pressed(P.KEY_TAKE) then P.takeBody() end
+  if not P.soul and pressed(P.KEY_TAKE) then P.takeBody() end
   P.updateHud()
   P.n = (P.n or 0) + 1
   if P.n % 60 == 1 then

@@ -11,6 +11,9 @@
 --      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
 --   G1 (leg C) alk_city "Pinned at the north-east dig": Alpha's players keep their bodies in
 --      their sealed pocket and hold it until Omega breaks through.
+--   G4 wwii_pillboxes "Stations of the Path": a human Rawlings, shot by Delgado, walks his
+--      soul back through three stations while the squad defends his body; the revive
+--      waits for the soul and is the host's (as in vanilla).
 --   G3 alk_bunker_01 "Temporal restoration": a human Cole is the hacker; the restoration
 --      advances while she stays at the console, the others defend her.
 --   G15 sum_end "Break the blood link": players bound by the First Born's rune struggle free
@@ -46,6 +49,14 @@ Sp.TEXT = {
     pinned2 = "More cultists from the dig!",
     pinned3 = "They keep coming. Omega is fighting its way to you.",
     omega_near = "Omega is close: you can hear their guns.",
+    soul_go = "RAWLINGS' SOUL: go back along the Path of Souls - station %d of %d",
+    soul_pray = "Pray: hold E (%d%%)",
+    soul_body = "Return to your body",
+    soul_defend = "Rawlings is down. Hold them off while his soul finds its way back.",
+    soul_station1 = "Rawlings' soul passed the first station. She is losing him.",
+    soul_station2 = "Second station. They push harder!",
+    soul_station3 = "Last station. Rawlings is almost back.",
+    soul_back = "Rawlings' soul is back. Revive him!",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -66,6 +77,14 @@ Sp.TEXT = {
     pinned2 = "Из раскопа лезут ещё культисты!",
     pinned3 = "Они не кончаются. Омега уже прорывается к вам.",
     omega_near = "Омега близко: слышна их стрельба.",
+    soul_go = "ДУША РОУЛИНГСА: вернитесь по Пути душ - станция %d из %d",
+    soul_pray = "Молитва: удерживайте E (%d%%)",
+    soul_body = "Вернитесь к своему телу",
+    soul_defend = "Роулингс пал. Держитесь, пока его душа ищет путь назад.",
+    soul_station1 = "Душа Роулингса прошла первую станцию. Она теряет его.",
+    soul_station2 = "Вторая станция. Они давят сильнее!",
+    soul_station3 = "Последняя станция. Роулингс почти вернулся.",
+    soul_back = "Душа Роулингса вернулась. Оживите его!",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -894,14 +913,181 @@ function Sp.installG1C(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- G4 wwii_pillboxes: "Stations of the Path" (docs/story/act2-splits.md section 2, owner's
+-- decision 2026-10-19). Delgado's shot tears Rawlings' soul out onto Lichthammer's Path of
+-- Souls. With a human Rawlings: his player walks the soul back (spirit flight) from the trap
+-- door through three stations (hold E to pray) to his body; the squad defends the body
+-- against the final Nazi wave, harder at every station; the revive works only once the soul
+-- is back, and it is the host's (Ross's spirit, as in vanilla) - or any other human's when
+-- the host is Rawlings. With an AI Rawlings everything stays vanilla.
+--   spsoul|<1..3>|arrived   soul's machine -> host -> all
+------------------------------------------------------------------------------
+
+Sp.G4 = {START = V3D(-14574, 328, 3218),
+         STATIONS = {V3D(-16728, 391, 5260), V3D(-16035, 439, 6940), V3D(-17887, 434, 8239)},
+         BODY = V3D(-17100, 415, 9112), RADIUS = 300, PRAY = 3,
+         squad = {"Black", "Church", "Cole", "Delgado", "Jones"}}
+
+function Sp.G4on() return Sp.G4.active == true end
+
+-- Revive gate (every machine): Rawlings' body cannot be revived before his soul is back, and
+-- only by the host (or by the others when the host holds Rawlings).
+function Sp.G4canCure(obj)
+  if not Sp.G4on() or not obj or obj.Name ~= "Rawlings" then return true end
+  if not Sp.G4.arrived then return false end
+  if Coop.ownerOf("Rawlings") == 0 then return not Coop.isHost() end
+  return Coop.isHost()
+end
+
+function Sp.G4hint()
+  local g = Sp.G4
+  if g.prayer then
+    return string.format(Sp.text("soul_pray"), math.floor(100 * g.prayer / g.PRAY))
+  end
+  if g.station > #g.STATIONS then return Sp.text("soul_body") end
+  return string.format(Sp.text("soul_go"), g.station, #g.STATIONS)
+end
+
+-- The soul's own machine (Rawlings' holder).
+function Sp.G4startSoul()
+  local g = Sp.G4
+  if g.soulOn or not CoopSpirit then return end
+  g.soulOn, g.station, g.prayer = true, 1, nil
+  local pts = {g.START}
+  for _, p in ipairs(g.STATIONS) do pts[#pts + 1] = p end
+  pts[#pts + 1] = g.BODY
+  CoopSpirit.startSoul({points = pts, radius = 1300, hint = Sp.G4hint})
+  Coop.log("split G4: Rawlings' soul on the Path of Souls")
+end
+
+function Sp.G4soulFrame(dt)
+  local g = Sp.G4
+  if not g.soulOn or not CoopSpirit or not CoopSpirit.pos then return end
+  local target = g.STATIONS[g.station] or g.BODY
+  if cfg.soulauto then
+    -- Test autopilot (dev): fly to the next station and pray there.
+    local v = target - CoopSpirit.pos
+    local l = math.sqrt(v.x * v.x + v.z * v.z)
+    local step = math.min(l, 600 * dt)
+    if l > 1 then CoopSpirit.pos = CoopSpirit.pos + V3D(v.x / l * step, 0, v.z / l * step) end
+  end
+  local pos = CoopSpirit.pos
+  local d = pos - target
+  local near = math.sqrt(d.x * d.x + d.z * d.z) < g.RADIUS
+  if g.station > #g.STATIONS then
+    if near and not g.arrivedSent then
+      g.arrivedSent = true
+      Sp.G4send("arrived")
+    end
+    return
+  end
+  if near and (Net.CoopKey(0x45) == 1 or cfg.soulauto) then
+    g.prayer = (g.prayer or 0) + dt
+    if g.prayer >= g.PRAY then
+      g.prayer = nil
+      Sp.G4send(tostring(g.station))
+      g.station = g.station + 1
+    end
+  elseif not near then
+    g.prayer = nil
+  end
+end
+
+function Sp.G4send(what)
+  if Coop.isHost() then Sp.G4onSoul(what, 0) else Net.CoopSend(0, 1, "spsoul|" .. what) end
+end
+
+-- Every machine learns of the soul's progress; the host also turns it into pressure.
+function Sp.G4onSoul(what, peer)
+  local g = Sp.G4
+  if Coop.isHost() then
+    if peer ~= 0 and Coop.ownerOf("Rawlings") ~= peer then return end
+    Net.CoopSend(-1, 1, "spsoul|" .. what)
+  end
+  if what == "arrived" then
+    g.arrived = true
+    Sp.showNotice("soul_back", g.squad)
+    Coop.log("split G4: the soul is back at the body")
+    if Coop.isHost() then Sp.radio("Rawlings", "Using_PowerTwo", 2) end
+  else
+    local n = tonumber(what) or 0
+    Coop.log("split G4: station " .. n)
+    if Coop.isHost() then
+      pcall(EnemyGen.IncreaseMaxEnemies, "nazis_final")
+      Sp.radio("Rawlings", "Tactical_Flavor", (n - 1) % 2)
+      Sp.notice("soul_station" .. n, g.squad)
+    end
+  end
+end
+
+function Sp.G4begin()
+  local g = Sp.G4
+  if g.active then return end
+  g.active = true
+  Coop.log("split G4: Stations of the Path (Rawlings is a player)")
+  if Coop.isHost() then
+    Sp.rearm("nazis_final", 1 + Sp.humansIn({Black = true, Church = true, Cole = true, Delgado = true, Jones = true}))
+    Sp.notice("soul_defend", g.squad)
+    Sp.radio("Jones", "Help_Rawlings")
+  end
+  if Coop.localChar() == "Rawlings" then Sp.G4startSoul() end
+end
+
+function Sp.G4end()
+  local g = Sp.G4
+  if g.ended then return end
+  g.ended = true
+  if g.soulOn and CoopSpirit then CoopSpirit.endSoul() end
+  g.soulOn = false
+  if Coop.isHost() then pcall(EnemyGen.Stop, "nazis_final", true) end
+  Coop.log("split G4: Rawlings revived")
+end
+
+function Sp.installG4(isHost)
+  if not Sp.hooked["G4"] and Team and Team.CanCure and MapInit.PillBoxOnUse and MapScenes then
+    Sp.hooked["G4"] = true
+    local origCan = Team.CanCure
+    Team.CanCure = function(obj, ...)
+      if not Sp.G4canCure(obj) then return false end
+      return origCan(obj, ...)
+    end
+    -- The wave goes on while Cole is in the pillbox's vision (vanilla kills it there).
+    local origUse = MapInit.PillBoxOnUse
+    MapInit.PillBoxOnUse = function(...)
+      if not (Coop.inSession() and human("Rawlings")) then return origUse(...) end
+      local origStop = EnemyGen.Stop
+      EnemyGen.Stop = function(name, ...) if name ~= "nazis_final" then return origStop(name, ...) end end
+      local ok, err = pcall(origUse, ...)
+      EnemyGen.Stop = origStop
+      if not ok then Coop.log("split G4: PillBoxOnUse error: " .. tostring(err)) end
+    end
+    -- After the shot: no AI-off loop for the squad (it defends the body).
+    local origLoop = MapScenes.DisableAILoop
+    MapScenes.DisableAILoop = function(...)
+      if not Sp.G4on() then return origLoop(...) end
+      pcall(Team.HoldPosMain)
+      pcall(Team.HoldPosSide)
+    end
+  end
+  Sp.after("MapInit.AfterRawlingKilled", function()
+    if Coop.inSession() and human("Rawlings") then Sp.G4begin() end
+  end)
+  Sp.after("MapInit.AfterRawlingHealed", function() if Sp.G4on() then Sp.G4end() end end)
+  if Sp.G4.soulOn then Sp.G4soulFrame(Coop.TICK) end
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
              ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6,
              ["levels/sum_end"] = Sp.installG15, ["levels/alk_bunker_01"] = Sp.installG3,
-             ["levels/alk_city"] = Sp.installG1C}
+             ["levels/alk_city"] = Sp.installG1C, ["levels/wwii_pillboxes"] = Sp.installG4}
 
 function Sp.onMessage(peer, f)
-  if f[1] == "spp" and Coop.isClient() then
+  if f[1] == "spsoul" then
+    Sp.G4onSoul(f[2], peer)
+    return true
+  elseif f[1] == "spp" and Coop.isClient() then
     Sp.G3show(tonumber(f[2]) or 0, f[3] == "1")
     return true
   elseif f[1] == "spchat" and Coop.isClient() then

@@ -27,6 +27,25 @@ Corrections they make to the table below:
 - G15: the final fight has no Arnold Leach adds; the enemies are the Firstborn's stolen powers
   (`EvilAbabanili`, the ghost copies).
 
+## Implementation status (2026-10-19, `lua/coop_splits.lua`)
+
+| Split | Line | State |
+|---|---|---|
+| G1 leg C | alk_city: Alpha holds its pocket until Omega breaks through | written |
+| G1 legs A, B | alk_tomb plateau, bunker_00 east tunnel | not started (need in-game checks of the routes) |
+| G3 | alk_bunker_01: the human Cole hacks the console herself | written |
+| G4 | wwii_pillboxes: Stations of the Path (soul walk, revive gate) | written, tested on the test PC |
+| G6 | wwii_brandenburg: Cole and Rawlings active on the gate top | written (captive "hold" mechanic not yet) |
+| G8 | cru_sewers: Hold the gate (three re-armed waves) | tested on the test PC |
+| G10 | rom_caldarium: The Torturers' Hall | written |
+| G11 | rom_palace_01: legionaries on Church's side after the crossing | tested on the test PC |
+| G15 | sum_end: break the blood link (hold E) | written |
+| G2, G5, G7 (default), G12-G14 | spirit role (`lua/coop_spirit.lua`) | the spirit exists; story subtitles for these splits not yet |
+| G7 Lost Patrol (full) | second host | not started |
+
+"Written" means the code exists and loads in every level (level smoke test) but the line was
+not played through in game yet.
+
 ## Goal
 
 The campaign splits the squad many times: a member leaves, is lost, captured, possessed,
