@@ -28,7 +28,7 @@ CS.SAVE = "coop:save.txt"
 CS.CHECKPOINT = "coop:checkpoint.txt"
 CS.PROGRESS = "coop:progress.txt"
 -- Config values (Game.Get/Set) the campaign scripts change on the way.
-CS.PROTECTED = {"VisitedLevels", "SaveSlotUsed", "SaveGameSlot", "UsrWeaponConfig"}
+CS.PROTECTED = {"VisitedLevels", "SaveSlotUsed", "SaveGameSlot", "UsrWeaponConfig", "GameSkill"}
 
 local function esc(s)
   return (string.gsub(tostring(s), "[%%\t\n\r|]", function(c) return string.format("%%%02X", string.byte(c)) end))

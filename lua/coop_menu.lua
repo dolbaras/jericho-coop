@@ -8,7 +8,7 @@
 --   ready|<0/1>                 client -> host
 --   lobby|<level>|<seats>|<c>   host -> all; seats = "peer:char:ready:nick;...", c=1: continuing
 --   sv|<save>                   host -> all, before start: the save vars (coop_save.lua)
---   start|<level>|<seats>       host -> all; everyone loads <level>
+--   start|<level>|<seats>|<skill>|<scaling>   host -> all; everyone loads <level>
 
 CoopMenu = {}
 local cfg = Coop.cfg
@@ -50,6 +50,8 @@ CoopMenu.TEXT = {
     act = "Character actions", act_players = "players, AI after 30 s", act_humans = "players only",
     act_ai = "AI at once", lan = "Games on the local network:", lan_none = "(searching...)",
     continue = "Continue", continue_from = "Continue from",
+    scaling = "Enemy toughness", scale_off = "as in single player", scale_light = "light (+15% per player)",
+    scale_full = "full (+30% per player)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -64,6 +66,8 @@ CoopMenu.TEXT = {
     act = "Действия персонажей", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
     act_ai = "сразу ИИ", lan = "Игры в локальной сети:", lan_none = "(поиск...)",
     continue = "Продолжить", continue_from = "Продолжение",
+    scaling = "Живучесть врагов", scale_off = "как в одиночной игре", scale_light = "лёгкая (+15% за игрока)",
+    scale_full = "полная (+30% за игрока)",
   },
 }
 
@@ -283,7 +287,9 @@ function CoopMenu.openSession()
   end
   cfg.role = "host"
   cfg.myId = 0
-  CoopMenu.seats = {{peer = 0, char = cfg.want or CoopMenu.CHAR_ORDER[1], ready = false, nick = CoopMenu.myNick()}}
+  -- The host's default seat is Delgado: in the story Ross's spirit enters Delgado when Ross
+  -- dies (alk_final), and the host is Ross in Act 1 (Coop.startChar).
+  CoopMenu.seats = {{peer = 0, char = cfg.want or "Delgado", ready = false, nick = CoopMenu.myNick()}}
   CoopMenu.Lobby()
 end
 
@@ -401,6 +407,9 @@ function CoopMenu.Lobby()
   if Coop.isHost() then
     -- Who does character-only actions nobody holds (coop_claim.lua); the host decides.
     options[#options + 1] = {"", "CoopMenu.CycleActMode"}
+    -- Vanilla difficulty, and how much tougher enemies get per extra player (coop_enemies.lua).
+    options[#options + 1] = {"", "CoopMenu.CycleSkill"}
+    options[#options + 1] = {"", "CoopMenu.CycleScaling"}
     options[#options + 1] = {T("start"), "CoopMenu.Start"}
     options[#options + 1] = {T("close"), "CoopMenu.Leave"}
   else
@@ -444,7 +453,10 @@ function CoopMenu.refreshLobby()
       if s then
         local who = (s.nick and s.nick ~= "") and s.nick or (s.peer == 0 and T("host_name") or (T("player") .. " " .. (s.peer + 1)))
         if s.peer == CoopMenu.myPeer() then who = who .. " " .. T("you") end
-        setText(t, who .. ": " .. s.char .. (s.ready and "  - " .. T("is_ready") or ""))
+        -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
+        local char = s.char
+        if s.peer == 0 and string.find(string.lower(level or ""), "^alk_") then char = "Ross -> " .. char end
+        setText(t, who .. ": " .. char .. (s.ready and "  - " .. T("is_ready") or ""))
       else
         setText(t, "")
       end
@@ -454,9 +466,11 @@ function CoopMenu.refreshLobby()
   setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and me.char or "-") .. " >")
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   setText(item("Itm4"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
-  if Coop.isHost() and item("Itm6") then
+  if Coop.isHost() and item("Itm8") then
     setText(item("Itm5"), T("act") .. ": " .. T("act_" .. (cfg.actmode or "players")))
-    setText(item("Itm6"), CoopMenu.allReady() and T("start") or T("start_wait"))
+    setText(item("Itm6"), CoopMenu.skillText())
+    setText(item("Itm7"), T("scaling") .. ": " .. T("scale_" .. (cfg.scaling or "light")))
+    setText(item("Itm8"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
 end
@@ -527,6 +541,28 @@ end
 
 CoopMenu.ACT_MODES = {"players", "humans", "ai"}
 
+CoopMenu.SKILL_KEYS = {[0] = "Menu_Skill_Easy", [1] = "Menu_Skill_Normal", [2] = "Menu_Skill_Hard"}
+CoopMenu.SCALINGS = {"off", "light", "full"}
+
+-- The game's own strings (already in the game's encoding).
+function CoopMenu.skillText()
+  local skill = cfg.skill or Game.Get("GameSkill") or 1
+  return Game.GetLangStr("Menu_Skill_Level") .. ": " .. Game.GetLangStr(CoopMenu.SKILL_KEYS[skill] or "Menu_Skill_Normal")
+end
+
+function CoopMenu.CycleSkill()
+  cfg.skill = ((cfg.skill or Game.Get("GameSkill") or 1) + 1) % 3
+  CoopMenu.refreshLobby()
+end
+
+function CoopMenu.CycleScaling()
+  local cur = cfg.scaling or "light"
+  for i, m in ipairs(CoopMenu.SCALINGS) do
+    if m == cur then cfg.scaling = CoopMenu.SCALINGS[i % #CoopMenu.SCALINGS + 1] break end
+  end
+  CoopMenu.refreshLobby()
+end
+
 function CoopMenu.CycleActMode()
   local cur = cfg.actmode or "players"
   for i, m in ipairs(CoopMenu.ACT_MODES) do
@@ -589,7 +625,9 @@ function CoopMenu.Start()
     CoopSave.sendVars(level)
   end
   CoopMenu.continueRec = nil
-  Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats)
+  cfg.skill = cfg.skill or Game.Get("GameSkill")
+  cfg.scaling = cfg.scaling or "light"
+  Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats .. "|" .. cfg.skill .. "|" .. cfg.scaling)
   CoopMenu.launch(level, seats)
 end
 
@@ -602,7 +640,7 @@ function CoopMenu.launch(level, seats)
   local own = {}
   for _, s in ipairs(CoopMenu.parseSeats(seats)) do
     own[#own + 1] = s.char .. "=" .. s.peer
-    if s.peer == CoopMenu.myPeer() then cfg.char = s.char end
+    if s.peer == CoopMenu.myPeer() then cfg.char, cfg.seatChar = s.char, s.char end
   end
   cfg.owners = table.concat(own, ",")
   cfg.save = "coop"   -- marks the session for the co-op save slot
@@ -611,6 +649,7 @@ function CoopMenu.launch(level, seats)
     CoopSave.beginSession()
     CoopSave.applyPending()
   end
+  if cfg.skill then Game.Set("GameSkill", cfg.skill) end   -- restored when the session ends
   Coop.rearm()
   Game.LoadLevel("Levels/" .. level)
 end
@@ -684,6 +723,8 @@ function CoopMenu.onMessage(peer, f)
     return true
   elseif kind == "start" and Coop.isClient() then
     Coop.log("lobby: host started " .. f[2])
+    cfg.skill = tonumber(f[4]) or cfg.skill
+    cfg.scaling = f[5] or cfg.scaling
     CoopMenu.launch(f[2], f[3])
     return true
   elseif kind == "welcome" and Coop.isClient() and f[3] == "Menu" then
@@ -695,6 +736,13 @@ function CoopMenu.onMessage(peer, f)
 end
 
 function CoopMenu.update()
+  -- Back from a session that ended by itself (host gone): say why, on the co-op screen.
+  if cfg.notice and Coop.frame > 40 and CoopMenu.screen == nil and not Menu.isStartUpMenu then
+    local why = cfg.notice
+    cfg.notice = nil
+    CoopMenu.Root()
+    CoopMenu.message(T(why))
+  end
   if CoopMenu.screen == "lobby" then CoopMenu.refreshLobby() end
   if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then
     CoopMenu.lanNext = Coop.frame + 10

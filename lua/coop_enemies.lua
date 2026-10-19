@@ -42,6 +42,22 @@ E.fromHost = fromHost
 -- Host
 ------------------------------------------------------------------------------
 
+-- Enemy toughness for more players (lobby option, docs/coop-ux-research.md 5.8): Life x
+-- (1 + k * (humans - 1)), once per enemy, when the host first sees it alive. Bosses too.
+E.SCALING = {off = 0, light = 0.15, full = 0.30}
+E.scaled = {}
+
+function E.scaleEnemy(e)
+  if E.scaled[e.Name] then return end
+  E.scaled[e.Name] = true
+  local k = E.SCALING[Coop.cfg.scaling or "light"] or 0
+  local mult = 1 + k * (E.playerCount() - 1)
+  if mult > 1 then
+    e.Life = e.Life * mult
+    E.stats.scaled = (E.stats.scaled or 0) + 1
+  end
+end
+
 function E.snapshot()
   local parts, size = {}, 0
   local function flush()
@@ -55,6 +71,7 @@ function E.snapshot()
   local n = 0
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and e.bActive then
+      E.scaleEnemy(e)
       local p = e.Pos
       local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,1", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action))
       parts[#parts + 1] = s
@@ -329,6 +346,7 @@ function E.installSceneHost()
       local now = Net.CoopTime()
       local repeated = class == E.lastSceneClass and now - (E.lastSceneTime or 0) < 15
       if mode ~= "play" then E.beforeFpScene(class) end
+      E.skip = nil   -- skip votes count for one showing of a scene
       if not E.inEndOfScene and not E.inReplay and not repeated then
         Net.CoopSend(-1, 1, "scene|" .. mode .. "|" .. tostring(class))
         E.stats.scenes = (E.stats.scenes or 0) + 1
@@ -337,10 +355,53 @@ function E.installSceneHost()
       return orig(class, ...)
     end
   end
+  -- Skipping (Esc during a scene) is unanimous: every player's skip is a vote, the host
+  -- skips for everyone when all players have voted.
   local origAbort = Scene.AbortScene
-  Scene.AbortScene = function(...)
+  E.hostAbort = function(...)
+    E.skip = nil
     Net.CoopSend(-1, 1, "scene|abort|")
     return origAbort(...)
+  end
+  Scene.AbortScene = function(...)
+    if Coop.fromHost or not Coop.inSession() or E.playerCount() <= 1 then return E.hostAbort(...) end
+    E.voteSkip(0)
+  end
+end
+
+------------------------------------------------------------------------------
+-- Unanimous scene skip
+--   skipvote|<scene>        client -> host
+--   skipv|<votes>|<players> host -> all (shown as a label)
+------------------------------------------------------------------------------
+
+E.SKIP_TEXT = {en = "Skip scene: %d of %d players", ru = "Пропуск сцены: %d из %d игроков"}
+
+function E.playerCount()
+  return 1 + (tonumber(string.match(Net.CoopStatus(), "peers=(%d+)")) or 0)
+end
+
+function E.showSkip(votes, players)
+  local lang = Coop.lang()
+  local s = string.format(E.SKIP_TEXT[lang] or E.SKIP_TEXT.en, votes, players)
+  if lang == "ru" then s = Coop.cp1251(s) end
+  Scorer.SetLabelText(s, Game.GetTime() + 6)
+end
+
+-- Host: peer votes to skip the scene that is playing.
+function E.voteSkip(peer)
+  if not Scene.IsPlaying or not Scene.SceneName then return end
+  if not E.skip or E.skip.scene ~= Scene.SceneName then E.skip = {scene = Scene.SceneName, votes = {}} end
+  E.skip.votes[peer] = true
+  local n = 0
+  for _ in pairs(E.skip.votes) do n = n + 1 end
+  local players = E.playerCount()
+  Coop.log(string.format("scene skip vote from %d: %d of %d", peer, n, players))
+  if n >= players then
+    E.hostAbort()
+  else
+    Net.CoopSend(-1, 1, "skipv|" .. n .. "|" .. players)
+    E.showSkip(n, players)
   end
 end
 
@@ -367,14 +428,19 @@ function E.installSceneClient()
       return false
     end
   end
-  -- Skipping is the host's decision.
+  -- Skipping is unanimous: a client's skip is its vote, the host decides.
   E.sceneAbort = Scene.AbortScene
   Scene.AbortScene = function(...)
     if Coop.fromHost then return E.sceneAbort(...) end
+    if Scene.SceneName and E.votedScene ~= Scene.SceneName then
+      E.votedScene = Scene.SceneName
+      Net.CoopSend(0, 1, "skipvote|" .. Scene.SceneName)
+    end
   end
 end
 
 function E.onScene(mode, class)
+  E.votedScene = nil   -- a new scene (or a replay) can be voted on again
   E.stats.scenes = (E.stats.scenes or 0) + 1
   Coop.log("scene " .. mode .. " " .. tostring(class))
   if mode == "abort" then
@@ -592,6 +658,10 @@ function E.onMessage(peer, f)
     E.applyHit(f[2], tonumber(f[3]), f[4])
   elseif kind == "scene" and Coop.isClient() then
     E.onScene(f[2], f[3])
+  elseif kind == "skipvote" and Coop.isHost() then
+    if f[2] == Scene.SceneName then E.voteSkip(peer) end
+  elseif kind == "skipv" and Coop.isClient() then
+    E.showSkip(tonumber(f[2]) or 0, tonumber(f[3]) or 0)
   elseif kind == "level" and Coop.isClient() then
     E.onLevel(f[2])
   elseif kind == "lready" and Coop.isHost() then
@@ -626,9 +696,9 @@ function E.report()
     for _ in pairs(E.targets) do n = n + 1 end
     E.lastCount = "driven:" .. n
   end
-  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d",
+  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d scaled=%d",
     tostring(E.lastCount or "-"), s.remoteTargets or 0, s.hitsSent, s.hitsApplied, s.pdmgSent, s.pdmgApplied, s.spawns,
-    s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0)
+    s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0, s.scaled or 0)
 end
 
 -- Scene hooks go in as soon as this file loads: levels schedule their opening scene for

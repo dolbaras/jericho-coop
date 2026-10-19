@@ -182,6 +182,10 @@ function T.installTime()
     if not Coop.inSession() or Coop.fromHost then return T.origSetTime(x) end
     local info = debug.getinfo(2, "S")
     local src = string.lower(info and info.source or "")
+    if string.find(src, "menu/menu") and x == 0 then
+      -- Pause menu: the world goes on for everyone (coop_session.lua).
+      return
+    end
     if string.find(src, "chars/team") then
       -- Switch soul-flight: slow only the flight camera.
       local cam = Game.GetEntity("Cameraman")

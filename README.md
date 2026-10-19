@@ -11,24 +11,47 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 
 ### What works (each checked in a test run)
 
-- Main menu "Co-op" entry: host, join by IP, lobby with character, nickname, ready and
-  chapter; all players load the level together. Menu text follows the game language
-  (Russian, English).
+- Main menu "Co-op" entry: host, join by IP or from the list of games on the local network,
+  lobby with character, nickname, ready and chapter; all players load the level together.
+  Menu text follows the game language (Russian, English).
 - Each player controls one squad member; the others stay AI. Players see each other move,
   aim and shoot, with nameplates (can be turned off).
 - Enemies are run by the host and mirrored on clients; hits from clients reach the host.
-- Story triggers, scenes and level changes follow the host.
+- Story triggers, scenes and level changes follow the host; a scene waits until every
+  player has loaded the level.
 - A downed player moves to a free squad member; Rawlings' revive works for all players.
 - Cole's and Black's slow motion slows the world for everyone; human players keep their
   normal speed, as the power's owner does in the original.
 - First-person cutscenes: each player watches from their own character's head, looking at
-  what the original scene camera looks at (checked on video in the first palace scene).
+  what the original scene camera looks at. The first-person character is shown to the
+  others with its full body, playing the scene's own motion (retargeted animations).
+- QTEs: only the player holding the scene's character sees and plays them; the branch they
+  take (success, fail, retry) is the same on every machine.
+- Character-only objects (checked on the abyss of Rom_Palace_01, which only Church can
+  use): the players are asked to take that character; if nobody does within 30 s the AI
+  does it (lobby option: players first / players only / AI at once).
+- Players without a body (more players than bodies, story splits) fly as Ross's spirit
+  near the squad, can mark enemies and take a free body.
+- Co-op save, apart from the single-player profile: checkpoints and level starts are saved
+  to `Documents\Codemasters\Clive Barker's Jericho\Coop`; "Continue" in the host menu;
+  the single-player profile is never written during a session. Clients load the host's
+  exact state on every restart and checkpoint.
+
+### Written, not yet tested in game
+
+- Pause menu that does not pause the world; clients cannot restart levels.
+- Leaving: a client whose host leaves is told so and goes back to the main menu.
+- Unanimous cutscene skip (every player presses Esc).
+- Lobby difficulty (vanilla Easy/Normal/Hard) and enemy toughness per player
+  (off / light +15% / full +30% health per extra player).
+- Act 1: the host plays Ross; from WWII on the host takes their lobby character
+  (Delgado by default, as in the story).
 
 ### Not done yet
 
-QTE routing, Act 1 seats (Ross), a separate co-op save, difficulty scaling, character
-portraits in the lobby, enemy AI targeting remote players, content for players whose
-character is away in solo sections. See `docs/scenes-catalog.md`.
+Character portraits in the lobby, story content for players whose character is away in
+solo sections (planned in `docs/coop-story-extensions.md`), per-level fixes for story
+scripts that assume one player (`docs/usrentity-audit.md`), a full campaign playthrough.
 
 ## How it works
 
@@ -42,7 +65,13 @@ character is away in solo sections. See `docs/scenes-catalog.md`.
     ready, chapter); Russian/English from the game's language
   - `coop_enemies.lua`: host-authoritative enemies, damage, story triggers, scenes, levels
   - `coop_team.lua`: downed players, Rawlings revives, game over, shared slow motion
-  - `coop_scenes.lua`: cutscenes from each player's own character
+  - `coop_scenes.lua`: cutscenes from each player's own character, QTE routing, full-body
+    stand-ins for first-person characters
+  - `coop_world.lua`: map callbacks (doors, levers, story steps) replicated to clients
+  - `coop_claim.lua`: character-only actions offered to the players, AI fallback
+  - `coop_spirit.lua`: spirit role for players without a body
+  - `coop_save.lua`: co-op save and checkpoints, profile protection
+  - `coop_session.lua`: pause menu and leaving a session
   - `coop_hud.lua`: nameplates
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
 - `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research.

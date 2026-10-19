@@ -347,6 +347,7 @@ function Coop.onLeave(peer)
     end
   end
   if Coop.isHost() then Coop.broadcastOwners() end
+  if CoopSession then CoopSession.onLeave(peer) end
 end
 
 -- In the menu level the lobby (coop_menu.lua) owns the session; tests set cfg.auto to
@@ -374,6 +375,31 @@ end
 -- Local ownership: keep this machine's body in sync with the session
 ------------------------------------------------------------------------------
 
+-- Act 1 (Al-Khali): the host is Ross, as in the story (Ross cannot possess anyone until he
+-- dies at the end of alk_final); the other players hold squad members. Test sessions that
+-- name a character (cfg.auto with cfg.char) keep it.
+function Coop.actOne()
+  return string.find(Coop.level, "^levels/alk_") ~= nil and Game.GetEntity("Ross") ~= nil
+end
+
+-- A body this player may take at level start: in the level and not held by someone else.
+function Coop.freeFor(name)
+  local owner = name and Coop.owners[name]
+  return name and Game.GetEntity(name) ~= nil and (owner == nil or owner == Coop.myId())
+end
+
+-- The body to move into when a level starts: the last one held, else the lobby seat, else
+-- the first free squad member (a story split may have taken the body away).
+function Coop.startChar()
+  if Coop.isHost() and Coop.actOne() and not (cfg.auto and cfg.char) then return "Ross" end
+  for _, name in ipairs({cfg.char, cfg.seatChar}) do
+    if name ~= "Ross" and Coop.freeFor(name) then return name end
+  end
+  for _, name in ipairs(CoopMenu and CoopMenu.CHAR_ORDER or Coop.SQUAD) do
+    if Coop.freeFor(name) then return name end
+  end
+end
+
 function Coop.updateLocalOwnership()
   local mine = Coop.localChar()
   if not mine then return end
@@ -388,10 +414,11 @@ function Coop.updateLocalOwnership()
   -- At level start (and after a welcome) move once to the character picked in the lobby;
   -- after that the player switches freely (cfg.char follows the body they hold).
   if not Coop.switchedTo and (Coop.isHost() or cfg.myId) then
-    Coop.switchedTo = cfg.char or mine
-    if cfg.char and mine ~= cfg.char then
-      local ok = Team and Team.SwitchSoldier and Team.SwitchSoldier(mine, cfg.char)
-      Coop.log("switch " .. mine .. " -> " .. cfg.char .. " " .. tostring(ok))
+    local want = Coop.startChar()
+    Coop.switchedTo = want or mine
+    if want and mine ~= want then
+      local ok = Team and Team.SwitchSoldier and Team.SwitchSoldier(mine, want)
+      Coop.log("switch " .. mine .. " -> " .. want .. " " .. tostring(ok))
       if ok then return end
     end
   end
@@ -493,6 +520,13 @@ function Coop.update()
       Coop.log("claim error: " .. tostring(err))
     end
   end
+  if CoopSession and Coop.inSession() then
+    local ok, err = pcall(CoopSession.update)
+    if not ok and (Coop.sessionErrors or 0) < 5 then
+      Coop.sessionErrors = (Coop.sessionErrors or 0) + 1
+      Coop.log("session error: " .. tostring(err))
+    end
+  end
   if CoopSpirit then
     local ok, err = pcall(CoopSpirit.update)
     if not ok and (Coop.spiritErrors or 0) < 5 then
@@ -577,6 +611,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("world load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_claim.lua")
   if not ok then Coop.log("claim load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_session.lua")
+  if not ok then Coop.log("session load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.
