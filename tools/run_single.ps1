@@ -9,6 +9,7 @@ param(
     [string] $Adapter = "window",       # "window" = the secondary monitor's GPU (the iGPU); "" = default GPU
     [switch] $Record,                  # in-game video capture (native/capture.c), no screenshots
     [int] $RecordStart = 0,
+    [double] $RecordFps = 0,           # 0: capture.c default (8)
     [switch] $DefaultLog               # no JERICHO_COOP_LOG: the mod logs to <save dir>\coop.log as for players
 )
 
@@ -37,8 +38,9 @@ $env:JERICHO_BACKGROUND = "1"
 $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "game.raw"; $env:JERICHO_RECORD_START = "$RecordStart"; $Shots = @() }
+if ($Record -and $RecordFps -gt 0) { $env:JERICHO_RECORD_FPS = "$RecordFps" }
 $p = Start-Process -FilePath (Join-Path $Game "bin\Jericho.exe") -ArgumentList $args -WorkingDirectory $Game -PassThru
-foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE") {
+foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FPS", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE") {
     Remove-Item "Env:$v" -ErrorAction SilentlyContinue
 }
 try {

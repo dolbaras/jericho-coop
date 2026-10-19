@@ -206,7 +206,7 @@ function E.beforeFpScene(class)
     -- The game now walks this body to the scene's camera, maybe across the map, with the
     -- view on it: black until the scene starts (E.installFpRestore fades it in).
     Scorer.Clear(0)   -- no HUD on the black (the scene clears it anyway)
-    if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+    E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1)
     E.fpBlackT = Game.GetTime()
   end
 end
@@ -243,7 +243,7 @@ function E.installFpRestore()
       local r = {pcall(origLaunch, ...)}
       Scene.SetInterpolCam = origInterp
       E.fpBlackT = nil
-      if cut and Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4) end
+      if cut then E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4) end
       if not r[1] then Coop.log("LauchFromFP error: " .. tostring(r[2])) end
       return r[2]
     end
@@ -273,7 +273,7 @@ function E.installFpRestore()
         body.IgnoreUsrControl = 0
       end
       -- The view jumps from the scene's end back to the own body: from black, not a cut.
-      if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.6) end
+      E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.6)
       Coop.log("fp scene over: " .. keep.name .. " back in place")
     end
     if not r[1] then Coop.log("EndOfFpScene error: " .. tostring(r[2])) end
@@ -296,16 +296,40 @@ end
 -- screen stays black and the keys do nothing until it starts; a long wait says why.
 E.WAIT = {en = "Waiting for players...", ru = "\206\230\232\228\224\237\232\229 \232\227\240\238\234\238\226..."}  -- "Ожидание игроков..." (cp1251)
 E.WAIT_TEXT_AFTER = 0.5
+-- Fades go through the game's own Scorer.Fade; while the curtain is up, the level's opening
+-- fade-in (MapInit.main: black -> clear, run after the mod starts) would show the first frame.
+function E.fade(...)
+  local f = E.origFade or (Scorer and Scorer.Fade)
+  if f then return f(...) end
+end
+
 function E.holdCurtain(on)
   if on then
     if E.curtain then return end
+    if not E.origFade and Scorer and Scorer.Fade then
+      E.origFade = Scorer.Fade
+      Scorer.Fade = function(...)
+        if E.curtain then return end
+        return E.origFade(...)
+      end
+    end
+    -- Same for the HUD the level builds after the mod starts (first level of a session).
+    if not E.origShowScorer and Menu and Menu.ShowScorer then
+      E.origShowScorer = Menu.ShowScorer
+      Menu.ShowScorer = function(...)
+        if E.curtain then return end
+        return E.origShowScorer(...)
+      end
+    end
     E.curtain = {t0 = Game.GetTime()}
-    if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+    Scorer.Clear(0)   -- a HUD built before the mod started would show on the black
+    E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1)
     local usr = Game.UsrEntity(0)
     if usr then
       E.curtain.name, E.curtain.ctrl = usr.Name, usr.IgnoreUsrControl or 0
       usr.IgnoreUsrControl = 1
     end
+    Coop.log("curtain: black")
     return
   end
   local c = E.curtain
@@ -314,8 +338,9 @@ function E.holdCurtain(on)
   local body = c.name and Game.GetEntity(c.name)
   if body then body.IgnoreUsrControl = c.ctrl end
   Scorer.Clear(0)
-  if Menu and Menu.ShowScorer then pcall(Menu.ShowScorer) end
-  if Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.5) end
+  local show = E.origShowScorer or (Menu and Menu.ShowScorer)
+  if show then pcall(show) end
+  E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.5)
 end
 
 function E.updateCurtain()
@@ -326,7 +351,7 @@ function E.updateCurtain()
   -- Every frame: the level's own fade-in and HUD come up meanwhile (a scene clears the HUD
   -- the same way when it starts, and puts it back when it ends).
   Scorer.Clear(0)
-  if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+  E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1)
   if Game.GetTime() - c.t0 < E.WAIT_TEXT_AFTER then return end
   local it = Scorer.GetItem(0, "CoopWait")
   if not it then
@@ -347,7 +372,7 @@ function E.updateSceneLabel()
   if E.fpBlackT and Game.GetTime() - E.fpBlackT > 4 then
     E.fpBlackT = nil
     if Menu and Menu.ShowScorer then pcall(Menu.ShowScorer) end
-    if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4) end
+    E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4)
     Coop.log("fp scene did not start: screen back")
   end
   local it = Scorer.GetItem(0, "CoopEyes")

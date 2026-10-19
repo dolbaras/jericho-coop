@@ -128,8 +128,10 @@ static void grab(IDirect3DDevice9 *dev)
             /* Keep the video in real time when the game renders slower than the capture
              * rate: write the frame once for every interval since the last one. */
             double t = now();
-            if (first_at < 0)
+            if (first_at < 0) {
                 first_at = t;
+                coop_log("capture: video starts");   /* video time 0 in the log's clock */
+            }
             int due = (int)((t - first_at) / interval) + 1 - frames;
             if (due < 1)
                 due = 1;

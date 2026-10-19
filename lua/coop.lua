@@ -553,6 +553,7 @@ Coop.FRAME_HOOK = "Coop.onFrame"
 
 function Coop.onFrame()
   local now = Net.CoopTime()
+  if not Coop.lastFrame then Coop.log("first frame hook") end
   local dt = now - (Coop.lastFrame or now)
   Coop.lastFrame = now
   local ok, err = pcall(Coop.frameUpdate, now, dt)
