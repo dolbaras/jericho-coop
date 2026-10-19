@@ -392,6 +392,31 @@ function Coop.actOne()
   return string.find(Coop.level, "^levels/alk_") ~= nil and Game.GetEntity("Ross") ~= nil
 end
 
+-- First-person arms and weapons of a squad member. While Ross leads (Act 1) the game builds
+-- only his set (Team.CreateTeam: BuildFP.FP_Chars = {"Ross"}): a player in another body had
+-- no view model at all. Built the same way as at level load, once per level and character.
+function Coop.ensureFP(name)
+  if not (name and BuildFP and BuildFP.LoadSet and Act and Act.GetClass) then return end
+  if Act.GetClass("FP_" .. name) ~= nil or Act.GetClass(name) == nil then return end
+  local ok, err = pcall(BuildFP.LoadSet, name)
+  Coop.log("first-person set " .. name .. ": " .. (ok and "built" or tostring(err)))
+end
+
+function Coop.installFP()
+  if Coop.fpInstalled or not (Team and Team.SwitchSoldier) then return end
+  Coop.fpInstalled = true
+  if Coop.actOne() then
+    for _, name in ipairs(Coop.SQUAD) do
+      if Game.GetEntity(name) then Coop.ensureFP(name) end
+    end
+  end
+  local orig = Team.SwitchSoldier
+  Team.SwitchSoldier = function(from, to, ...)
+    Coop.ensureFP(to)
+    return orig(from, to, ...)
+  end
+end
+
 -- A body this player may take at level start: in the level and not held by someone else.
 function Coop.freeFor(name)
   local owner = name and Coop.owners[name]
@@ -639,6 +664,10 @@ if Coop.level == "levels/menu" and not cfg.auto then
   if not ok then Coop.log("menu error: " .. tostring(err)) end
 end
 if Coop.level ~= "levels/menu" then
+  if Coop.inSession() then
+    local okfp, errfp = pcall(Coop.installFP)
+    if not okfp then Coop.log("first-person sets error: " .. tostring(errfp)) end
+  end
   local ok, err = pcall(dofile, COOP_DIR .. "coop_enemies.lua")
   if not ok then Coop.log("enemies error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_hud.lua")
