@@ -267,6 +267,7 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
     if ok and type(fn) == "function" then return fn, false end
   end
   function Coop.dev()
+    if Coop.devTriggered then return end   -- once (a scene it starts must not start again)
     -- Fire cfg.trigat ticks after the first client reported the level loaded (solo: after start).
     if not Coop.devReadyFrame then
       if cfg.role == "solo" or (CoopEnemies and CoopEnemies.catchupSent) then Coop.devReadyFrame = Coop.frame end
@@ -275,6 +276,7 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
     -- Wait for a level-start scene to finish (a scene started on top of it breaks both).
     if Scene and Scene.IsPlaying then Coop.devReadyFrame = Coop.frame return end
     if Coop.frame == Coop.devReadyFrame + (cfg.trigat or 100) then
+      Coop.devTriggered = true
       local fn, isCallback = resolve(cfg.trigger)
       Coop.log("trigger: " .. cfg.trigger .. (fn and "" or " (not found)"))
       if not fn then return end
@@ -830,6 +832,34 @@ if cfg.campaignstep and Coop.isHost() and Coop.level ~= "levels/menu" then
       Coop.log("campaign: " .. Coop.level .. " -> " .. nextLevel)
       local ok, err = pcall(SaveGame.NewLevelNow, nextLevel)
       if not ok then Coop.log("campaign error: " .. tostring(err)) end
+    end
+  end
+end
+
+-- 'autokeys' (tests): these virtual keys count as held (test windows never get input),
+-- e.g. autokeys={69} holds E for the struggle (G15), the captive (G6), prayers (G4).
+if cfg.autokeys and Net.CoopKey and not Coop.devKeysWrapped then
+  Coop.devKeysWrapped = true
+  local origKey = Net.CoopKey
+  local held = {}
+  for _, vk in ipairs(cfg.autokeys) do held[vk] = true end
+  Net.CoopKey = function(vk)
+    if held[vk] then return 1 end
+    return origKey(vk)
+  end
+end
+
+-- 'curetest' (host): when Rawlings' soul is back (G4), the host's body revives him.
+if cfg.curetest and Coop.level == "levels/wwii_pillboxes" then
+  local prevCure = Coop.dev
+  function Coop.dev()
+    if prevCure then prevCure() end
+    if Coop.devCured or not (CoopSplits and CoopSplits.G4 and CoopSplits.G4.arrived) then return end
+    local usr, raw = Game.UsrEntity(0), Game.GetEntity("Rawlings")
+    if usr and raw and raw.Life <= 0 then
+      Coop.devCured = true
+      usr.Pos = raw.Pos + V3D(80, 0, 0)
+      Coop.log("curetest: cure " .. tostring(Team.CurePlayer(usr, raw)))
     end
   end
 end

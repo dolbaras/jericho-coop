@@ -554,7 +554,13 @@ function S.fpActionNames(class)
   return names
 end
 
+-- Scenes whose stand-in body crashes the engine right after the scene loads (all
+-- first-person scenes of cru_sewers, with or without the retargeted files; cause not found
+-- yet): no body there.
+S.NO_BODY = {Apertura = true, Escalada = true, AperturaPuerta = true, DescensoA = true, DescensoB = true}
+
 function S.ensureBody(class)
+  if S.NO_BODY[class] then return end
   -- Without the retargeted animations (Pack1.packed, built by install.ps1) there is no body:
   -- the raw first-person files on the full model crash the engine's animation sampler
   -- (seen on a machine without the pack: access violation right after the scene started).
