@@ -7,6 +7,8 @@
 --      three phases that follow Church's progress, until Church opens the door.
 --   G10 rom_caldarium "The Torturers' Hall": Delgado walks through the fire alone; the others
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
+--   G6 wwii_brandenburg "The gate top": Cole and Rawlings players stay active on the gate top
+--      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
 --   G11 rom_palace_01 "Alone on the far side": after Church's crossing legionaries emerge on
 --      his side; the others cover him from the edge; the plates work once the wave is down.
 --
@@ -325,6 +327,12 @@ function Sp.installG10(isHost)
     if isHost then Sp.G10wave(1) end
   end)
   Sp.after("MapInit.SetSoloMission", Sp.G10keepHumans)
+  -- A checkpoint load runs SetSoloMission from the scheduler on the first frames, possibly
+  -- before the hook above: undo it once shortly after the start.
+  if not Sp.G10.loadChecked and Coop.frame > 40 then
+    Sp.G10.loadChecked = true
+    if Team and Team.GetSavedSpawnPlayerPoint and Team.GetSavedSpawnPlayerPoint() >= 1 then Sp.G10keepHumans() end
+  end
   if not isHost then return end
   Sp.after("MapCallbacks.AreaTrigger_Fire_0", function()
     if not Sp.G10.offered then
@@ -430,9 +438,117 @@ function Sp.G11afterScene()
 end
 
 ------------------------------------------------------------------------------
+-- G6 wwii_brandenburg: "The Gate Top" (docs/story/act2-splits.md section 4)
+-- Cole and Rawlings hold the captive Lichthammer on top of the Brandenburg gate for the
+-- whole level; vanilla keeps them there as inactive props until Church's sacrifice scene.
+-- Players holding them stay active up there and cover the squad fighting to the gate; a
+-- leash brings a body that falls off back to its place. AI-held ones stay vanilla props.
+------------------------------------------------------------------------------
+
+Sp.G6 = {chars = {"Cole", "Rawlings"},
+         anchor = {Cole = V3D(-23505, 533, 66981), Rawlings = V3D(-23646, 533, 66995)},
+         LEASH = 700}
+
+function Sp.G6keepHumans()
+  for _, n in ipairs(Sp.G6.chars) do
+    local e = Game.GetEntity(n)
+    if e and human(n) then
+      e.bActive = true
+      e.bIgnoreCollision = false
+      if e.uData then e.uData.CannotSpeak = false end
+    end
+  end
+end
+
+-- The holder of Cole or Rawlings may take its body at level start (vanilla makes both
+-- unavailable for switching; on this machine only the holder's own lock goes).
+function Sp.G6takeSeat()
+  local want = cfg.seatChar or cfg.char
+  local me = Coop.localChar()
+  if (want == "Cole" or want == "Rawlings") and me and me ~= want and Coop.ownerOf(want) == nil then
+    if Team.UnavaliablePlayers then Team.UnavaliablePlayers[want] = nil end
+    Coop.log("split G6: taking " .. want .. " on the gate top")
+    Team.SwitchSoldier(me, want)
+  end
+end
+
+-- Vanilla stages both as props in the sacrifice pose (ShowRawlingsCole / EnsureRawlingsCole):
+-- only AI-held ones; the captive is always staged.
+function Sp.G6stage(origShow, origEnsure)
+  local anyHuman = human("Cole") or human("Rawlings")
+  if not anyHuman then return false end
+  local bitchie = Game.GetEntity("Bitchie")
+  local offs = {Cole = V3D(57.78, 0, 28.49), Rawlings = V3D(-78.325, 0, 50.859)}
+  for _, n in ipairs(Sp.G6.chars) do
+    local e = Game.GetEntity(n)
+    if e and not human(n) and bitchie then
+      pcall(AITeamList.DeleteMember, e.oAI.Team, n)
+      e.bIgnoreCollision = true
+      e.Pos = bitchie.Pos + offs[n]
+      e.bActive = true
+      e.oAI.bEnable = false
+      e.ForceAction = "NaziSacrifice"
+      e.Ang = V3D(0, 0, 0)
+      e.Invulnerable = 1
+    end
+  end
+  if bitchie then
+    bitchie.Pos = V3D(-23562.86, 532.48, 66947.56)
+    bitchie.Ang = V3D(0, -3.87, 0)
+    bitchie.ForceAction = "NaziSacrifice"
+    bitchie.bIgnoreCollision = true
+    bitchie.bActive = true
+    bitchie.Invulnerable = 1
+  end
+  return true
+end
+
+-- Leash for this machine's own body while the gate-top line runs.
+function Sp.G6leash()
+  local me = Coop.localChar()
+  local a = me and Sp.G6.anchor[me]
+  if not a or Sp.G6.free or (Scene and Scene.IsPlaying) then return end
+  local e = Game.GetEntity(me)
+  if not e or (e.Life or 0) <= 0 then return end
+  local d = e.Pos - a
+  if math.sqrt(d.x * d.x + d.z * d.z) > Sp.G6.LEASH or d.y < -250 then
+    e.Pos = a
+    Game.SetOnFloor(me)
+    Coop.log("split G6: " .. me .. " back on the gate top")
+  end
+end
+
+function Sp.G6afterInit()
+  if Sp.G6.initDone then return end
+  Sp.G6.initDone = true
+  Sp.G6keepHumans()
+  Sp.G6takeSeat()
+end
+
+function Sp.installG6(isHost)
+  -- MapInit.Init runs from the scheduler on the first frames, possibly before this hook;
+  -- it sets MapInit.EBuck, so that tells whether it already ran.
+  Sp.after("MapInit.Init", function() Sp.G6.initDone = false Sp.G6afterInit() end)
+  if MapInit.EBuck ~= nil then Sp.G6afterInit() end
+  if MapInit.ShowRawlingsCole and not Sp.hooked["G6stage"] then
+    Sp.hooked["G6stage"] = true
+    local origShow, origEnsure = MapInit.ShowRawlingsCole, MapInit.EnsureRawlingsCole
+    MapInit.ShowRawlingsCole = function(...)
+      if not Sp.G6stage() then return origShow(...) end
+    end
+    MapInit.EnsureRawlingsCole = function(...)
+      if not Sp.G6stage() then return origEnsure(...) end
+    end
+  end
+  -- The sacrifice scenes take over; afterwards ReposPeople gathers everyone (vanilla).
+  Sp.after("MapInit.HideRawlingsCole", function() Sp.G6.free = true end)
+  if Coop.frame % 10 == 0 then Sp.G6leash() end
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
-             ["levels/rom_palace_01"] = Sp.installG11}
+             ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6}
 
 function Sp.onMessage(peer, f)
   if f[1] == "spc" and Coop.isClient() then

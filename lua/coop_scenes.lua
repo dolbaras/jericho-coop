@@ -516,7 +516,7 @@ end
 ------------------------------------------------------------------------------
 
 -- The retargeted animations (Pack1.packed next to the game's own archives). Without them
--- the FP file is used as is (the body then shows its first-person pose errors).
+-- there is no full-body stand-in (S.ensureBody).
 function S.haveCoopAnims()
   if S.coopAnims == nil then
     S.coopAnims = Net.CoopFile ~= nil and Net.CoopFile("Pack1.packed") == 1
@@ -555,6 +555,10 @@ function S.fpActionNames(class)
 end
 
 function S.ensureBody(class)
+  -- Without the retargeted animations (Pack1.packed, built by install.ps1) there is no body:
+  -- the raw first-person files on the full model crash the engine's animation sampler
+  -- (seen on a machine without the pack: access violation right after the scene started).
+  if not S.haveCoopAnims() then return end
   local list = Scene.Actors and Scene.Actors[class]
   if not list then return end
   local fpInfo
@@ -572,8 +576,7 @@ function S.ensureBody(class)
       -- The FP file drives the first-person rig; Pack1.packed (tools/cm3_retarget.py, built by
       -- install.ps1 from the player's own game files) holds the same motion retargeted to the
       -- full model, under CoopBody_<char>_<anm>.
-      local file = a.AnmFilePath or ""
-      if S.haveCoopAnims() then file = string.gsub(file, "/FP_([^/]+)$", "/CoopBody_%1") end
+      local file = string.gsub(a.AnmFilePath or "", "/FP_([^/]+)$", "/CoopBody_%1")
       rec[#rec + 1] = {name = name, file = file, loop = a.isLoop, turn = a.RotSpeed}
     end
   end
