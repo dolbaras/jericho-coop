@@ -270,7 +270,7 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
     if Coop.devTriggered then return end   -- once (a scene it starts must not start again)
     -- Fire cfg.trigat ticks after the first client reported the level loaded (solo: after start).
     if not Coop.devReadyFrame then
-      if cfg.role == "solo" or (CoopEnemies and CoopEnemies.catchupSent) then Coop.devReadyFrame = Coop.frame end
+      if cfg.role == "solo" or cfg.waitpeers == 0 or (CoopEnemies and CoopEnemies.catchupSent) then Coop.devReadyFrame = Coop.frame end
       return
     end
     -- Wait for a level-start scene to finish (a scene started on top of it breaks both).
