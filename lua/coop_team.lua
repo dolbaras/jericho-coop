@@ -18,6 +18,9 @@
 
 CoopTeam = {}
 local T = CoopTeam
+-- Bodies a story keeps down on purpose (Rawlings shot in wwii_pillboxes, coop_splits G4):
+-- their player stays in them instead of moving to another body.
+T.holdDowned = {}
 
 local function fromHost(fn, ...)
   Coop.fromHost = true
@@ -63,6 +66,10 @@ function T.install()
   Team.CheckGameOver = function(name, valuez)
     local usr = Game.GetEntity(name)
     if not usr or usr.UsrControl ~= 0 or usr.Life > 0 then return origCheck(name, valuez) end
+    if T.holdDowned[name] then
+      Coop.log("downed: " .. name .. " is held down by the story")
+      return
+    end
     local order = {"Black", "Church", "Rawlings", "Jones", "Cole", "Delgado"}
     if Team.isWithTheTeam() then
       for _, other in ipairs(order) do

@@ -129,10 +129,12 @@ function Coop.assign(peer, wanted)
   for name, p in pairs(Coop.owners) do
     if p == peer then Coop.owners[name] = nil end
   end
+  -- Tutorial locks (Team.UnavaliablePlayers) limit single-player switching only; a body the
+  -- story has taken away (CoopStory.taken) or switched off is not free.
   local function free(name)
     local e = Game.GetEntity(name)
-    return e and e.Life > 0 and Coop.owners[name] == nil and
-           (not Team or not Team.UnavaliablePlayers or not Team.UnavaliablePlayers[name])
+    return e and e.Life > 0 and Coop.owners[name] == nil and e.bActive ~= false and
+           not (CoopStory and CoopStory.taken and CoopStory.taken(name))
   end
   local pick = nil
   if wanted and free(wanted) then pick = wanted end
@@ -392,7 +394,9 @@ end
 -- A body this player may take at level start: in the level and not held by someone else.
 function Coop.freeFor(name)
   local owner = name and Coop.owners[name]
-  return name and Game.GetEntity(name) ~= nil and (owner == nil or owner == Coop.myId())
+  local e = name and Game.GetEntity(name)
+  return e ~= nil and e.bActive ~= false and (owner == nil or owner == Coop.myId()) and
+         not (CoopStory and CoopStory.taken and CoopStory.taken(name))
 end
 
 -- The body to move into when a level starts: the last one held, else the lobby seat, else
@@ -424,7 +428,12 @@ function Coop.updateLocalOwnership()
     local want = Coop.startChar()
     Coop.switchedTo = want or mine
     if want and mine ~= want then
+      -- A tutorial lock on the seat's character must not keep its player out of it.
+      local locks = Team and Team.UnavaliablePlayers
+      local was = locks and locks[want]
+      if locks then locks[want] = nil end
       local ok = Team and Team.SwitchSoldier and Team.SwitchSoldier(mine, want)
+      if locks then locks[want] = was end
       Coop.log("switch " .. mine .. " -> " .. want .. " " .. tostring(ok))
       if ok then return end
     end

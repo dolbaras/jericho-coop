@@ -673,3 +673,19 @@ if cfg.trigseq and Coop.isHost() and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'menuprobe': log the main menu camera and props (for placing a character in the menu).
+if cfg.menuprobe and Coop.level == "levels/menu" then
+  local prevProbe = Coop.dev
+  function Coop.dev()
+    if prevProbe then prevProbe() end
+    if Coop.frame ~= 60 then return end
+    for _, n in ipairs({"MainMenuCamera", "CAMERA", "PIEL"}) do
+      local e = Game.GetEntity(n)
+      if e then
+        Coop.log(string.format("menuprobe %s pos=%s ang=%s", n, Coop.v3(e.Pos), Coop.v3(e.Ang)))
+        if e.camPos then Coop.log("menuprobe " .. n .. " camPos=" .. Coop.v3(e.camPos) .. " camAng=" .. Coop.v3(e.camAng)) end
+      end
+    end
+  end
+end

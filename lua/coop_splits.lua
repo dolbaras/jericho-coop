@@ -1039,6 +1039,7 @@ function Sp.G4end()
   g.ended = true
   if g.soulOn and CoopSpirit then CoopSpirit.endSoul() end
   g.soulOn = false
+  if CoopTeam then CoopTeam.holdDowned.Rawlings = nil end
   if Coop.isHost() then pcall(EnemyGen.Stop, "nazis_final", true) end
   Coop.log("split G4: Rawlings revived")
 end
@@ -1069,6 +1070,10 @@ function Sp.installG4(isHost)
       pcall(Team.HoldPosSide)
     end
   end
+  -- The shot: a human Rawlings stays in his body (the soul walk starts from it).
+  Sp.after("MapScenes.OnInit_DelgadokillsRawlings", function()
+    if Coop.inSession() and human("Rawlings") and CoopTeam then CoopTeam.holdDowned.Rawlings = true end
+  end)
   Sp.after("MapInit.AfterRawlingKilled", function()
     if Coop.inSession() and human("Rawlings") then Sp.G4begin() end
   end)
