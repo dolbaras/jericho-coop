@@ -35,6 +35,8 @@ DEFAULT_OUT = os.path.join(JERICHO, 'work', 'anim_rt')
 # FP actor -> full-body character folder, when the names differ
 FULL_MODEL_OF = {'rossnude': 'ross'}
 OUT_PREFIX = 'coopbody_'
+# Full bodies whose props are all hidden
+HIDE_ALL_PROPS = set()
 
 
 class GameFiles:
@@ -157,7 +159,7 @@ def match_name(node, fp_by_name, fp_by_norm):
     return fpn
 
 
-def retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, max_offset=0.05):
+def retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, max_offset=0.05, hide_props=False):
     """Return (new CM3 object, report dict).
 
     For every full-model node, in hierarchy order:
@@ -301,6 +303,37 @@ def retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, max_offset=0.05):
         if len(tracks) > 255:
             raise ValueError('more than 255 tracks: the remap table has one byte per slot')
         remap[slot] = len(tracks)
+    # Props hung on the model's root (spare magazines, Delgado's belt) that the scene does
+    # not move would float at their idle spot, away from the body the scene moves: hidden
+    # with the visibility channel (0x80, 0..255, as the game's own files hide magazines and
+    # grenades), with their sub-parts. Props on a bone (holstered pistol, flashlight,
+    # rifle in hand) follow that bone and stay. hide_props hides every prop.
+    hidden = set()
+    for node in full_sm3['nodes']:
+        name, slot = node['name'], node['slot']
+        loose = name.startswith('OB_') and name not in fp_driver and node['parent'] in ROOT_PARENTS
+        if not ((name.startswith('OB_') and hide_props) or loose or node['parent'] in hidden):
+            continue
+        hidden.add(name)
+        old_t = out_track.get(name)
+        values = {}
+        for f in (0x01, 0x02):
+            v = old_t.decode(f) if old_t is not None and old_t.flags & f else None
+            if v is None:
+                values[f] = bind_pos(node) if f == 0x01 else struct.unpack_from('<4f', node['fixed'], 12)
+            else:
+                values[f] = v[0] if all(x == v[0] for x in v) else list(v)
+        values[0x80] = [0] * nframes
+        new_t = m3d.make_track(primer, nframes, values)
+        if old_t is not None:
+            tracks[tracks.index(old_t)] = new_t
+        else:
+            tracks.append(new_t)
+            if len(tracks) > 255:
+                raise ValueError('more than 255 tracks: the remap table has one byte per slot')
+            remap[slot] = len(tracks)
+        out_track[name] = new_t
+    rep['hidden_props'] = sorted(hidden)
     fp_names = {n['name'] for n in fp_sm3['nodes'] if n['slot'] in fp_map}
     rep['fp_tracks_unused'] = sorted(fp_names - set(full_of_fp))
     rep['fp_driver'] = fp_driver
@@ -360,13 +393,19 @@ def validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep):
     assert len(smap) == len(c.tracks) == rep['tracks'], 'every track must be referenced once'
     assert sorted(smap.values()) == list(range(len(c.tracks)))
     by_name = {n['name']: n for n in full_sm3['nodes']}
-    animated = rep['from_fp'] + rep['from_idle']
+    hidden = set(rep.get('hidden_props', []))
+    animated = set(rep['from_fp']) | set(rep['from_idle']) | hidden
     assert len(animated) == len(c.tracks)
+    for name in hidden:
+        t = c.tracks[smap[by_name[name]['slot']]]
+        assert t.flags & 0x80 and set(t.decode(0x80)) == {0}, name
     fp_names = {n['name']: n for n in fp_sm3['nodes']}
     fpm, idm = fp_cm3.slot_map(), idle_cm3.slot_map()
     rot_only = {x.split(':')[0] for x in rep['fp_rotation_only']}
     composed = {x.split(':')[0] for x in rep['fp_composed']}
     for name in rep['from_fp']:
+        if name in hidden:
+            continue
         t = c.tracks[smap[by_name[name]['slot']]]
         s = fp_cm3.tracks[fpm[fp_names[rep['fp_driver'][name]]['slot']]]
         if name in composed:
@@ -401,6 +440,8 @@ def validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep):
         else:
             assert t.nabk() == s.nabk() and t.nam() == s.nam(), name
     for name in rep['from_idle']:
+        if name in hidden:
+            continue
         t = c.tracks[smap[by_name[name]['slot']]]
         s = idle_cm3.tracks[idm[by_name[name]['slot']]]
         for f, _, _ in m3d.CHANNELS:
@@ -453,7 +494,7 @@ def do_one(files, fp_path, out_dir, models_cache):
     fp_cm3 = m3d.CM3(files.read(paths['fp_anim']))
     fp_sm3, full_sm3 = model(paths['fp_model']), model(paths['full_model'])
     idle_cm3 = m3d.CM3(files.read(paths['idle']))
-    out, rep = retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3)
+    out, rep = retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, hide_props=char in HIDE_ALL_PROPS)
     data = out.serialize()
     validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep)
     out_name = f'{d}/{OUT_PREFIX}{fname[3:]}'
@@ -475,7 +516,8 @@ def write_pack(path, items):
         for (name, data), e in zip(items, entries):
             assert e[0] == name and e[1] == len(data)
             assert bfpk.unpack_stored(version, bfpk.read_stored(f, version, e)) == data
-            m3d.CM3(data)
+            if name.endswith('.cm3'):
+                m3d.CM3(data)
     return len(entries)
 
 
@@ -507,6 +549,40 @@ def cmd_one(a, files):
         print(f'packed {n} file(s) into {a.pack}')
 
 
+# Full-body models the mod shows in first-person scenes (lua/coop_scenes.lua S.BODY_MODEL).
+STANDIN_MODELS = ('black', 'church', 'cole', 'delgado', 'jones', 'rawlings', 'trueross')
+
+
+def texture_fixes(files):
+    """Textures a stand-in model names but its own dds folder lacks (TrueRoss holds Jones'
+    rifle: OB_Jones_01-02_Fusil-*), copied from the folder that has them, under the path
+    the engine looks in. Returns [(archive name, data)]."""
+    have = {}
+    for n in files.names('models/*/*/dds/*'):
+        have.setdefault(posixpath.basename(n), n)
+    out = []
+    for m in STANDIN_MODELS:
+        sm = f'models/chars/{m}/{m}.sm3'
+        if not files.exists(sm):
+            continue
+        refs = sorted({x.decode().lower() for x in
+                       re.findall(rb'[A-Za-z0-9_\-.]{3,60}\.bmp', files.read(sm), re.I)})
+        for r in refs:
+            stem = r[:-4]
+            if stem.startswith('envmap_'):
+                continue
+            own = [f'models/chars/{m}/dds/{stem}.dds1', f'models/chars/{m}/dds/{stem}.dds']
+            if any(files.exists(x) for x in own):
+                continue
+            for ext in ('.dds1', '.dds'):
+                src = have.get(stem + ext)
+                if src:
+                    out.append((f'models/chars/{m}/dds/{stem}{ext}', files.read(src)))
+                    print(f'texture {m}: {stem}{ext} from {src}')
+                    break
+    return out
+
+
 def cmd_batch(a, files):
     out_dir = os.path.join(a.out, 'out')
     items, reports, errors, cache = [], [], [], {}
@@ -523,7 +599,7 @@ def cmd_batch(a, files):
     with open(os.path.join(a.out, 'batch_report.json'), 'w') as f:
         json.dump({'files': reports, 'errors': errors}, f, indent=1)
     if a.pack and items:
-        n = write_pack(a.pack, items)
+        n = write_pack(a.pack, items + texture_fixes(files))
         print(f'packed {n} file(s) into {a.pack} ({os.path.getsize(a.pack)} bytes)')
     bad = 0
     for name, data in items:

@@ -181,7 +181,7 @@ function S.update(dt)
     S.checked = class
     local me = Coop.localChar() or Coop.cfg.char   -- UsrEntity(0) is empty during FP scenes
     local owner = CoopEnemies and CoopEnemies.FP_OWNER[string.lower(class)]
-    if me and owner and me ~= owner then
+    if me and owner and me ~= owner and Coop.cfg.povoff ~= true then   -- povoff: dev bisect knob
       local actor = S.findActor(class, me)
       if actor then
         S.start(class, me, actor)
@@ -448,6 +448,13 @@ function S.setFallback(on, why)
   S.fallback = on
   local a = Game.GetEntity(S.pov.actor)
   if a then a.bObjectVisible = on end
+  -- The scene camera is the first-person character's eyes: its arms, not its body.
+  local b = S.body
+  if b and b.class == S.pov.class and not b.hidden then
+    local body = Game.GetEntity(b.entity)
+    if body then body.bObjectVisible = not on end
+    S.showFpArms(on)
+  end
   if on then
     Game.SetCam(0, S.prevCam or "MainCam")
   else
@@ -504,13 +511,42 @@ function S.updatePOV(dt)
 end
 
 -- EndOfScene clears the link of whatever camera is current: hand MainCam back first.
+-- The mod's own cameras (this POV camera, the spirit's) must never stay linked to a scene
+-- node: Scene.StickCamera links whatever camera is current when a scene is created, and
+-- EndOfScene unlinks only the camera current at its end. A spirit camera current at a
+-- scene's start stayed linked to the deleted scene model (objref.h "!Refs", cru_chapel
+-- TheRescue after the Lost Patrol's merge).
+function S.modCams()
+  return {S.CAM, CoopSpirit and CoopSpirit.CAM}
+end
+
+function S.unlinkModCams()
+  for _, n in pairs(S.modCams()) do
+    local c = n and Game.GetEntity(n)
+    if c then c.EntityLink = "" end
+  end
+end
+
 function S.install()
   if S.installed or not Scene or not Scene.EndOfScene then return end
   S.installed = true
   local orig = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     S.stop(true)
+    S.unlinkModCams()
     return orig(...)
+  end
+  -- A scene starts from the game's own camera: the spirit leaves first.
+  local origCreate = Scene.CreateSceneObj
+  if origCreate then
+    Scene.CreateSceneObj = function(...)
+      if CoopSpirit and CoopSpirit.active then CoopSpirit.leave() end
+      local cur = Game.GetCam(0)
+      for _, n in pairs(S.modCams()) do
+        if n and cur == n then Game.SetCam(0, "MainCam") end
+      end
+      return origCreate(...)
+    end
   end
 end
 
@@ -722,7 +758,16 @@ function S.showBody(class)
   if not e then return end
   b.hidden = S.pov == nil or Coop.cfg.bodyhide == true   -- bodyhide: dev experiment knob
   e.bObjectVisible = not b.hidden
+  -- The full body replaces the first-person arms: both shown made four arms (HelicopterTrip).
+  S.showFpArms(b.hidden)
   Coop.log("scene body: " .. b.entity .. (b.hidden and " hidden (seen through its eyes)" or " shown"))
+end
+
+-- The scene's first-person actor (arms and weapon) is seen only from its own eyes.
+function S.showFpArms(on)
+  local b = S.body
+  local fp = b and Game.GetEntity(b.fp)
+  if fp then fp.bObjectVisible = on end
 end
 
 function S.updateBody()
