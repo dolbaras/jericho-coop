@@ -18,13 +18,14 @@ Requirements
 - Every player needs the same mod version.
 
 Install
-1. Extract the archive into the game folder (the one that has the bin folder). You get:
-     <game>\bin\dinput8.dll
-     <game>\coop\*.lua
-   If bin already had a dinput8.dll of its own, keep a copy of it.
+1. Extract the archive anywhere and run "Install Co-op.bat". It finds the game folder (or asks
+   for it), keeps a copy of every file it replaces (in <game>\coop-backup) and installs the mod.
+   Running it again updates the mod or removes it.
 2. Start the game as usual. The main menu has a "Co-op" entry.
-Uninstall: delete <game>\bin\dinput8.dll and the <game>\coop folder. The mod does not change
-game files or single-player saves.
+Uninstall: "Uninstall Co-op.bat" in the game folder - removes the mod and puts the replaced
+files back. The mod does not change game files or single-player saves.
+By hand: copy the contents of the "files" folder into the game folder (back up bin\dinput8.dll
+if there is one).
 
 Play
 - Host: Co-op -> Host game -> pick a chapter (or Continue) -> Create session. In the lobby
@@ -93,13 +94,14 @@ previous run; split screen window 2: coop-window2.log).
 - Мод должен стоять у всех игроков, одной и той же версии.
 
 Установка
-1. Распакуйте архив в папку игры (там, где лежит папка bin). Должно получиться:
-     <папка игры>\bin\dinput8.dll
-     <папка игры>\coop\*.lua
-   Если в bin уже был свой dinput8.dll, сохраните его копию.
+1. Распакуйте архив куда угодно и запустите «Install Co-op.bat». Он сам найдёт папку игры (или
+   спросит её), сохранит копию каждого файла, который заменяет (в <папка игры>\coop-backup), и
+   установит мод. Повторный запуск обновляет мод или удаляет его.
 2. Запустите игру как обычно. В главном меню появится пункт «Совместная игра».
-Удаление: удалите <папка игры>\bin\dinput8.dll и папку <папка игры>\coop.
+Удаление: «Uninstall Co-op.bat» в папке игры — удаляет мод и возвращает заменённые файлы.
 Файлы игры и одиночные сохранения мод не меняет.
+Вручную: скопируйте содержимое папки «files» в папку игры (если в bin уже был dinput8.dll,
+сохраните его копию).
 
 Как играть
 - Хост: «Совместная игра» -> «Создать игру» -> выбрать главу (или «Продолжить») ->

@@ -1,4 +1,4 @@
-# Split screen (experimental): two copies of the game side by side on the main screen, one
+﻿# Split screen (experimental): two copies of the game side by side on the main screen, one
 # co-op session between them over this PC. Shipped in the release as coop-splitscreen.ps1 in
 # the game folder, started by "Co-op split screen.bat".
 #   Window 1 (left): keyboard + mouse and gamepad 1. It hosts: Co-op -> Host game, as usual.
