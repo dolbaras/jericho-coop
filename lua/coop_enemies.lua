@@ -29,6 +29,9 @@ local function isEnemy(e)
 end
 
 -- Run fn with the "this came from the host" flag set, so client guards let it through.
+-- Lobby option "AI squadmates": share of damage they take.
+E.AI_SQUAD_DAMAGE = {normal = 1, tough = 0.6, very = 0.3}
+
 local function fromHost(fn, ...)
   Coop.fromHost = true
   local ok, a, b = pcall(fn, ...)
@@ -167,6 +170,10 @@ function E.installHost()
       E.stats.pdmgSent = E.stats.pdmgSent + 1
       Net.CoopSend(owner, 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
       return false
+    end
+    -- AI squadmates take less damage if the host chose so in the lobby.
+    if To and Coop.SQUAD_SET[To.Name] and Coop.ownerOf(To.Name) == nil and Damage then
+      Damage = Damage * (E.AI_SQUAD_DAMAGE[Coop.cfg.aisquad or "normal"] or 1)
     end
     return origDamage(From, To, Damage, BodyMultiplier)
   end
@@ -307,7 +314,7 @@ E.EYES = {en = "Through %s's eyes", ru = "\194\232\228 \227\235\224\231\224\236\
 E.EYES_SHOW = 5
 E.EYES_FADE = 1
 function E.lang()
-  return (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+  return Coop.cfg.lang or (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
 end
 
 -- A scene held at the gate (the level's opening scene while others still load) would leave
@@ -387,8 +394,7 @@ function E.updateCurtain()
     it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
     it.Effect = "Shadow"
     it.Pos = V2D(320, 240)
-    it.Text = E.WAIT[E.lang()] or E.WAIT.en
-    it.CentralText = 1
+    Coop.setCentered(it, E.WAIT[E.lang()] or E.WAIT.en)
     it.Color = Color(230, 230, 230, 255)
   end
   it.Visible = 1
@@ -417,8 +423,7 @@ function E.updateSceneLabel()
       local lang = E.lang()
       local name = Game.GetLangStr(E.fpLabel)
       if not name or name == "" then name = E.fpLabel end
-      it.Text = string.format(E.EYES[lang] or E.EYES.en, name)
-      it.CentralText = 1
+      Coop.setCentered(it, string.format(E.EYES[lang] or E.EYES.en, name))
     end
     local t = Game.GetTime() - E.fpLabelT0
     local a = t < E.EYES_SHOW and 1 or math.max(0, 1 - (t - E.EYES_SHOW) / E.EYES_FADE)

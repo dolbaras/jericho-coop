@@ -21,8 +21,8 @@ C.aiActing = {}              -- char -> true while the AI does the action (IsPla
 C.aiDid = {}                 -- char -> true after the AI took over an action this level
 
 C.TEXT = {
-  en = {req = "%s is needed here (%s).  Y - take control  (%d)", ai = "%s: the AI does it", obj = "use"},
-  ru = {req = "Нужен %s (%s).  Y - взять управление  (%d)", ai = "%s: делает ИИ", obj = "действие"},
+  en = {req = "%s is needed here (%s)\nY - take control (%d)", ai = "%s: the AI does it", obj = "use"},
+  ru = {req = "Нужен %s (%s)\nY - взять управление (%d)", ai = "%s: делает ИИ", obj = "действие"},
 }
 
 local function text(key)
@@ -132,7 +132,7 @@ function C.aiDoes(gate)
   C.aiActing[req.char] = true
   C.aiDid[req.char] = true
   Net.CoopSend(-1, 1, "actreq|" .. gate .. "|" .. req.char .. "|ai|0")
-  C.flash = {text = string.format(text("ai"), req.char), untilT = Net.CoopTime() + 4}
+  C.flash = {text = string.format(text("ai"), Coop.charName(req.char)), untilT = Net.CoopTime() + 4}
   Coop.log("claim: the AI does " .. gate .. " with " .. req.char)
   C.pendingUse = {char = req.char, gate = gate, func = g and g.func, deadline = Net.CoopTime() + C.AI_WALK_TIMEOUT}
   if AIGen and AIGen.GoAndAction then
@@ -164,28 +164,18 @@ function C.showLocal(gate, char, what, secs)
 end
 
 function C.updateHud()
-  local it = Scorer.GetItem(0, "CoopClaim")
   local s, msg = C.shown, nil
   if s then
     local left = s.untilT and math.max(0, math.floor(s.untilT - Net.CoopTime())) or 0
-    msg = string.format(text("req"), s.char, s.what or "", left)
+    msg = string.format(text("req"), Coop.charName(s.char), s.what or "", left)
   elseif C.flash and Net.CoopTime() < C.flash.untilT then
     msg = C.flash.text
   end
   if not msg then
-    if it then it.Visible = 0 end
+    Coop.textBlockHide("CoopClaim")
     return
   end
-  if not it then
-    it = Scorer.NewItem(0, "CoopClaim", "Text")
-    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-    it.Color = Color(255, 220, 140, 255)
-    it.Effect = "Shadow"
-    it.Pos = V2D(320, 400)
-  end
-  it.Text = msg
-  it.CentralText = 1
-  it.Visible = 1
+  Coop.textBlock("CoopClaim", msg, {y = 380, color = Color(255, 220, 140, 255)})
 end
 
 function C.update()
@@ -215,7 +205,7 @@ function C.onMessage(peer, f)
   if f[1] ~= "actreq" then return false end
   local gate, char, what, secs = f[2], f[3], f[4], tonumber(f[5]) or 0
   if what == "ai" then
-    C.flash = {text = string.format(text("ai"), char), untilT = Net.CoopTime() + 4}
+    C.flash = {text = string.format(text("ai"), Coop.charName(char)), untilT = Net.CoopTime() + 4}
     C.showLocal(gate, nil)
   elseif secs == 0 or char == "-" then
     C.showLocal(gate, nil)

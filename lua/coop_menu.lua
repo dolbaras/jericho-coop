@@ -43,15 +43,18 @@ CoopMenu.TEXT = {
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
     title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host address (IP), then Connect",
     title_lobby = "CO-OP LOBBY", character = "Character", ready = "Ready", yes = "YES", no = "no",
-    start = "Start", start_wait = "Start (waiting for players)", close = "Close session",
+    start = "Start", start_wait = "Start (waiting)", close = "Close session",
     leave = "Leave", connecting = "Connecting to", host_name = "Host", player = "Player",
     you = "(you)", is_ready = "READY", port_fail = "Could not open port", host_left = "Host closed the session",
     nick = "Nickname", tags = "Names above players", on = "on", off = "off",
-    act = "Character actions", act_players = "players, AI after 30 s", act_humans = "players only",
+    act = "Special actions", act_players = "players, AI after 30 s", act_humans = "players only",
     act_ai = "AI at once", lan = "Games on the local network:", lan_none = "(searching...)",
     continue = "Continue", continue_from = "Continue from",
-    scaling = "Enemy toughness", scale_off = "as in single player", scale_light = "light (+15% per player)",
-    scale_full = "full (+30% per player)",
+    scaling = "Enemy toughness", scale_off = "as in single player", scale_light = "+15% per player",
+    scale_full = "+30% per player", settings = "Session settings...", title_settings = "SESSION SETTINGS",
+    qte = "QTE", qte_normal = "as in the game", qte_auto = "automatic",
+    aisquad = "AI squadmates", ai_normal = "as in the game", ai_tough = "tougher (60% damage)",
+    ai_very = "much tougher (30% damage)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -59,19 +62,23 @@ CoopMenu.TEXT = {
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
     join_hint = "Адрес хоста (IP), затем Подключиться", title_lobby = "ЛОББИ",
     character = "Персонаж", ready = "Готов", yes = "ДА", no = "нет", start = "Начать",
-    start_wait = "Начать (ждём игроков)", close = "Закрыть сессию", leave = "Выйти",
+    start_wait = "Начать (ждём)", close = "Закрыть сессию", leave = "Выйти",
     connecting = "Подключение к", host_name = "Хост", player = "Игрок", you = "(вы)",
     is_ready = "ГОТОВ", port_fail = "Не удалось открыть порт", host_left = "Хост закрыл сессию",
     nick = "Ник", tags = "Имена над игроками", on = "вкл", off = "выкл",
-    act = "Действия персонажей", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
+    act = "Спец. действия", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
     act_ai = "сразу ИИ", lan = "Игры в локальной сети:", lan_none = "(поиск...)",
     continue = "Продолжить", continue_from = "Продолжение",
-    scaling = "Живучесть врагов", scale_off = "как в одиночной игре", scale_light = "лёгкая (+15% за игрока)",
-    scale_full = "полная (+30% за игрока)",
+    scaling = "Живучесть врагов", scale_off = "как в одиночной игре", scale_light = "+15% за игрока",
+    scale_full = "+30% за игрока", settings = "Настройки сессии...", title_settings = "НАСТРОЙКИ СЕССИИ",
+    qte = "QTE", qte_normal = "как в игре", qte_auto = "автоматически",
+    aisquad = "Союзники ИИ", ai_normal = "как в игре", ai_tough = "крепче (60% урона)",
+    ai_very = "намного крепче (30%)",
   },
 }
 
 function CoopMenu.detectLanguage()
+  if cfg.lang then return cfg.lang end   -- tests: the other language on this install
   local probe = Game.GetLangStr("Menu_ExitGame") or ""
   for i = 1, #probe do
     if string.byte(probe, i) >= 192 then return "ru" end
@@ -102,12 +109,17 @@ CoopMenu.T = T
 ------------------------------------------------------------------------------
 
 -- Set an item's text and re-centre it (the engine centres when CentralText is set).
+-- CentralText centres the text on the item's current X: put X back on the centre line
+-- first, or every change of the text moves it further left.
 local function setText(it, text)
   if it and it.Text ~= text then
     it.Text = text
+    it.X = 320
     it.CentralText = 1
   end
 end
+
+CoopMenu.charName = Coop.charName
 
 function CoopMenu.levelName(id)
   local s = Game.GetLangStr(string.lower(id))
@@ -174,6 +186,7 @@ function CoopMenu.hookMainMenu()
     local ok, err = pcall(origMain, ...)
     CoopMenu.injecting = false
     if not ok then Coop.log("main menu error: " .. tostring(err)) end
+    pcall(CoopMenu.fitMainMenu)
   end
   Menu.VerticalMenu = function(title, options, ...)
     if CoopMenu.injecting then
@@ -182,6 +195,19 @@ function CoopMenu.hookMainMenu()
     end
     return origVertical(title, options, ...)
   end
+end
+
+-- The main menu moves its 7th entry down to 400 to set "Exit" apart. With more entries
+-- (SMOD's Cheats/Debug plus ours) that lands on another one and the last runs off the
+-- screen: then spread them all evenly between the first entry and MAIN_BOTTOM.
+CoopMenu.MAIN_BOTTOM = 445
+function CoopMenu.fitMainMenu()
+  local n = 0
+  while item("Itm" .. (n + 1)) do n = n + 1 end
+  if n < 8 then return end
+  local top = item("Itm1").Y
+  local step = (CoopMenu.MAIN_BOTTOM - top) / (n - 1)
+  for i = 1, n do item("Itm" .. i).Y = top + (i - 1) * step end
 end
 
 function CoopMenu.Root()
@@ -314,12 +340,7 @@ function CoopMenu.JoinSetup()
   CoopMenu.lanNext = 0
   local it = item("Itm1")
   it.MaxInput = 21
-  local hint = Scorer.NewItem(0, "CoopHint", "Text")
-  hint.Text = T("join_hint")
-  hint.Pos = V2D(320, 150)
-  hint.CentralText = 1
-  hint.Font = Menu.SmallFont
-  hint.Color = Menu.ItemColor
+  Coop.textBlock("CoopHint", T("join_hint"), {y = 130, font = Menu.SmallFont, color = Menu.ItemColor, width = 480})
 end
 
 function CoopMenu.refreshLan()
@@ -347,8 +368,8 @@ function CoopMenu.refreshLan()
     if it then
       if g then
         local nick = (g.nick and g.nick ~= "") and g.nick or T("host_name")
-        setText(it, string.format("LAN: %s - %s (%s/%s)  %s", nick, CoopMenu.levelName(g.level or ""),
-          g.players or "?", g.max or "?", g.ip or ""))
+        setText(it, string.format("LAN: %s - %s (%s/%s)", nick, CoopMenu.levelName(g.level or ""),
+          g.players or "?", g.max or "?"))
       else
         setText(it, i == 1 and ("LAN: " .. T("lan_none")) or "")
       end
@@ -398,7 +419,7 @@ end
 
 function CoopMenu.Lobby()
   CoopMenu.screen = "lobby"
-  CoopMenu.portraitOf = nil
+  CoopMenu.sub = nil
   local options = {
     {"", "CoopMenu.NextChar"},
     {CoopMenu.myNick(), "!EditText"},
@@ -406,17 +427,15 @@ function CoopMenu.Lobby()
     {"", "CoopMenu.ToggleReady"},
   }
   if Coop.isHost() then
-    -- Who does character-only actions nobody holds (coop_claim.lua); the host decides.
-    options[#options + 1] = {"", "CoopMenu.CycleActMode"}
-    -- Vanilla difficulty, and how much tougher enemies get per extra player (coop_enemies.lua).
-    options[#options + 1] = {"", "CoopMenu.CycleSkill"}
-    options[#options + 1] = {"", "CoopMenu.CycleScaling"}
+    -- The session's rules live on their own screen: the lobby has to fit 4:3 screens and
+    -- bigger menu fonts (SMOD).
+    options[#options + 1] = {T("settings"), "CoopMenu.Settings"}
     options[#options + 1] = {T("start"), "CoopMenu.Start"}
     options[#options + 1] = {T("close"), "CoopMenu.Leave"}
   else
     options[#options + 1] = {T("leave"), "CoopMenu.Leave"}
   end
-  Menu.VerticalMenu(T("title_lobby"), options, "CoopMenu.Leave", nil, 205, 30)
+  Menu.VerticalMenu(T("title_lobby"), options, "CoopMenu.Leave", nil, CoopMenu.LOBBY_TOP - 52, CoopMenu.LOBBY_STEP)
   local it = item("Itm1")
   it.onLeft = "CoopMenu.PrevChar"
   it.onRight = "CoopMenu.NextChar"
@@ -426,7 +445,7 @@ function CoopMenu.Lobby()
   for i = 0, CoopMenu.MAX_PLAYERS do
     local t = Scorer.NewItem(0, "CoopLine" .. i, "Text")
     t.Text = ""
-    t.Pos = V2D(320, 95 + i * 24)
+    t.Pos = V2D(320, 108 + i * 28)   -- below the title, rows apart for big fonts
     t.CentralText = 1
     t.Font = Menu.SmallFont
     t.Color = Menu.ItemColor
@@ -434,8 +453,46 @@ function CoopMenu.Lobby()
   CoopMenu.refreshLobby()
 end
 
+-- Lobby rows: one step apart from LOBBY_TOP, set again on every refresh (one entry was seen
+-- 14 units off its row, over its neighbour, without anything of ours moving it).
+CoopMenu.LOBBY_TOP, CoopMenu.LOBBY_STEP = 252, 30
+function CoopMenu.layoutRows()
+  local i = 1
+  while item("Itm" .. i) do
+    item("Itm" .. i).Y = CoopMenu.LOBBY_TOP + (i - 1) * CoopMenu.LOBBY_STEP
+    i = i + 1
+  end
+end
+
+-- Host: the session's rules (lobby sub-screen; the lobby keeps running underneath).
+function CoopMenu.Settings()
+  CoopMenu.sub = "settings"
+  Menu.VerticalMenu(T("title_settings"), {
+    -- Who does character-only actions nobody holds (coop_claim.lua).
+    {"", "CoopMenu.CycleActMode"},
+    -- Vanilla difficulty, and how much tougher enemies get per extra player (coop_enemies.lua).
+    {"", "CoopMenu.CycleSkill"},
+    {"", "CoopMenu.CycleScaling"},
+    -- QTEs pass by themselves for everyone (the game's own QTEMode 2), and how much damage
+    -- the AI squadmates take (coop_enemies.lua): the host's choice, the same for all.
+    {"", "CoopMenu.CycleQTE"},
+    {"", "CoopMenu.CycleAISquad"},
+    {Menu.GetBackText(), "CoopMenu.Lobby"},
+  }, "CoopMenu.Lobby", nil, 160, 35)
+  CoopMenu.refreshLobby()
+end
+
 function CoopMenu.refreshLobby()
   if CoopMenu.screen ~= "lobby" or not item("Itm1") then return end
+  if CoopMenu.sub == "settings" then
+    setText(item("Itm1"), T("act") .. ": " .. T("act_" .. (cfg.actmode or "players")))
+    setText(item("Itm2"), CoopMenu.skillText())
+    setText(item("Itm3"), T("scaling") .. ": " .. T("scale_" .. (cfg.scaling or "light")))
+    setText(item("Itm4"), T("qte") .. ": " .. T("qte_" .. (cfg.qte or "normal")))
+    setText(item("Itm5"), T("aisquad") .. ": " .. T("ai_" .. (cfg.aisquad or "normal")))
+    return
+  end
+  CoopMenu.layoutRows()
   local level = CoopMenu.LEVELS[CoopMenu.levelIndex]
   local line0 = item("CoopLine0")
   if line0 then
@@ -455,8 +512,8 @@ function CoopMenu.refreshLobby()
         local who = (s.nick and s.nick ~= "") and s.nick or (s.peer == 0 and T("host_name") or (T("player") .. " " .. (s.peer + 1)))
         if s.peer == CoopMenu.myPeer() then who = who .. " " .. T("you") end
         -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
-        local char = s.char
-        if s.peer == 0 and string.find(string.lower(level or ""), "^alk_") then char = "Ross -> " .. char end
+        local char = CoopMenu.charName(s.char)
+        if s.peer == 0 and string.find(string.lower(level or ""), "^alk_") then char = CoopMenu.charName("Ross") .. " -> " .. char end
         setText(t, who .. ": " .. char .. (s.ready and "  - " .. T("is_ready") or ""))
       else
         setText(t, "")
@@ -464,56 +521,13 @@ function CoopMenu.refreshLobby()
     end
   end
   local me = CoopMenu.seatOf(CoopMenu.myPeer())
-  setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and me.char or "-") .. " >")
-  CoopMenu.showPortrait(me and me.char)
+  setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and CoopMenu.charName(me.char) or "-") .. " >")
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   setText(item("Itm4"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
-  if Coop.isHost() and item("Itm8") then
-    setText(item("Itm5"), T("act") .. ": " .. T("act_" .. (cfg.actmode or "players")))
-    setText(item("Itm6"), CoopMenu.skillText())
-    setText(item("Itm7"), T("scaling") .. ": " .. T("scale_" .. (cfg.scaling or "light")))
-    setText(item("Itm8"), CoopMenu.allReady() and T("start") or T("start_wait"))
+  if Coop.isHost() and item("Itm6") then
+    setText(item("Itm6"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
-end
-
--- Portraits: the game's own character art from the Extras gallery (2D/Menu/Extra_N_Picture_0,
--- titles Extra_N_Main_Title, e.g. "Sergeant Frank Delgado").
-CoopMenu.PORTRAIT = {Ross = 0, Black = 1, Delgado = 2, Church = 3, Jones = 4, Cole = 5, Rawlings = 6}
-
-function CoopMenu.showPortrait(char)
-  local n = CoopMenu.PORTRAIT[char or ""]
-  local pic, name = item("CoopPortrait"), item("CoopPortraitName")
-  if not n then
-    if pic then pic.Visible = 0 end
-    if name then name.Visible = 0 end
-    return
-  end
-  if not pic then pic = Scorer.NewItem(0, "CoopPortrait", "Sprite") end
-  if CoopMenu.portraitOf ~= char then
-    CoopMenu.portraitOf = char
-    -- In the order the game's Extras gallery uses (loading the file resets the rest):
-    -- top right of the screen, 136 units of the 640x480 layout.
-    pic.File = "2D/Menu/Extra_" .. n .. "_Picture_0.bmp"
-    pic.Unit = 1
-    pic.Pos = V2D(564, 96)
-    pic.Scale = V2D(136, 136)
-    pic.Color = Color(255, 255, 255, 255)
-    pic.Pivot = V2D(0.5, 0.5)
-  end
-  pic.Visible = 1
-  if not name then
-    name = Scorer.NewItem(0, "CoopPortraitName", "Text")
-    name.Font = Menu.SmallFont
-    name.Pos = V2D(564, 168)
-    name.CentralText = 1
-    name.Color = Menu.ItemColor
-  end
-  -- The title carries the rank ("Sergeant Frank Delgado"); under the picture only the name fits.
-  local words = {}
-  for w in string.gmatch(Game.GetLangStr("Extra_" .. n .. "_Main_Title") or "", "%S+") do words[#words + 1] = w end
-  setText(name, table.concat(words, " ", math.max(1, #words - 1)))
-  name.Visible = 1
 end
 
 function CoopMenu.allReady()
@@ -604,6 +618,25 @@ function CoopMenu.CycleScaling()
   CoopMenu.refreshLobby()
 end
 
+CoopMenu.QTE_MODES = {"normal", "auto"}
+CoopMenu.AI_SQUAD = {"normal", "tough", "very"}
+local function cycle(list, cur)
+  for i, m in ipairs(list) do
+    if m == cur then return list[i % #list + 1] end
+  end
+  return list[1]
+end
+
+function CoopMenu.CycleQTE()
+  cfg.qte = cycle(CoopMenu.QTE_MODES, cfg.qte or "normal")
+  CoopMenu.refreshLobby()
+end
+
+function CoopMenu.CycleAISquad()
+  cfg.aisquad = cycle(CoopMenu.AI_SQUAD, cfg.aisquad or "normal")
+  CoopMenu.refreshLobby()
+end
+
 function CoopMenu.CycleActMode()
   local cur = cfg.actmode or "players"
   for i, m in ipairs(CoopMenu.ACT_MODES) do
@@ -668,7 +701,9 @@ function CoopMenu.Start()
   CoopMenu.continueRec = nil
   cfg.skill = cfg.skill or Game.Get("GameSkill")
   cfg.scaling = cfg.scaling or "light"
-  Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats .. "|" .. cfg.skill .. "|" .. cfg.scaling)
+  cfg.qte, cfg.aisquad = cfg.qte or "normal", cfg.aisquad or "normal"
+  Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats .. "|" .. cfg.skill .. "|" .. cfg.scaling .. "|" ..
+               cfg.qte .. "|" .. cfg.aisquad)
   CoopMenu.launch(level, seats)
 end
 
@@ -766,6 +801,7 @@ function CoopMenu.onMessage(peer, f)
     Coop.log("lobby: host started " .. f[2])
     cfg.skill = tonumber(f[4]) or cfg.skill
     cfg.scaling = f[5] or cfg.scaling
+    cfg.qte, cfg.aisquad = f[6] or cfg.qte, f[7] or cfg.aisquad
     CoopMenu.launch(f[2], f[3])
     return true
   elseif kind == "welcome" and Coop.isClient() and f[3] == "Menu" then
@@ -776,13 +812,46 @@ function CoopMenu.onMessage(peer, f)
   return false
 end
 
+-- The game's start screen (language list, shown on every start): its entries carry a language.
+function CoopMenu.onLanguageScreen()
+  local it = item("Itm1")
+  return it ~= nil and it.uData ~= nil and it.uData.Language ~= nil
+end
+
 function CoopMenu.update()
   -- Back from a session that ended by itself (host gone): say why, on the co-op screen.
-  if cfg.notice and Coop.frame > 40 and CoopMenu.screen == nil and not Menu.isStartUpMenu then
+  if cfg.notice and Coop.frame > 40 and CoopMenu.screen == nil and not CoopMenu.onLanguageScreen() then
     local why = cfg.notice
     cfg.notice = nil
     CoopMenu.Root()
     CoopMenu.message(T(why))
+  end
+  -- Split screen, second window (cfg.autojoin, set by the launcher): straight into the
+  -- first window's lobby, ready; its player picks the character there.
+  if cfg.autojoin and not CoopMenu.autojoined and Coop.frame > 40 then
+    -- Past the language list (the language is the first window's, from the config).
+    if CoopMenu.onLanguageScreen() and MainMenu and MainMenu.Init2 then
+      MainMenu.Init2()
+      return
+    end
+    CoopMenu.autojoined = true
+    CoopMenu.JoinSetup()
+    CoopMenu.Connect()
+  end
+  -- The first window may not host yet: knock again every few seconds until it answers.
+  if cfg.autojoin and CoopMenu.screen == "lobby" and not cfg.myId and Coop.frame >= (CoopMenu.joinRetry or 0) then
+    if CoopMenu.joinRetry then
+      Net.CoopClose()
+      Net.CoopJoin(cfg.addr or "127.0.0.1", cfg.port or CoopMenu.PORT)
+    end
+    CoopMenu.joinRetry = Coop.frame + 100
+  end
+  if cfg.autojoin and CoopMenu.screen == "lobby" and cfg.myId and Coop.frame % 20 == 0 then
+    local me = CoopMenu.seatOf(CoopMenu.myPeer())
+    if me and not me.ready and not CoopMenu.autoReadied then
+      CoopMenu.autoReadied = true
+      CoopMenu.ToggleReady()
+    end
   end
   if CoopMenu.screen == "lobby" then CoopMenu.refreshLobby() end
   if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then

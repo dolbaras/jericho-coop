@@ -13,6 +13,10 @@ Copy-Item $dll (Join-Path $stage "bin")
 Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $stage "coop")
 Copy-Item (Join-Path $root "docs\release-readme.txt") (Join-Path $stage "README-COOP.txt")
+# Split screen launcher (experimental): double-click the .bat in the game folder.
+Copy-Item (Join-Path $root "tools\splitscreen.ps1") (Join-Path $stage "coop-splitscreen.ps1")
+Set-Content -Path (Join-Path $stage "Co-op split screen.bat") -Encoding ASCII `
+    -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-splitscreen.ps1" %*'
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $stage "LICENSE.txt")
 Copy-Item (Join-Path $root "docs\enet-license.txt") (Join-Path $stage "ENET-LICENSE.txt")
 $zip = Join-Path $root "dist\jericho-coop-$Version.zip"

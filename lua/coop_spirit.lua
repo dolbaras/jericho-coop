@@ -216,8 +216,7 @@ function P.leave()
     if EffectsFrame.Jones_End then pcall(EffectsFrame.Jones_End) end
     if EffectsFrame.RT_Reset then pcall(EffectsFrame.RT_Reset) end
   end
-  local it = Scorer.GetItem(0, "CoopSpirit")
-  if it then it.Visible = 0 end
+  Coop.textBlockHide("CoopSpirit")
   for _, n in ipairs(P.HUD_ITEMS) do
     local h = Scorer.GetItem(0, n)
     if h then h.Visible = 1 end
@@ -362,19 +361,9 @@ function P.takeBody()
 end
 
 function P.updateHud()
-  local it = Scorer.GetItem(0, "CoopSpirit")
-  if not it then
-    it = Scorer.NewItem(0, "CoopSpirit", "Text")
-    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-    it.Color = Color(170, 200, 255, 255)
-    it.Effect = "Shadow"
-    it.Pos = V2D(320, 60)
-  end
   local text = P.soul and P.soul.hint and P.soul.hint() or P.text("hint")
   if P.flash and Net.CoopTime() < P.flash.untilT then text = P.flash.text end
-  it.Text = text
-  it.CentralText = 1
-  it.Visible = 1
+  Coop.textBlock("CoopSpirit", text, {y = 60, color = Color(170, 200, 255, 255)})
 end
 
 local function pressed(vk)

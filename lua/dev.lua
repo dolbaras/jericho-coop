@@ -306,6 +306,7 @@ if cfg.menutest and Coop.level == "levels/menu" then
       elseif cfg.menutest == "host" then CoopMenu.HostSetup()
       elseif cfg.menutest == "join" then CoopMenu.JoinSetup()
       elseif cfg.menutest == "lobby" then CoopMenu.HostSetup(); CoopMenu.NextLevel(); CoopMenu.CreateSession()
+      elseif cfg.menutest == "settings" then CoopMenu.HostSetup(); CoopMenu.CreateSession(); CoopMenu.Settings()
       elseif cfg.menutest == "flow" then
         -- Whole lobby flow: host continues the co-op save (or starts cfg.menulevel), the
         -- client joins 127.0.0.1; both get ready and the host starts once everyone is.

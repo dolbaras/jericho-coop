@@ -9,6 +9,10 @@
  *   JERICHO_ADAPTER=window  create the Direct3D 9 device on the adapter that drives the
  *                           monitor holding the window (the game always asks for adapter 0).
  *   JERICHO_ADAPTER=<n>     use adapter n.
+ *   JERICHO_PADS=a,b,..     split screen: the game's pad 0 is physical XInput pad a, its pad 1
+ *                           is pad b...; the others read as unplugged. "none": no pads.
+ *   JERICHO_KBM=0           split screen, second window: keyboard and mouse never reach this
+ *                           game (they belong to the first window).
  *   JERICHO_BACKGROUND=1    keep running when the window loses focus: the game pauses on
  *                           deactivation, which would freeze a co-op session (host alt-tabs)
  *                           and test instances that are not in front. The mod's Lua also
@@ -27,6 +31,8 @@
 #include "capture.h"
 
 static int win_x, win_y, have_winpos, run_in_background;
+static int kbm_off;               /* JERICHO_KBM=0 */
+static int pad_map[4] = {0, 1, 2, 3};
 static int win_w, win_h, have_winsize;
 static DWORD win_style, win_exstyle;
 
@@ -64,6 +70,37 @@ static void **find_iat_slot(const char *dll, const char *func)
         }
     }
     return NULL;
+}
+
+/* An import by ordinal (XINPUT1_3.dll exports XInputGetState as #2, XInputSetState as #3). */
+static void **find_iat_slot_ord(const char *dll, WORD ordinal)
+{
+    BYTE *base = (BYTE *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress)
+        return NULL;
+    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir.VirtualAddress); d->Name; d++) {
+        if (_stricmp((const char *)(base + d->Name), dll) != 0)
+            continue;
+        IMAGE_THUNK_DATA *names = (IMAGE_THUNK_DATA *)(base + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+        void **slots = (void **)(base + d->FirstThunk);
+        for (int i = 0; names[i].u1.AddressOfData; i++)
+            if (IMAGE_SNAP_BY_ORDINAL(names[i].u1.Ordinal) && IMAGE_ORDINAL(names[i].u1.Ordinal) == ordinal)
+                return &slots[i];
+    }
+    return NULL;
+}
+
+static void *patch_slot(void **slot, void *hook)
+{
+    DWORD old;
+    if (!slot || !VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old))
+        return NULL;
+    void *orig = *slot;
+    *slot = hook;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return orig;
 }
 
 static void *patch_iat(const char *dll, const char *func, void *hook)
@@ -119,7 +156,7 @@ static ShowWindow_t real_ShowWindow;
 int display_hooks_key_down(int vk)
 {
     /* Our own imports are not hooked: these are the real functions. */
-    if (!game_window || GetForegroundWindow() != game_window)
+    if (kbm_off || !game_window || GetForegroundWindow() != game_window)
         return 0;
     return (GetAsyncKeyState(vk) & 0x8000) ? 1 : 0;
 }
@@ -129,6 +166,12 @@ static int really_in_front(void)
     if (!run_in_background)
         return 1;
     return game_window && real_GetForegroundWindow() == game_window;
+}
+
+/* Keyboard and mouse reach the game: its window is in front and they are not switched off. */
+static int kbm_in(void)
+{
+    return !kbm_off && really_in_front();
 }
 
 static HWND WINAPI bg_GetForegroundWindow(void)
@@ -143,12 +186,12 @@ static HWND WINAPI bg_GetActiveWindow(void)
 
 static SHORT WINAPI bg_GetAsyncKeyState(int key)
 {
-    return really_in_front() ? real_GetAsyncKeyState(key) : 0;
+    return kbm_in() ? real_GetAsyncKeyState(key) : 0;
 }
 
 static BOOL WINAPI bg_SetCursorPos(int x, int y)
 {
-    return really_in_front() ? real_SetCursorPos(x, y) : TRUE;
+    return kbm_in() ? real_SetCursorPos(x, y) : TRUE;
 }
 
 static BOOL WINAPI bg_SetForegroundWindow(HWND hw)
@@ -180,7 +223,7 @@ static DICreateDevice_t real_DICreateDevice;
 static HRESULT WINAPI bg_GetDeviceState(void *dev, DWORD size, void *data)
 {
     HRESULT hr = real_GetDeviceState(dev, size, data);
-    if (!really_in_front() && data)
+    if (!kbm_in() && data)
         memset(data, 0, size);
     return hr;
 }
@@ -188,7 +231,7 @@ static HRESULT WINAPI bg_GetDeviceState(void *dev, DWORD size, void *data)
 static HRESULT WINAPI bg_GetDeviceData(void *dev, DWORD objsize, void *data, DWORD *count, DWORD flags)
 {
     HRESULT hr = real_GetDeviceData(dev, objsize, data, count, flags);
-    if (!really_in_front() && count)
+    if (!kbm_in() && count)
         *count = 0;   /* drop buffered events */
     return hr;
 }
@@ -412,11 +455,56 @@ static IDirect3D9 *WINAPI hook_Direct3DCreate9(UINT sdk)
     return d3d;
 }
 
+/* ---- split screen: which physical pads this game reads ---- */
+typedef DWORD (WINAPI *XInputGetState_t)(DWORD, void *);
+typedef DWORD (WINAPI *XInputSetState_t)(DWORD, void *);
+static XInputGetState_t real_XInputGetState;
+static XInputSetState_t real_XInputSetState;
+
+static DWORD WINAPI pad_GetState(DWORD i, void *state)
+{
+    if (i >= 4 || pad_map[i] < 0)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    return real_XInputGetState((DWORD)pad_map[i], state);
+}
+
+static DWORD WINAPI pad_SetState(DWORD i, void *vib)
+{
+    if (i >= 4 || pad_map[i] < 0)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    return real_XInputSetState((DWORD)pad_map[i], vib);
+}
+
+static void install_pad_router(const char *spec)
+{
+    for (int i = 0; i < 4; i++)
+        pad_map[i] = -1;
+    if (_stricmp(spec, "none") != 0) {
+        const char *c = spec;
+        for (int i = 0; i < 4 && *c; i++) {
+            pad_map[i] = atoi(c);
+            c = strchr(c, ',');
+            if (!c)
+                break;
+            c++;
+        }
+    }
+    real_XInputGetState = (XInputGetState_t)patch_slot(find_iat_slot_ord("XINPUT1_3.dll", 2), (void *)pad_GetState);
+    real_XInputSetState = (XInputSetState_t)patch_slot(find_iat_slot_ord("XINPUT1_3.dll", 3), (void *)pad_SetState);
+    coop_log("pads: %d,%d,%d,%d (get %s, set %s)", pad_map[0], pad_map[1], pad_map[2], pad_map[3],
+             real_XInputGetState ? "hooked" : "not imported", real_XInputSetState ? "hooked" : "not imported");
+}
+
 void display_hooks_install(void)
 {
     char v[64];
     run_in_background = GetEnvironmentVariableA("JERICHO_BACKGROUND", v, sizeof v) == 1 && v[0] == '1';
     test_mode = run_in_background;
+    kbm_off = GetEnvironmentVariableA("JERICHO_KBM", v, sizeof v) == 1 && v[0] == '0';
+    if (kbm_off)
+        coop_log("keyboard and mouse off (split screen, second window)");
+    if (GetEnvironmentVariableA("JERICHO_PADS", v, sizeof v) > 0)
+        install_pad_router(v);
     if (run_in_background)
         coop_log("background mode on");
     if (!real_CreateWindowExA)

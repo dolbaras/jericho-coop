@@ -53,6 +53,73 @@ end
 
 -- Nicknames travel inside "|"/";"/":"-separated messages and the boot line (single
 -- quotes), so keep letters, digits, space, "_" and "-" (cp1251 letters included).
+-- A squad member's name in the game's language (language file keys Church, Cole...: "Черч").
+function Coop.charName(id)
+  local s = id and Game.GetLangStr(id)
+  if not s or s == "" or string.find(s, "^%?") then s = id end
+  return s
+end
+
+-- Centred text that may need several lines (Scorer text items do not break lines: one long
+-- line runs off 4:3 screens and SMOD-sized fonts). The game's own Scorer.SplitString breaks it
+-- by the font's real width, one item per line (name, name.."#2", ...), as Menu.TextMultiline
+-- does. CentralText centres on the item's current X, so X is put back first each time or
+-- every change of the text moves it further left.
+Coop.TEXT_WIDTH = 520
+function Coop.setCentered(it, text, x)
+  if it.Text ~= text then
+    it.Text = text
+    it.X = x or 320
+    it.CentralText = 1
+  end
+end
+
+-- opts: x, y (first line), font, color, effect, step (between lines), width.
+function Coop.textBlock(name, text, opts)
+  opts = opts or {}
+  local font = opts.font or (Menu and Menu.SmallFont) or "ScrapMedium"
+  -- Explicit breaks ("\n") first, then the font's width for each part.
+  local lines = {}
+  for part in string.gmatch(text .. "\n", "([^\n]*)\n") do
+    local split
+    if Scorer.SplitString and part ~= "" then
+      local ok, r = pcall(Scorer.SplitString, part, font, opts.width or Coop.TEXT_WIDTH)
+      if ok and type(r) == "table" and #r > 0 then split = r end
+    end
+    for _, l in ipairs(split or {part}) do lines[#lines + 1] = l end
+  end
+  local n = 0
+  for k, line in ipairs(lines) do
+    n = k
+    local key = k == 1 and name or (name .. "#" .. k)
+    local it = Scorer.GetItem(0, key)
+    if not it then
+      it = Scorer.NewItem(0, key, "Text")
+      it.Font = font
+      it.Effect = opts.effect or "Shadow"
+    end
+    it.Y = (opts.y or 240) + (k - 1) * (opts.step or 24)
+    Coop.setCentered(it, line, opts.x)
+    if opts.color then it.Color = opts.color end
+    it.Visible = 1
+  end
+  Coop.textBlockHide(name, n + 1)
+end
+
+-- Hides the block's lines from line `from` on (1 = all of it).
+function Coop.textBlockHide(name, from)
+  local k = from or 1
+  while true do
+    local it = Scorer.GetItem(0, k == 1 and name or (name .. "#" .. k))
+    if not it then
+      if k > 8 then break end
+    else
+      it.Visible = 0
+    end
+    k = k + 1
+  end
+end
+
 function Coop.cleanNick(s)
   s = string.gsub(tostring(s or ""), "[^%w _%-92-­]", "")
   return string.sub(s, 1, 16)
@@ -60,6 +127,7 @@ end
 
 -- "ru" when the game's own strings are Russian (cp1251), else "en".
 function Coop.lang()
+  if cfg.lang then return cfg.lang end   -- tests: the other language on this install
   if CoopMenu and CoopMenu.lang then return CoopMenu.lang end
   return (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
 end
@@ -610,6 +678,17 @@ end
 
 function Coop.update()
   Coop.frame = Coop.frame + 1
+  -- SMOD (autoexec.lua, re-run every level) slows the whole world while the squad menu is
+  -- open: in a session that would slow one machine only.
+  -- Lobby option: QTEs pass by themselves on every machine (the game's own QTEMode 2; its
+  -- bonus codes set QTEMode again on every level load).
+  if cfg.qte == "auto" and Coop.inSession() and Coop.level ~= "levels/menu" and Game.Get("QTEMode") ~= 2 then
+    Game.Set("QTEMode", 2)
+  end
+  if _G.TEAMMENUSLOWMO and Coop.inSession() then
+    _G.TEAMMENUSLOWMO = false
+    Coop.log("SMOD: squad menu slow motion off for the session")
+  end
   -- Keep running while unfocused for the length of a session (a paused host would
   -- freeze everyone); outside a session the game behaves as in single player.
   -- Test runs (dev) keep running unfocused in the menu too.
@@ -763,6 +842,11 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("splits load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_patrol.lua")
   if not ok then Coop.log("patrol load error: " .. tostring(err)) end
+end
+-- SMOD next to co-op (texts, the same rules for everyone): menu and levels alike.
+do
+  local ok, err = pcall(dofile, COOP_DIR .. "coop_smod.lua")
+  if not ok then Coop.log("smod load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.

@@ -33,7 +33,7 @@ local cfg = Coop.cfg
 
 Sp.TEXT = {
   en = {
-    choose = "%s goes on alone.  1 - take %s,  2 - stay with your own (%d)",
+    choose = "%s goes on alone (%d)\n1 - play as %s\n2 - stay with your own",
     hold1 = "Hold the hall: the noise of the fight brings the Templars back.",
     hold2 = "Second wave! Hold until Church opens the door.",
     hold3 = "They come from below! Keep Church's way back open.",
@@ -44,7 +44,7 @@ Sp.TEXT = {
     delgado_back = "Delgado is behind the door. Get ready.",
     abyss1 = "The legion door opens again! Cover Church from the edge.",
     abyss2 = "Church's side is clear. Stand on the plates.",
-    struggle = "The blood link holds you. Hold E to break free (%d%%)",
+    struggle = "The blood link holds you.\nHold E to break free (%d%%)",
     hack = "Cole restores the files: %d%%. Defend her!",
     hack_away = "Restoration paused at %d%%: Cole must be at the console.",
     pinned1 = "Alpha is cut off in the dig. Hold out until Omega gets through.",
@@ -66,7 +66,7 @@ Sp.TEXT = {
     soul_back = "Rawlings' soul is back. Revive him!",
   },
   ru = {
-    choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
+    choose = "%s идёт дальше один (%d)\n1 - играть за: %s\n2 - остаться своим персонажем",
     hold1 = "Удерживайте зал: шум боя вернул тамплиеров.",
     hold2 = "Вторая волна! Держитесь, пока Чёрч не откроет дверь.",
     hold3 = "Они лезут снизу! Не дайте отрезать Чёрчу путь назад.",
@@ -77,7 +77,7 @@ Sp.TEXT = {
     delgado_back = "Дельгадо за дверью. Приготовьтесь.",
     abyss1 = "Дверь легиона снова открывается! Прикройте Чёрча с края.",
     abyss2 = "На стороне Чёрча чисто. Встаньте на плиты.",
-    struggle = "Кровавая связь держит вас. Удерживайте E, чтобы вырваться (%d%%)",
+    struggle = "Кровавая связь держит вас.\nУдерживайте E, чтобы вырваться (%d%%)",
     hack = "Коул восстанавливает файлы: %d%%. Защищайте её!",
     hack_away = "Восстановление стоит на %d%%: Коул должна быть у консоли.",
     pinned1 = "Альфа отрезана на раскопе. Держитесь, пока Омега не пробьётся.",
@@ -133,9 +133,8 @@ end
 
 function Sp.updateChoice()
   local c = Sp.choice
-  local it = Scorer.GetItem(0, "CoopSplit")
   if not c then
-    if it then it.Visible = 0 end
+    if not Sp.G15 or not Sp.G15.struggle then Coop.textBlockHide("CoopSplit") end
     return
   end
   local left = math.ceil(c.untilT - Net.CoopTime())
@@ -143,23 +142,16 @@ function Sp.updateChoice()
   if Net.CoopKey(0x31) == 1 then pick = "take" elseif Net.CoopKey(0x32) == 1 or left <= 0 then pick = "stay" end
   if pick then
     Sp.choice = nil
-    if it then it.Visible = 0 end
+    Coop.textBlockHide("CoopSplit")
     Coop.log("split " .. c.id .. ": " .. pick)
     if pick == "take" and Team and Team.SwitchSoldier and Coop.ownerOf(c.target) == nil then
       Team.SwitchSoldier(Coop.localChar(), c.target)
     end
     return
   end
-  if not it then
-    it = Scorer.NewItem(0, "CoopSplit", "Text")
-    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-    it.Color = Color(255, 220, 160, 255)
-    it.Effect = "Shadow"
-    it.Pos = V2D(320, 90)
-  end
-  it.Text = string.format(Sp.text("choose"), c.target, c.target, math.max(left, 0))
-  it.CentralText = 1
-  it.Visible = 1
+  local who = Coop.charName(c.target)
+  Coop.textBlock("CoopSplit", string.format(Sp.text("choose"), who, math.max(left, 0), who),
+    {y = 90, color = Color(255, 220, 160, 255)})
 end
 
 ------------------------------------------------------------------------------
@@ -726,12 +718,11 @@ end
 
 function Sp.G15updateStruggle(dt)
   local s = Sp.G15.struggle
-  local it = Scorer.GetItem(0, "CoopSplit")
   if not s then return end
   if Net.CoopKey(0x45) == 1 then s.held = s.held + dt end
   if s.held >= Sp.G15.HOLD then
     Sp.G15.struggle = nil
-    if it then it.Visible = 0 end
+    Coop.textBlockHide("CoopSplit")
     if Coop.isHost() then
       Net.CoopSend(-1, 1, "spfree|" .. s.char)
     else
@@ -740,16 +731,8 @@ function Sp.G15updateStruggle(dt)
     Sp.G15onFree(s.char)
     return
   end
-  if not it then
-    it = Scorer.NewItem(0, "CoopSplit", "Text")
-    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-    it.Color = Color(255, 120, 120, 255)
-    it.Effect = "Shadow"
-    it.Pos = V2D(320, 90)
-  end
-  it.Text = string.format(Sp.text("struggle"), math.floor(100 * s.held / Sp.G15.HOLD))
-  it.CentralText = 1
-  it.Visible = 1
+  Coop.textBlock("CoopSplit", string.format(Sp.text("struggle"), math.floor(100 * s.held / Sp.G15.HOLD)),
+    {y = 90, color = Color(255, 120, 120, 255)})
 end
 
 function Sp.installG15(isHost)

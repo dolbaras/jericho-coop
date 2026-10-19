@@ -25,14 +25,14 @@ LP.SEGMENT = {Cru_Labyrinth = "Cru_River", Cru_Sewers = "Cru_Catacomb", Cru_Keep
 
 LP.TEXT = {
   en = {
-    choose = "The bridge is falling. 1 - join the main group,  2 - THE LOST PATROL: stay with the lost (%d)",
+    choose = "The bridge is falling (%d)\n1 - join the main group\n2 - THE LOST PATROL: stay with the lost",
     t1 = "Below the Bridge. Jones, Cole and Rawlings wake in the blood river.",
     t2 = "The Children's Crypt. They wake among small coffins.",
     t3 = "The Inquisitorium. The children dragged them under the chapel.",
     taken = "The children close in...",
   },
   ru = {
-    choose = "Мост рушится. 1 - к основной группе,  2 - ПОТЕРЯННЫЙ ПАТРУЛЬ: остаться с пропавшими (%d)",
+    choose = "Мост рушится (%d)\n1 - к основной группе\n2 - ПОТЕРЯННЫЙ ПАТРУЛЬ: остаться с пропавшими",
     t1 = "Под мостом. Джонс, Коул и Роулингс приходят в себя в кровавой реке.",
     t2 = "Детская крипта. Они очнулись среди маленьких гробов.",
     t3 = "Инквизиторий. Дети утащили их под часовню.",
@@ -58,9 +58,8 @@ end
 
 function LP.updateChoice()
   local c = LP.choice
-  local it = Scorer.GetItem(0, "CoopPatrol")
   if not c then
-    if it then it.Visible = 0 end
+    Coop.textBlockHide("CoopPatrol")
     return
   end
   local left = math.ceil(c.untilT - Net.CoopTime())
@@ -69,21 +68,13 @@ function LP.updateChoice()
   if cfg.lpchoice then pick = cfg.lpchoice end   -- tests
   if pick then
     LP.choice = nil
-    if it then it.Visible = 0 end
+    Coop.textBlockHide("CoopPatrol")
     Net.CoopSend(0, 1, "lpr|" .. pick)
     Coop.log("patrol: chose " .. (pick == 2 and "the Lost Patrol" or "the main group"))
     return
   end
-  if not it then
-    it = Scorer.NewItem(0, "CoopPatrol", "Text")
-    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
-    it.Color = Color(255, 220, 160, 255)
-    it.Effect = "Shadow"
-    it.Pos = V2D(320, 90)
-  end
-  it.Text = string.format(LP.text("choose"), math.max(left, 0))
-  it.CentralText = 1
-  it.Visible = 1
+  Coop.textBlock("CoopPatrol", string.format(LP.text("choose"), math.max(left, 0)),
+    {y = 90, color = Color(255, 220, 160, 255)})
 end
 
 ------------------------------------------------------------------------------

@@ -22,7 +22,7 @@ function H.label(name)
   local peer = Coop.ownerOf(name)
   local nick = H.nickCache and peer and H.nickCache[peer]
   if nick and nick ~= "" then return nick end
-  return name
+  return Coop.charName(name)
 end
 
 local function cameraForward()
@@ -69,7 +69,8 @@ function H.update()
       local it = H.item(name)
       if inFront and dist < H.MAX_DIST then
         local x, y = Scorer.Get2DPos(head)
-        if x and y then
+        -- Off the screen (a head above the view): no plate pinned to the edge.
+        if x and y and x > 0 and x < 640 and y > 24 and y < 470 then
           it.Text = H.label(name)
           it.CentralText = 1
           it.Pos = V2D(x, y - 12)
