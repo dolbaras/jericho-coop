@@ -398,6 +398,7 @@ end
 
 function CoopMenu.Lobby()
   CoopMenu.screen = "lobby"
+  CoopMenu.portraitOf = nil
   local options = {
     {"", "CoopMenu.NextChar"},
     {CoopMenu.myNick(), "!EditText"},
@@ -464,6 +465,7 @@ function CoopMenu.refreshLobby()
   end
   local me = CoopMenu.seatOf(CoopMenu.myPeer())
   setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and me.char or "-") .. " >")
+  CoopMenu.showPortrait(me and me.char)
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   setText(item("Itm4"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
   if Coop.isHost() and item("Itm8") then
@@ -473,6 +475,45 @@ function CoopMenu.refreshLobby()
     setText(item("Itm8"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
+end
+
+-- Portraits: the game's own character art from the Extras gallery (2D/Menu/Extra_N_Picture_0,
+-- titles Extra_N_Main_Title, e.g. "Sergeant Frank Delgado").
+CoopMenu.PORTRAIT = {Ross = 0, Black = 1, Delgado = 2, Church = 3, Jones = 4, Cole = 5, Rawlings = 6}
+
+function CoopMenu.showPortrait(char)
+  local n = CoopMenu.PORTRAIT[char or ""]
+  local pic, name = item("CoopPortrait"), item("CoopPortraitName")
+  if not n then
+    if pic then pic.Visible = 0 end
+    if name then name.Visible = 0 end
+    return
+  end
+  if not pic then pic = Scorer.NewItem(0, "CoopPortrait", "Sprite") end
+  if CoopMenu.portraitOf ~= char then
+    CoopMenu.portraitOf = char
+    -- In the order the game's Extras gallery uses (loading the file resets the rest):
+    -- top right of the screen, 136 units of the 640x480 layout.
+    pic.File = "2D/Menu/Extra_" .. n .. "_Picture_0.bmp"
+    pic.Unit = 1
+    pic.Pos = V2D(564, 96)
+    pic.Scale = V2D(136, 136)
+    pic.Color = Color(255, 255, 255, 255)
+    pic.Pivot = V2D(0.5, 0.5)
+  end
+  pic.Visible = 1
+  if not name then
+    name = Scorer.NewItem(0, "CoopPortraitName", "Text")
+    name.Font = Menu.SmallFont
+    name.Pos = V2D(564, 168)
+    name.CentralText = 1
+    name.Color = Menu.ItemColor
+  end
+  -- The title carries the rank ("Sergeant Frank Delgado"); under the picture only the name fits.
+  local words = {}
+  for w in string.gmatch(Game.GetLangStr("Extra_" .. n .. "_Main_Title") or "", "%S+") do words[#words + 1] = w end
+  setText(name, table.concat(words, " ", math.max(1, #words - 1)))
+  name.Visible = 1
 end
 
 function CoopMenu.allReady()

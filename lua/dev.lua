@@ -725,3 +725,35 @@ if cfg.trioprobe and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'langprobe': log game strings by key (cfg.langkeys = {'Key1', ...}) in the menu.
+if cfg.langprobe and Coop.level == "levels/menu" then
+  local prevLang = Coop.dev
+  function Coop.dev()
+    if prevLang then prevLang() end
+    if Coop.frame ~= 40 then return end
+    for i = 0, 8 do
+      local k = "Extra_" .. i .. "_Main_Title"
+      Coop.log("langprobe " .. k .. " = " .. tostring(Game.GetLangStr(k)))
+    end
+  end
+end
+
+-- 'spriteprobe': three copies of a picture with different Scale.y (how sprites are sized).
+if cfg.spriteprobe and Coop.level == "levels/menu" then
+  local prevSpr = Coop.dev
+  function Coop.dev()
+    if prevSpr then prevSpr() end
+    if Coop.frame ~= 60 then return end
+    for i, sy in ipairs({100, 50, 30}) do
+      local it = Scorer.NewItem(0, "SprProbe" .. i, "Sprite")
+      it.Unit = 1
+      it.File = "2D/Menu/Extra_2_Picture_0.bmp"
+      it.Pos = V2D(40 + (i - 1) * 140, 40)
+      it.Scale = V2D(100, sy)
+      it.Pivot = V2D(0, 0)
+      it.Color = Color(255, 255, 255, 255)
+    end
+    Coop.log("spriteprobe placed")
+  end
+end
