@@ -638,3 +638,15 @@ if cfg.lanlog and Coop.level == "levels/menu" then
     if Coop.frame % 40 == 0 and Net.CoopDiscover then Coop.log("lan heard: " .. tostring(Net.CoopDiscover())) end
   end
 end
+
+-- 'skipscenes': the host skips every scene (tests that need gameplay after a level's intro).
+if cfg.skipscenes and Coop.level ~= "levels/menu" then
+  local prevSkip = Coop.dev
+  function Coop.dev()
+    if prevSkip then prevSkip() end
+    if Coop.isHost() and Scene and Scene.IsPlaying and Coop.frame % 10 == 0 and CoopEnemies and CoopEnemies.hostAbort then
+      Coop.log("skipscenes: skip " .. tostring(Scene.SceneName))
+      pcall(CoopEnemies.hostAbort)
+    end
+  end
+end
