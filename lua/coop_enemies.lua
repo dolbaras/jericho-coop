@@ -7,7 +7,7 @@
 --   e|n,x,y,z,yaw,action,flags;n,...   host -> clients, unreliable, ~10 Hz (flags 1 = active)
 --   espawn|name|class|group|x|y|z      host -> clients, reliable (NPC.CreateWithAI)
 --   egroup|group                       host -> clients, reliable (NPC.ActivateEnemyGroup)
---   edie|name                          host -> clients, reliable (Weapons.OnCharDeath)
+--   edie|name|quiet                    host -> clients, reliable (Weapons.OnCharDeath; quiet=1: RemoveNow)
 --   pdmg|victim|amount|attacker        host -> owner of victim, reliable
 --   hit|enemy|damage|attacker          client -> host, reliable
 
@@ -146,7 +146,9 @@ function E.installHost()
     local e = Game.GetEntity(name)
     if isEnemy(e) then
       E.stats.deaths = E.stats.deaths + 1
-      Net.CoopSend(-1, 1, "edie|" .. name)
+      -- RemoveNow: removed without a death (EnemyGen.Stop clears its unused pool this way).
+      local quiet = e.uData and e.uData.RemoveNow and "1" or ""
+      Net.CoopSend(-1, 1, "edie|" .. name .. "|" .. quiet)
     end
     return origDeath(name, from, ...)
   end
@@ -665,6 +667,10 @@ function E.onMessage(peer, f)
   elseif kind == "edie" and Coop.isClient() then
     local e = Game.GetEntity(f[2])
     if e and e.Life > 0 then
+      -- An enemy the host removes quietly, or one never shown here, leaves without the
+      -- death effects: dozens of them at once (a generator's pool) overflowed the effect
+      -- pool and asserted in EffectRagdoll (G3 test, alk_bunker_01).
+      if (f[3] == "1" or not e.bActive) and e.uData then e.uData.RemoveNow = true end
       e.Invulnerable = 0
       e.Life = 0
     end
