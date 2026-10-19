@@ -394,22 +394,82 @@ end
 
 -- First-person arms and weapons of a squad member. While Ross leads (Act 1) the game builds
 -- only his set (Team.CreateTeam: BuildFP.FP_Chars = {"Ross"}): a player in another body had
--- no view model at all. Built the same way as at level load, once per level and character.
+-- no view model at all. All six are built at level start, as BuildFP.LoadSet does, in the
+-- order the game builds them elsewhere: sounds are cached by file name and later sets load
+-- some of theirs only from earlier sets' folders (Rawlings' coger3bb3.wav is in Delgado's
+-- and Cole's; loading it from his own folder kills the game), so a character not in the
+-- level is built too.
+Coop.FP_ORDER = {"Jones", "Delgado", "Cole", "Rawlings", "Church", "Black"}
+
+-- Where a sound a set names may really be: the game loads each file name once per level,
+-- from the folder of whichever set or character names it first, and in Act 1 some of
+-- those are absent (Delgado's Abanil_Launch.wav is his third-person character's).
+Coop.SOUND_DIRS = {"Sounds/FX/"}
+for _, n in ipairs({"Ross", "Jones", "Delgado", "Cole", "Rawlings", "Church", "Black"}) do
+  table.insert(Coop.SOUND_DIRS, "Sounds/FP/FP_" .. n .. "/")
+  table.insert(Coop.SOUND_DIRS, "Sounds/Chars/" .. n .. "/")
+end
+
+-- LoadSounds with every ac.AddSoundRes checked first: a file missing from the folder it is
+-- asked from kills the game (CheckFailed), so it is taken from a folder that has it, or left out.
+function Coop.loadFPSounds(name)
+  local real = Act.GetClass("FP_" .. name)
+  local getClass, set = Act.GetClass, Game.Set
+  local path, missing = "", {}
+  -- Game.FileExist looks in the current PathInPackFile folder.
+  local proxy = setmetatable({}, {
+    __index = function(_, k)
+      local v = real[k]
+      if type(v) == "function" then return function(_, ...) return v(real, ...) end end
+      return v
+    end,
+    __newindex = function(_, k, v)
+      if k ~= "AddSoundRes" or Game.FileExist(v) then real[k] = v return end
+      for _, d in ipairs(Coop.SOUND_DIRS) do
+        set("PathInPackFile", d)
+        if Game.FileExist(v) then
+          real.AddSoundRes = v
+          set("PathInPackFile", path)
+          return
+        end
+      end
+      set("PathInPackFile", path)
+      table.insert(missing, v)
+    end,
+  })
+  Act.GetClass = function(n, ...) if n == "FP_" .. name then return proxy end return getClass(n, ...) end
+  Game.Set = function(k, v, ...)
+    if k == "PathInPackFile" then path = v or "" end
+    return set(k, v, ...)
+  end
+  local ok, err = pcall(_G["FP_" .. name .. "Sound"].LoadSounds, "FP_" .. name)
+  Act.GetClass, Game.Set = getClass, set
+  if #missing > 0 then Coop.log("first-person set " .. name .. ": no " .. table.concat(missing, ", ")) end
+  if not ok then error(err) end
+end
+
+function Coop.buildFP(name)
+  if Act.GetClass("FP_" .. name) ~= nil then return end
+  Game.PreloadLibrary("Scripts/FP/FP_" .. name .. ".lua", "FP_" .. name)
+  _G["FP_" .. name].CreateFP()
+  Game.PreloadLibrary("Scripts/Sound/FP_" .. name .. "Sound.lua", "FP_" .. name .. "Sound")
+  Coop.loadFPSounds(name)
+end
+
 function Coop.ensureFP(name)
-  if not (name and BuildFP and BuildFP.LoadSet and Act and Act.GetClass) then return end
-  if Act.GetClass("FP_" .. name) ~= nil or Act.GetClass(name) == nil then return end
-  local ok, err = pcall(BuildFP.LoadSet, name)
-  Coop.log("first-person set " .. name .. ": " .. (ok and "built" or tostring(err)))
+  if not (name and Coop.SQUAD_SET[name] and Act and Act.GetClass and Game.PreloadLibrary) then return end
+  if Act.GetClass("FP_" .. name) ~= nil then return end
+  for _, n in ipairs(Coop.FP_ORDER) do
+    local ok, err = pcall(Coop.buildFP, n)
+    Coop.log("first-person set " .. n .. ": " .. (ok and "built" or tostring(err)))
+    if n == name then return end
+  end
 end
 
 function Coop.installFP()
   if Coop.fpInstalled or not (Team and Team.SwitchSoldier) then return end
   Coop.fpInstalled = true
-  if Coop.actOne() then
-    for _, name in ipairs(Coop.SQUAD) do
-      if Game.GetEntity(name) then Coop.ensureFP(name) end
-    end
-  end
+  if Coop.actOne() then Coop.ensureFP(Coop.FP_ORDER[#Coop.FP_ORDER]) end
   local orig = Team.SwitchSoldier
   Team.SwitchSoldier = function(from, to, ...)
     Coop.ensureFP(to)
