@@ -203,7 +203,21 @@ function E.beforeFpScene(class)
   if owner and usr and usr.Name ~= owner and not E.fpRestore then
     E.fpRestore = {name = usr.Name, pos = usr.Pos, ang = usr.Ang, owner = owner}
     E.fpLabel = owner
+    -- The game now walks this body to the scene's camera, maybe across the map, with the
+    -- view on it: black until the scene starts (E.installFpRestore fades it in).
+    Scorer.Clear(0)   -- no HUD on the black (the scene clears it anyway)
+    if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1) end
+    E.fpBlackT = Game.GetTime()
   end
+end
+
+-- The game glides the camera for 0.25 s between the player's view and the scene's (start
+-- and end of a first-person scene). From a body that is not the scene's character that
+-- flies it across the map: cut instead.
+local function cutInterpolation(camint)
+  Game.SetCam(0, camint[1].TgtCam)
+  camint:Del()
+  Scene.SkipRenderDo()
 end
 
 -- A scene played straight through a character's eyes (Scene.Play with CameraFrom FP_<X>:
@@ -220,18 +234,24 @@ end
 
 function E.installFpRestore()
   local orig = Scene.EndOfFpScene
-  Scene.EndOfFpScene = function(usr, ...)
-    -- The game glides the camera for 0.25 s from the scene's end to the player's camera;
-    -- a body that goes back in place would fly it across the map: cut instead (the fade
-    -- below covers it).
-    local origInterp = Scene.SetInterpolCam
-    if E.fpRestore and origInterp then
-      Scene.SetInterpolCam = function(camint)
-        Game.SetCam(0, camint[1].TgtCam)
-        camint:Del()
-        Scene.SkipRenderDo()
-      end
+  local origLaunch = Scene.LauchFromFP
+  if origLaunch then
+    Scene.LauchFromFP = function(...)
+      local origInterp = Scene.SetInterpolCam
+      local cut = E.fpRestore ~= nil
+      if cut and origInterp then Scene.SetInterpolCam = cutInterpolation end
+      local r = {pcall(origLaunch, ...)}
+      Scene.SetInterpolCam = origInterp
+      E.fpBlackT = nil
+      if cut and Scorer and Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4) end
+      if not r[1] then Coop.log("LauchFromFP error: " .. tostring(r[2])) end
+      return r[2]
     end
+  end
+  Scene.EndOfFpScene = function(usr, ...)
+    -- Back in place below: no glide from the scene's end (the fade below covers the cut).
+    local origInterp = Scene.SetInterpolCam
+    if E.fpRestore and origInterp then Scene.SetInterpolCam = cutInterpolation end
     local r = {pcall(orig, usr, ...)}
     Scene.SetInterpolCam = origInterp
     local keep = E.fpRestore
@@ -321,6 +341,13 @@ end
 
 function E.updateSceneLabel()
   E.updateCurtain()
+  -- A first-person scene that went black for its start but never started: show play again.
+  if E.fpBlackT and Game.GetTime() - E.fpBlackT > 4 then
+    E.fpBlackT = nil
+    if Menu and Menu.ShowScorer then pcall(Menu.ShowScorer) end
+    if Scorer.Fade then Scorer.Fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4) end
+    Coop.log("fp scene did not start: screen back")
+  end
   local it = Scorer.GetItem(0, "CoopEyes")
   if E.fpLabel and Scene.IsPlaying then
     if not it then

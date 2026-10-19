@@ -50,8 +50,10 @@ function H.hide(name)
 end
 
 function H.update()
-  -- No nameplates over cutscenes (the bodies are hidden or stand-ins there).
-  if Coop.cfg.tags == false or Coop.level == "levels/menu" or (Scene and Scene.IsPlaying) then
+  -- No nameplates over cutscenes (the bodies are hidden or stand-ins there), nor over the
+  -- black before one (CoopEnemies: a scene start or a scene held for loading players).
+  local black = CoopEnemies and (CoopEnemies.fpBlackT or CoopEnemies.curtain)
+  if Coop.cfg.tags == false or Coop.level == "levels/menu" or (Scene and Scene.IsPlaying) or black then
     for _, name in ipairs(Coop.SQUAD) do H.hide(name) end
     return
   end

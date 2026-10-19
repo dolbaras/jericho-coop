@@ -15,7 +15,7 @@
 22;Cru_River;MapScenes.StartBehemotQTE;;Delgado;40;BehemothDead
 23;Cru_River;MapScenes.CrossOverBridge;;Black;60;BridgeCollapses
 24;Cru_Labyrinth;;;Black;120;CruzadersSpeech_A
-25;Cru_Labyrinth;Scene.PlayFP;'CruzadersSpeech_B';Church;145;CruzadersSpeech_B
+25;Cru_Labyrinth;Scene.PlayFP;'CruzadersSpeech_B';Church;300;CruzadersSpeech_B
 26;Cru_Sewers;Scene.PlayFP;'Apertura';Church;30;Apertura
 27;Cru_Sewers;Scene.PlayFP;'Escalada';Black;30;Escalada
 28;Cru_Sewers;Scene.PlayFP;'DescensoA';Black;50;DescensoA
