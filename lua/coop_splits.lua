@@ -7,6 +7,8 @@
 --      three phases that follow Church's progress, until Church opens the door.
 --   G10 rom_caldarium "The Torturers' Hall": Delgado walks through the fire alone; the others
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
+--   G11 rom_palace_01 "Alone on the far side": after Church's crossing legionaries emerge on
+--      his side; the others cover him from the edge; the plates work once the wave is down.
 --
 -- Messages:
 --   spc|<split>|<target>     host -> all: choose (shown to the players the split leaves behind)
@@ -27,6 +29,8 @@ Sp.TEXT = {
     hall2 = "More of them! Delgado is past the first door.",
     hall3 = "They keep coming. Delgado is close to the lever.",
     delgado_back = "Delgado is behind the door. Get ready.",
+    abyss1 = "The legion door opens again! Cover Church from the edge.",
+    abyss2 = "Church's side is clear. Stand on the plates.",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -38,6 +42,8 @@ Sp.TEXT = {
     hall2 = "Их ещё больше! Дельгадо прошёл первую дверь.",
     hall3 = "Они не кончаются. Дельгадо уже у рычага.",
     delgado_back = "Дельгадо за дверью. Приготовьтесь.",
+    abyss1 = "Дверь легиона снова открывается! Прикройте Чёрча с края.",
+    abyss2 = "На стороне Чёрча чисто. Встаньте на плиты.",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -340,8 +346,93 @@ function Sp.installG10(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- G11 rom_palace_01: "Alone on the Far Side" (docs/story/act45-splits.md section 4)
+-- Church crosses the abyss alone (QTE). Then the legion door grinds open again and
+-- legionaries emerge on Church's side; Church fights them by plate A, the others cover him
+-- from the edge and Jones may shut the door again with the crank (re-armed). The plates
+-- only work once the wave is down.
+------------------------------------------------------------------------------
 
-Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10}
+Sp.G11 = {all = {"Black", "Church", "Cole", "Delgado", "Jones", "Rawlings"}, spawned = {}}
+Sp.G11.DOOR_SPAWNS = {V3D(-65454, -1272, 5891), V3D(-65454, -1272, 6058), V3D(-65454, -1272, 6224),
+                      V3D(-65454, -1272, 6391)}
+Sp.G11.LIST = "LegionariosPuente4"   -- its AI team exists; vanilla stops it before the crossing
+
+function Sp.G11alive()
+  for _, name in ipairs(Sp.G11.spawned) do
+    local e = Game.GetEntity(name)
+    if e and (e.Life or 0) > 0 then return true end
+  end
+  return false
+end
+
+function Sp.G11wave()
+  local g = Sp.G11
+  if g.started then return end
+  g.started = true
+  local n = math.min(6, 3 + (CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() or 1))
+  pcall(PhysicsObj.OpenDoor, "puertaPuzzlePuente")
+  local crank = Game.GetEntity("ManivelaPuertaPuente")
+  if crank then crank.bArrowCanUse = true end
+  for k = 1, n do
+    local p = g.DOOR_SPAWNS[(k - 1) % #g.DOOR_SPAWNS + 1]
+    local ok, e = pcall(NPC.CreateWithAI, "Legionary", p.x - math.floor((k - 1) / 4) * 120, p.y, p.z, g.LIST, 1)
+    if ok and e then
+      e.bActive = true
+      e.ForceAction = "Emerge"
+      g.spawned[#g.spawned + 1] = e.Name
+    else
+      Coop.log("split G11: spawn failed: " .. tostring(e))
+    end
+  end
+  Coop.log("split G11: " .. #g.spawned .. " legionaries on Church's side")
+  Sp.notice("abyss1", g.all)
+  Sp.radio("Black", "173_L4_Block_Legion")
+  Sp.radio("Church", "Enemy_Ambush")
+end
+
+function Sp.G11check()
+  local g = Sp.G11
+  if g.started and not g.cleared and not Sp.G11alive() then
+    g.cleared = true
+    Sp.notice("abyss2", g.all)
+    Sp.radio("Church", "Rejoin_Team")
+    Coop.log("split G11: wave cleared, plates armed")
+  end
+end
+
+function Sp.installG11(isHost)
+  if not isHost then return end
+  -- TheAbyss ended for good (a failed QTE replays it: wait until no scene plays).
+  Sp.after("Scene.EndOfScene", function()
+    if Scene.LastSceneName == "DM_Scene_TheAbyss" and not Sp.G11.started then
+      Game.AddScheduledFunc(Game.GetTime() + 2, "CoopSplitG11", "CoopSplits.G11afterScene")
+    end
+  end)
+  -- The plates open the bridge only when the wave is down.
+  local press = MapCallbacks.PressChurch_0
+  if press and not Sp.hooked["MapCallbacks.PressChurch_0/gate"] then
+    Sp.hooked["MapCallbacks.PressChurch_0/gate"] = true
+    MapCallbacks.PressChurch_0 = function(...)
+      if Sp.G11.started and Sp.G11alive() then return end
+      return press(...)
+    end
+  end
+  if Coop.frame % 20 == 0 then Sp.G11check() end
+end
+
+function Sp.G11afterScene()
+  if Scene and Scene.IsPlaying then
+    Game.AddScheduledFunc(Game.GetTime() + 2, "CoopSplitG11", "CoopSplits.G11afterScene")
+    return
+  end
+  Sp.G11wave()
+end
+
+------------------------------------------------------------------------------
+
+Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
+             ["levels/rom_palace_01"] = Sp.installG11}
 
 function Sp.onMessage(peer, f)
   if f[1] == "spc" and Coop.isClient() then
