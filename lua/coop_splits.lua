@@ -9,6 +9,8 @@
 --      stay active and hold the pinned hall against cultists emerging from the blood pits.
 --   G6 wwii_brandenburg "The gate top": Cole and Rawlings players stay active on the gate top
 --      (vanilla props) and cover the squad; a leash keeps them up there until the sacrifice.
+--   G3 alk_bunker_01 "Temporal restoration": a human Cole is the hacker; the restoration
+--      advances while she stays at the console, the others defend her.
 --   G15 sum_end "Break the blood link": players bound by the First Born's rune struggle free
 --      (hold E) and fight on; the kill stays Church's.
 --   G11 rom_palace_01 "Alone on the far side": after Church's crossing legionaries emerge on
@@ -36,6 +38,8 @@ Sp.TEXT = {
     abyss1 = "The legion door opens again! Cover Church from the edge.",
     abyss2 = "Church's side is clear. Stand on the plates.",
     struggle = "The blood link holds you. Hold E to break free (%d%%)",
+    hack = "Cole restores the files: %d%%. Defend her!",
+    hack_away = "Restoration paused at %d%%: Cole must be at the console.",
   },
   ru = {
     choose = "%s идёт дальше один.  1 - перейти в %s,  2 - остаться своим персонажем (%d)",
@@ -50,6 +54,8 @@ Sp.TEXT = {
     abyss1 = "Дверь легиона снова открывается! Прикройте Чёрча с края.",
     abyss2 = "На стороне Чёрча чисто. Встаньте на плиты.",
     struggle = "Кровавая связь держит вас. Удерживайте E, чтобы вырваться (%d%%)",
+    hack = "Коул восстанавливает файлы: %d%%. Защищайте её!",
+    hack_away = "Восстановление стоит на %d%%: Коул должна быть у консоли.",
   },
 }
 Sp.CHOICE_TIME = 20
@@ -657,13 +663,123 @@ function Sp.installG15(isHost)
 end
 
 ------------------------------------------------------------------------------
+-- G3 alk_bunker_01: "Temporal restoration" (docs/story/act1-splits.md G3)
+-- Vanilla walks Cole to the console, swaps her for an invulnerable FakeCole playing the hack
+-- and switches the real Cole off for a ~120 s ambush on timers. With a human Cole that
+-- would make the player's body vanish (and QuakeOff/FinalTalk read the fake's alias). Now
+-- the human Cole is the hacker: the restoration advances only while she stands at the
+-- console, the progress (and Cole's vanilla lines) follow it, the others defend her.
+--   spp|<percent>|<1 at console / 0>   host -> all
+--   spchat|<chat>                      host -> all: play an incidental chat
+------------------------------------------------------------------------------
+
+Sp.G3 = {TIME = 120, RADIUS = 160,
+         CHATS = {{20, "Mission_Alk_Bunker_01_ACombat"}, {40, "Mission_Alk_Bunker_01_BCombat"},
+                  {60, "Mission_Alk_Bunker_01_CCombat"}, {80, "Mission_Alk_Bunker_01_DCombat"},
+                  {100, "Mission_Alk_Bunker_01_ECombat"}}}
+
+function Sp.chat(name)
+  Net.CoopSend(-1, 1, "spchat|" .. name)
+  pcall(TeamTalk.InitIncidentalChat, name, nil, false)
+end
+
+function Sp.G3start()
+  local g = Sp.G3
+  g.human, g.t, g.next, g.lastSent = true, 0, 1, -1
+  g.hacking = true
+  Coop.log("split G3: human Cole hacks the console")
+end
+
+function Sp.G3update(dt)
+  local g = Sp.G3
+  if not g.hacking then return end
+  local cole = Game.GetEntity("Cole")
+  if not cole then return end
+  local d = cole.Pos - MapInit.ColePos
+  local near = math.sqrt(d.x * d.x + d.z * d.z) < g.RADIUS and (cole.Life or 0) > 0
+  if near then g.t = g.t + dt end
+  local pct = math.min(100, math.floor(100 * g.t / g.TIME))
+  local c = g.CHATS[g.next]
+  if c and g.t >= g.TIME * c[1] / 120 then
+    g.next = g.next + 1
+    Sp.chat(c[2])
+  end
+  if pct ~= g.lastSent or near ~= g.lastNear then
+    g.lastSent, g.lastNear = pct, near
+    Net.CoopSend(-1, 0, "spp|" .. pct .. "|" .. (near and 1 or 0))
+    Sp.G3show(pct, near)
+  end
+  if g.t >= g.TIME then
+    g.hacking = false
+    Coop.log("split G3: restoration complete")
+    MapInit.DeactivateEnemies()
+  end
+end
+
+function Sp.G3show(pct, near)
+  local key = near and "hack" or "hack_away"
+  Scorer.SetMsgText(string.format(Sp.text(key), pct), Game.GetTime() + 3)
+end
+
+function Sp.installG3(isHost)
+  if not MapInit.StartManipulation or Sp.hooked["G3"] then
+    if isHost and Sp.G3.hacking then Sp.G3update(Coop.TICK) end
+    return
+  end
+  Sp.hooked["G3"] = true
+  local origStart, origAmbush = MapInit.StartManipulation, MapInit.Ambush
+  local origQuake, origFinal = MapInit.QuakeOff, MapInit.FinalTalk
+  MapInit.StartManipulation = function(char, ...)
+    if not (Coop.inSession() and human("Cole")) then return origStart(char, ...) end
+    Sp.G3.human = true
+    -- No FakeCole, no switching the real Cole off: the player is the hacker.
+    if isHost then
+      MapInit.MoveSquadAndStartCombat()
+      Sp.G3start()
+    end
+  end
+  MapInit.Ambush = function(...)
+    if not Sp.G3.human then return origAmbush(...) end
+    if isHost then
+      -- Vanilla minus the fixed timers (the restoration progress plays Cole's lines).
+      NPC.ActivateEnemyGroup("emboscada")
+      Sp.chat("Mission_Alk_Bunker_01_Ambush")
+    end
+  end
+  MapInit.QuakeOff = function(...)
+    if TeamTalk.FacialAlias.Cole then return origQuake(...) end
+    Game.Set("DoingStopChat", 1)
+    pcall(MapSoundFuncs.Temblor)
+    pcall(MapSoundFuncs.Temblor2)
+    local cam = Game.GetEntity(Game.GetCam(0))
+    if cam and cam:IsType("FCam") then
+      cam.QuakeFactor = 1
+      cam.QuakeTime = 2
+    end
+    PhysicsObj.CloseDoor("ScreenView")
+    Game.AddScheduledFunc(Game.GetTime() + 2, "", "MapInit.FinalTalk", "Mission_Alk_Bunker_01_End")
+  end
+  MapInit.FinalTalk = function(Speech, ...)
+    if TeamTalk.FacialAlias.Cole then return origFinal(Speech, ...) end
+    Game.GetEntity("Cole").bActive = true
+    TeamTalk.InitIncidentalChat(Speech, MapInit.OpenLastDoor, true)
+  end
+end
+
+------------------------------------------------------------------------------
 
 Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp.installG10,
              ["levels/rom_palace_01"] = Sp.installG11, ["levels/wwii_brandenburg"] = Sp.installG6,
-             ["levels/sum_end"] = Sp.installG15}
+             ["levels/sum_end"] = Sp.installG15, ["levels/alk_bunker_01"] = Sp.installG3}
 
 function Sp.onMessage(peer, f)
-  if f[1] == "spstun" and Coop.isClient() then
+  if f[1] == "spp" and Coop.isClient() then
+    Sp.G3show(tonumber(f[2]) or 0, f[3] == "1")
+    return true
+  elseif f[1] == "spchat" and Coop.isClient() then
+    pcall(TeamTalk.InitIncidentalChat, f[2], nil, false)
+    return true
+  elseif f[1] == "spstun" and Coop.isClient() then
     Sp.G15onStun(f[2])
     return true
   elseif f[1] == "spfree" then
