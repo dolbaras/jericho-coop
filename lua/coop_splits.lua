@@ -613,6 +613,7 @@ function Sp.G15schedule()
       Team.UnavaliablePlayers[n] = true
       if human(n) and not g.told[n] then
         g.told[n] = true
+        Coop.log("split G15: " .. n .. " is bound by the rune")
         Net.CoopSend(-1, 1, "spstun|" .. n)
         Sp.G15onStun(n)
       end
