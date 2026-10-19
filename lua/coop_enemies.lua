@@ -209,7 +209,19 @@ end
 function E.installFpRestore()
   local orig = Scene.EndOfFpScene
   Scene.EndOfFpScene = function(usr, ...)
+    -- The game glides the camera for 0.25 s from the scene's end to the player's camera;
+    -- a body that goes back in place would fly it across the map: cut instead (the fade
+    -- below covers it).
+    local origInterp = Scene.SetInterpolCam
+    if E.fpRestore and origInterp then
+      Scene.SetInterpolCam = function(camint)
+        Game.SetCam(0, camint[1].TgtCam)
+        camint:Del()
+        Scene.SkipRenderDo()
+      end
+    end
     local r = {pcall(orig, usr, ...)}
+    Scene.SetInterpolCam = origInterp
     local keep = E.fpRestore
     E.fpRestore, E.fpLabel = nil, nil
     if keep then

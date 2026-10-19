@@ -605,6 +605,10 @@ local function inSceneNotMine()
   return Coop.inSession() and Scene.IsPlaying and Scene.SceneName and not S.decides(Scene.SceneName)
 end
 
+-- A decider's branch that arrived this many seconds before our own script chose one
+-- already is the switch (the same end of branch seen a little earlier there).
+S.ALT_EARLY = 1.5
+
 function S.installQTE()
   if S.qteInstalled or not QTE or not QTE.LaunchSequence or not Scene or not Scene.PlayAlternate then return end
   S.qteInstalled = true
@@ -624,8 +628,16 @@ function S.installQTE()
   Scene.PlayAlternate = function(sufix, sceneName)
     local name = sceneName or Scene.SceneName
     if not S.decides(name) then
-      Coop.log("scene branch " .. tostring(sufix) .. " of " .. tostring(name) .. " left to peer " .. S.decider(name))
-      return
+      -- Not ours to choose, but a branch must play: with none the scene ends here and its
+      -- end callback runs (the torture loop jumped to the next level after one round). Our
+      -- own choice plays until the decider's arrives; a decider's branch that came first wins.
+      local got = S.lastAlt
+      if got and got.name == name and Game.GetTime() - got.t < S.ALT_EARLY then
+        Coop.log("scene branch " .. tostring(sufix) .. " of " .. tostring(name) .. " dropped: peer chose " .. got.sufix)
+        return
+      end
+      Coop.log("scene branch " .. tostring(sufix) .. " of " .. tostring(name) .. " plays until peer " .. S.decider(name) .. " chooses")
+      return S.origAlternate(sufix, sceneName)
     end
     if Coop.inSession() then Net.CoopSend(-1, 1, "qalt|" .. tostring(name) .. "|" .. tostring(sufix)) end
     return S.origAlternate(sufix, sceneName)
@@ -639,6 +651,7 @@ function S.onMessage(peer, f)
   if S.decides(name) then return true end   -- our own decision coming back
   if Scene.SceneName == name and Game.GetEntity(name) and S.origAlternate then
     Coop.log("scene branch " .. sufix .. " of " .. name .. " from peer " .. peer)
+    S.lastAlt = {name = name, sufix = sufix, t = Game.GetTime()}
     S.origAlternate(sufix, name)
   else
     Coop.log("scene branch " .. sufix .. " for " .. name .. " ignored: playing " .. tostring(Scene.SceneName))
@@ -920,6 +933,11 @@ function S.beginIdle(a, e)
   body.TimeSpeed = 1
   if body.oAI then body.oAI.bEnable = false end
   body.InCtrl_Walk, body.InCtrl_Str = 0, 0
+  -- Our own body, active again in the scene's background, must not walk or shoot on our keys.
+  if Coop.ownerOf(a.char) == Coop.myId() then
+    a.ignoreCtrl = body.IgnoreUsrControl or 0
+    body.IgnoreUsrControl = 1
+  end
   body.Pos = ground or V3D(pelvis.x, pelvis.y - 90, pelvis.z)
   body.Ang = V3D(0, yaw, 0)
   body.bObjectVisible = true
@@ -932,7 +950,8 @@ function S.endIdle(a)
   local e, body = Game.GetEntity(a.entity), Game.GetEntity(a.char)
   if e and not (S.pov and a.entity == S.pov.actor) then e.bObjectVisible = true end
   if body and not (S.extras and S.extras.watchers[a.char]) then body.Active = 0 end
-  a.idle = false
+  if body and a.ignoreCtrl then body.IgnoreUsrControl = a.ignoreCtrl end
+  a.idle, a.ignoreCtrl = false, nil
 end
 
 function S.updateExtras(dt)
@@ -981,7 +1000,11 @@ function S.stopExtras()
   S.extras = nil
   local touched = {}
   for name in pairs(x.watchers) do touched[name] = true end
-  for _, a in pairs(x.actors) do if a.idle then touched[a.char] = true end end
+  for _, a in pairs(x.actors) do
+    if a.idle then touched[a.char] = true end
+    local body = a.ignoreCtrl and Game.GetEntity(a.char)
+    if body then body.IgnoreUsrControl = a.ignoreCtrl end
+  end
   for name in pairs(touched) do
     local e = Game.GetEntity(name)
     if e and e.oAI and Coop.ownerOf(name) == nil then e.oAI.bEnable = true end

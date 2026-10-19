@@ -259,8 +259,10 @@ end
 -- 'trigger' (host, or solo for vanilla reference runs): call cfg.trigger after cfg.trigat
 -- ticks. A bare name is a map callback (called like the engine does); a dotted name such
 -- as "MapInit.PlayConversation" is called with cfg.trigarg; cfg.trigargs (a list) overrides.
+-- Once per session: the host rewrites cfg.level on every level change, so trigfired (kept in the
+-- boot line) stops the next level from firing a scene that is not there.
 if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level ~= "levels/menu"
-    and (not cfg.level or Coop.level == "levels/" .. string.lower(cfg.level)) then
+    and not cfg.trigfired and (not cfg.level or Coop.level == "levels/" .. string.lower(cfg.level)) then
   local function resolve(name)
     if MapCallbacks and MapCallbacks[name] then return MapCallbacks[name], true end
     local ok, fn = pcall(loadstring("return " .. name))
@@ -277,6 +279,8 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
     if Scene and Scene.IsPlaying then Coop.devReadyFrame = Coop.frame return end
     if Coop.frame == Coop.devReadyFrame + (cfg.trigat or 100) then
       Coop.devTriggered = true
+      cfg.trigfired = true
+      Coop.rearm()
       local fn, isCallback = resolve(cfg.trigger)
       Coop.log("trigger: " .. cfg.trigger .. (fn and "" or " (not found)"))
       if not fn then return end
@@ -863,3 +867,22 @@ if cfg.curetest and Coop.level == "levels/wwii_pillboxes" then
     end
   end
 end
+
+-- 'fpsprobe': every 50 ticks log the player's first-person weapon model (the view model can
+-- go missing after a level-start switch).
+if cfg.fpsprobe and Coop.level ~= "levels/menu" then
+  local prev = Coop.dev
+  function Coop.dev()
+    if prev then prev() end
+    if Coop.frame % 50 ~= 0 then return end
+    local usr = Game.UsrEntity(0)
+    if not usr then Coop.log("fpsprobe: no usr") return end
+    local fp = usr.oFPSEntity
+    local w = usr.oWeapCtrl and usr.oWeapCtrl.oActual
+    Coop.log(string.format("fpsprobe: %s fps=%s act=%s vis=%s active=%s weap=%s set=%s block=%s aim=%s ctrl=%s",
+      usr.Name, tostring(fp and fp.Name), tostring(fp and fp.Action), tostring(fp and fp.bObjectVisible),
+      tostring(fp and fp.Active), tostring(w and w.oType and w.oType.Name), tostring(w and w.oType and w.oType.FPAnmSet),
+      tostring(usr.owc and usr.owc.BlockShot), tostring(Menu and Menu.bShowAim), tostring(usr.IgnoreUsrControl)))
+  end
+end
+
