@@ -311,7 +311,24 @@ if cfg.menutest and Coop.level == "levels/menu" then
       elseif cfg.menutest == "root" then CoopMenu.Root()
       elseif cfg.menutest == "host" then CoopMenu.HostSetup()
       elseif cfg.menutest == "join" then CoopMenu.JoinSetup()
-      elseif cfg.menutest == "lobby" then CoopMenu.HostSetup(); CoopMenu.NextLevel(); CoopMenu.CreateSession()
+      elseif cfg.menutest == "lobby" then
+        CoopMenu.HostSetup(); CoopMenu.NextLevel(); CoopMenu.CreateSession()
+        if cfg.menuready then CoopMenu.ToggleReady() end
+        -- menufake=n: n more seats shown (layout of a full lobby), long nicknames, SMOD on all.
+        for k = 1, cfg.menufake or 0 do
+          local chars = {"Black", "Church", "Cole"}
+          CoopMenu.seats[#CoopMenu.seats + 1] = {peer = k, char = chars[k], ready = k % 2 == 1, nick = "Longnickname" .. k .. "xyz"}
+          CoopMenu.smodPeers[k] = true
+        end
+        if cfg.menufake then CoopMenu.refreshLobby() end
+        for k = 0, 4 do
+          local it = Scorer.GetItem(0, "CoopLine" .. k)
+          if it then Coop.log(string.format("menutest: CoopLine%d Y=%s Pos=%s,%s", k, tostring(it.Y), tostring(it.Pos and it.Pos.x), tostring(it.Pos and it.Pos.y))) end
+        end
+        for _, nm in ipairs({"Itm1", "DoExit", "Title"}) do
+          local it = Scorer.GetItem(0, nm)
+          if it then Coop.log(string.format("menutest: %s Y=%s", nm, tostring(it.Y))) end
+        end
       elseif cfg.menutest == "settings" then CoopMenu.HostSetup(); CoopMenu.CreateSession(); CoopMenu.Settings()
       elseif cfg.menutest == "flow" then
         -- Whole lobby flow: host continues the co-op save (or starts cfg.menulevel), the
@@ -327,6 +344,12 @@ if cfg.menutest and Coop.level == "levels/menu" then
       elseif cfg.menutest == "flowjoin" then
         CoopMenu.JoinSetup()
         CoopMenu.Connect()
+      end
+    end
+    if cfg.menufake and Coop.frame == MENU_WAIT + 50 then
+      for k = 0, 4 do
+        local it = Scorer.GetItem(0, "CoopLine" .. k)
+        if it then Coop.log(string.format("menutest later: CoopLine%d Y=%s Pos.y=%s", k, tostring(it.Y), tostring(it.Pos and it.Pos.y))) end
       end
     end
     -- 'menufocus': move the focus over the first N items, 40 ticks each (the focused item

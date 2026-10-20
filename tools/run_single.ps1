@@ -11,7 +11,8 @@ param(
     [int] $RecordStart = 0,
     [double] $RecordFps = 0,           # 0: capture.c default (8)
     [string] $Exe = "Jericho.exe",     # SMOD installs: anselintegrationtestapp.exe (the game, renamed)
-    [switch] $DefaultLog               # no JERICHO_COOP_LOG: the mod logs to <save dir>\coop.log as for players
+    [switch] $DefaultLog,              # no JERICHO_COOP_LOG: the mod logs to <save dir>\coop.log as for players
+    [switch] $Player                   # as a player starts it: no boot line, the Lua from <game>\coop, no cfg
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -24,13 +25,16 @@ $run = Join-Path $OutDir (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force $run | Out-Null
 $luaDir = $LuaDirForward
 $boot = $BootLine
-$env:JERICHO_COOP_DIR = $luaDir
-$env:JERICHO_COOP_CFG = "{$Cfg}"
+if (-not $Player) {
+    $env:JERICHO_COOP_DIR = $luaDir
+    $env:JERICHO_COOP_CFG = "{$Cfg}"
+}
 $winW, $winH, $winPos = Get-FullWindow $screen
 $aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
-        "-OutDebugFile:`"$(Join-Path $run 'game.log')`" -InitLuaLine:`"$boot`""
+        "-OutDebugFile:`"$(Join-Path $run 'game.log')`""
+if (-not $Player) { $args += " -InitLuaLine:`"$boot`"" }
 if (-not $DefaultLog) { $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt" }
 $env:JERICHO_STACKDUMP = Join-Path $run "stack.txt"
 $env:JERICHO_WINPOS = $winPos

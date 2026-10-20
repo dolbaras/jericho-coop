@@ -453,7 +453,7 @@ function CoopMenu.Lobby()
   for i = 0, CoopMenu.MAX_PLAYERS do
     local t = Scorer.NewItem(0, "CoopLine" .. i, "Text")
     t.Text = ""
-    t.Pos = V2D(320, 108 + i * 28)   -- below the title, rows apart for big fonts
+    t.Pos = V2D(320, CoopMenu.lineY(i))
     t.CentralText = 1
     t.Font = Menu.SmallFont
     t.Color = Menu.ItemColor
@@ -521,10 +521,10 @@ function CoopMenu.refreshLobby()
   if line0 then
     local status = Net.CoopStatus()
     if Coop.isClient() and not cfg.myId then
-      setText(line0, T("connecting") .. " " .. tostring(cfg.addr) .. "...")
+      CoopMenu.setLine(0, T("connecting") .. " " .. tostring(cfg.addr) .. "...")
     else
       local label = (CoopMenu.continueRec or cfg.continuing) and T("continue_from") or T("chapter")
-      setText(line0, label .. ": " .. CoopMenu.levelName(level))
+      CoopMenu.setLine(0, label .. ": " .. CoopMenu.levelName(level))
     end
   end
   for i = 1, CoopMenu.MAX_PLAYERS do
@@ -533,14 +533,21 @@ function CoopMenu.refreshLobby()
     if t then
       if s then
         local who = (s.nick and s.nick ~= "") and s.nick or (s.peer == 0 and T("host_name") or (T("player") .. " " .. (s.peer + 1)))
-        if s.peer == CoopMenu.myPeer() then who = who .. " " .. T("you") end
+        local you = s.peer == CoopMenu.myPeer() and " " .. T("you") or ""
         -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
         local char = CoopMenu.charName(s.char)
-        if s.peer == 0 and string.find(string.lower(level or ""), "^alk_") then char = CoopMenu.charName("Ross") .. " -> " .. char end
+        local ross = s.peer == 0 and string.find(string.lower(level or ""), "^alk_") and CoopMenu.charName("Ross") .. " -> " or ""
         local smod = (s.peer == 0 and Coop.isHost() and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer]) and " [SMOD]" or ""
-        setText(t, who .. ": " .. char .. smod .. (s.ready and "  - " .. T("is_ready") or ""))
+        local tail = smod .. (s.ready and "  - " .. T("is_ready") or "")
+        -- A long nickname: drop "(you)", then Ross, then shorten the name, until it fits.
+        CoopMenu.setLine(i, CoopMenu.fit({
+          who .. you .. ": " .. ross .. char .. tail,
+          who .. ": " .. ross .. char .. tail,
+          who .. ": " .. char .. tail,
+          string.sub(who, 1, 8) .. ".: " .. char .. tail,
+        }, Menu.SmallFont))
       else
-        setText(t, "")
+        CoopMenu.setLine(i, "")
       end
     end
   end
@@ -552,6 +559,36 @@ function CoopMenu.refreshLobby()
     setText(item("Itm6"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
+end
+
+-- The chapter line (0) and the player lines, below the title. CentralText centres the text
+-- on its position vertically too, by the height the engine measures for it (a long line
+-- counts as two), so every line is put back on its row after a text change.
+function CoopMenu.lineY(i)
+  return 94 + i * 28
+end
+
+function CoopMenu.setLine(i, text)
+  local t = item("CoopLine" .. i)
+  if t and t.Text ~= text then
+    setText(t, text)
+    t.Y = CoopMenu.lineY(i)
+  end
+end
+
+-- The first text that fits on one line of the screen (4:3 included) in that font.
+CoopMenu.LINE_WIDTH = 600
+
+function CoopMenu.fit(texts, font)
+  for _, text in ipairs(texts) do
+    local ok, r = pcall(Scorer.SplitString, text, font, CoopMenu.LINE_WIDTH)
+    if not ok or type(r) ~= "table" then
+      if not CoopMenu.fitWarned then CoopMenu.fitWarned = true; Coop.log("lobby: line width unknown: " .. tostring(r)) end
+      return text
+    end
+    if #r <= 1 then return text end
+  end
+  return texts[#texts]
 end
 
 function CoopMenu.allReady()
