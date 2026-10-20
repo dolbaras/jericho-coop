@@ -189,7 +189,7 @@ class Bot:
             while enet.enet_host_service(self.host, ctypes.byref(ev), 0) > 0:
                 if ev.type == EV_CONNECT:
                     self.log('connected')
-                    self.send('hello|' + self.args.want + '||' + COOP_VERSION, True)
+                    self.send('hello|' + self.args.want + ('||' + self.args.version if self.args.version else ''), True)
                 elif ev.type == EV_RECEIVE:
                     pk = ev.packet.contents
                     self.on_message(ctypes.string_at(pk.data, pk.dataLength).decode('latin-1'))
@@ -235,6 +235,7 @@ def main():
     ap.add_argument('--path', help='log with path| lines for --pattern replay')
     ap.add_argument('--seconds', type=float, default=60)
     ap.add_argument('--log')
+    ap.add_argument('--version', default=COOP_VERSION, help="co-op version sent in hello ('' as before 0.2)")
     sys.exit(Bot(ap.parse_args()).run())
 
 

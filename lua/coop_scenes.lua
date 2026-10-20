@@ -151,7 +151,8 @@ end
 -- leaves its render nodes referenced and the engine asserts (objref.h "!Refs").
 function S.stop(ending)
   S.stopStandIn(ending)
-  S.smooth, S.focus, S.eye, S.look, S.headCache = nil, nil, nil, nil, nil
+  S.smooth, S.focus, S.eye, S.look, S.headCache, S.fwdDir = nil, nil, nil, nil, nil, nil
+  S.speaking, S.lastSpeaker = nil, nil
   S.lean, S.leanWant, S.leanNext = nil, nil, nil
   S.fallback, S.blockedFor, S.clearFor, S.blockFrames = nil, nil, nil, nil
   -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
@@ -177,8 +178,10 @@ end
 -- ("through X's eyes"), as the game shows it. POV_SCENES lists scene classes allowed the own
 -- view (none); cfg.povall forces it on everywhere (experimental), cfg.povoff off.
 S.POV_SCENES = {}
--- Per scene class: forward = units the eye moves towards what it looks at (seated scenes).
-S.POV_TUNE = {HelicopterTrip = {forward = 45}, Landing = {forward = 45}}
+-- Per scene class: forward = units the eye moves along the chest's facing (out of a seat's
+-- padding), bodyBlock = false: no switch to the scene camera for people in the way (rows of
+-- seats).
+S.POV_TUNE = {HelicopterTrip = {forward = 45, bodyBlock = false}, Landing = {forward = 45, bodyBlock = false}}
 
 function S.povAllowed(class)
   if Coop.cfg.povoff == true then return false end
@@ -293,7 +296,7 @@ function S.actorHead(info)
       local ok, v = pcall(function() return e[k] end)
       if ok and v then node = k break end
     end
-    S.headCache[info[2]] = node or false
+    S.headCache[info[2]] = node   -- a miss is tried again (a body just made has no nodes yet)
   end
   return node and e[node] or nil
 end
@@ -357,6 +360,90 @@ function S.speakerPos(p)
   return p
 end
 
+------------------------------------------------------------------------------
+-- Direction by who speaks. Every scene line is a subtitle "<Speaker>>text" started by
+-- Scene.SetText with its voice: while someone speaks, the others look at them, as people do;
+-- while the player's own character speaks, they look at whom they answer (the one who spoke
+-- last, else the scene's character). Without a line, the scene camera leads.
+------------------------------------------------------------------------------
+S.SPEAK_MIN = 1.5          -- seconds a line holds the look at least
+S.SPEAK_TAIL = 0.6         -- and a little after it ends
+S.ANSWER_MEMORY = 12       -- the one who spoke last is answered within this many seconds
+
+function S.lineSpeaker(cad)
+  -- the raw line names the speaker ("Ross>..."); TeamTalk.VoiceString shows it translated
+  local raw = Game.GetLangStr(cad) or ""
+  local who = string.match(raw, "^%s*([%w_]+)%s*>")
+  if not who then return nil end
+  local shown = TeamTalk and TeamTalk.VoiceString and TeamTalk.VoiceString(cad) or raw
+  local secs = Scorer.SpeechTime and Scorer.SpeechTime(shown) or 3
+  return who, math.max(S.SPEAK_MIN, tonumber(secs) or 3)
+end
+
+function S.installSpeakers()
+  if not Scene or not Scene.SetText or S.speakHooked == Scene.SetText then return end
+  local orig = Scene.SetText
+  Scene.SetText = function(cad, time, ...)
+    local ok, who, secs = pcall(S.lineSpeaker, cad)
+    if ok and who then
+      local now = Game.GetTime()
+      if S.speaking and S.speaking.who ~= who then S.lastSpeaker = {who = S.speaking.who, t = now} end
+      if tonumber(time) and tonumber(time) > 0 and tonumber(time) < 60 then secs = math.max(secs, tonumber(time)) end
+      S.speaking = {who = who, untilT = now + secs + S.SPEAK_TAIL}
+      if Coop.cfg.dev then Coop.log(string.format("scene line: %s for %.1f s", who, secs)) end
+    end
+    return orig(cad, time, ...)
+  end
+  S.speakHooked = Scene.SetText
+end
+
+-- The head of a speaker in this scene: the scene's character (its full body), an actor of
+-- that character, or nil (a voice off the scene: radio, thought).
+function S.speakerHead(who)
+  if not who or not S.pov then return nil end
+  local b = S.body
+  if b and b.class == S.pov.class and (who == b.char or (who == "Ross" and b.char == "Ross")) then
+    if b.hidden then return nil end
+    return S.actorHead({"", b.entity, b.char})
+  end
+  local list = Scene.Actors and Scene.Actors[S.pov.class]
+  for _, info in pairs(list or {}) do
+    local cls = info[3] or ""
+    if info[2] ~= S.pov.actor and (cls == who or string.find(info[2], who .. "$")) then
+      local hp = S.actorHead(info)
+      if hp then return hp end
+    end
+  end
+  return nil
+end
+
+-- What the speaking gives to look at now, or nil.
+function S.speakerTarget()
+  local sp = S.speaking
+  if not sp or Game.GetTime() > sp.untilT then return nil end
+  if sp.who == S.pov.char then
+    local last = S.lastSpeaker
+    if last and Game.GetTime() - last.t < S.ANSWER_MEMORY and last.who ~= sp.who then
+      local hp = S.speakerHead(last.who)
+      if hp then return hp, "answer" end
+    end
+    local b = S.body
+    local owner = b and b.class == S.pov.class and b.char
+    local hp = owner and S.speakerHead(owner)
+    if hp then return hp, "answer" end
+    return nil
+  end
+  local hp = S.speakerHead(sp.who)
+  if hp then return hp, "speaker" end
+  if Coop.cfg.dev and S.noHeadFor ~= sp.who then
+    S.noHeadFor = sp.who
+    local b = S.body
+    Coop.log(string.format("scene line: no head for %s (body %s %s hidden %s)", sp.who, tostring(b and b.char),
+      tostring(b and b.class), tostring(b and b.hidden)))
+  end
+  return nil
+end
+
 -- Where the scene camera looks, smoothed: the actor it looks at (or, when that is the local
 -- player's own actor, the speaker: the scene camera itself), else the hit point of its view
 -- ray, else a point ahead.
@@ -373,7 +460,10 @@ function S.updateFocus(dt, p, dir)
   local head, mine, kind = S.lookedAtActor(p, dir, hitDist + 100)
   if S.debugLook then Coop.log(string.format("look: hit %.0f, %s", hitDist, table.concat(S.debugLook, " "))) end
   local target
-  if mine then
+  local spoke, why = S.speakerTarget()
+  if spoke then
+    target, mine, head, kind = spoke, false, spoke, why
+  elseif mine then
     target = S.speakerPos(p)
   elseif head then
     target = head
@@ -405,6 +495,24 @@ S.LEAN_TAU = 0.5
 S.ZERO = V3D(0, 0, 0)
 
 local function len(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+
+-- Where an actor's chest faces (level): across its shoulders, to the side the head leans
+-- (a head sits a little in front of the neck).
+function S.bodyForward(actor, char)
+  local pre = string.gsub(S.headNode(char), " Head$", "")
+  local get = function(n)
+    local ok, v = pcall(function() return actor["NodePosHierarchy_" .. pre .. " " .. n] end)
+    return ok and v or nil
+  end
+  local l, r, head, neck = get("L Clavicle"), get("R Clavicle"), get("Head"), get("Neck")
+  if not (l and r and head and neck) then return nil end
+  local rx, rz = r.x - l.x, r.z - l.z
+  local n = math.sqrt(rx * rx + rz * rz)
+  if n < 1 then return nil end
+  local fx, fz = -rz / n, rx / n
+  if fx * (head.x - neck.x) + fz * (head.z - neck.z) < 0 then fx, fz = -fx, -fz end
+  return V3D(fx, 0, fz)
+end
 
 function S.blockedNear(from, to)
   local hit = Game.TestLine(from, to, "")
@@ -468,12 +576,17 @@ function S.viewBlocked(p, eye, target)
   if hit and len(hit - p) < len(eye - p) - 30 then return "hidden" end
   -- World rays pass through characters: a body between the eye and the target (a back in
   -- front of the face, scene audit 14 and 36) is found from the actors' heads and chests.
+  -- (rows of seats: the neighbours are always near the line of sight, POV_TUNE bodyBlock)
+  local tune = S.POV_TUNE[S.pov.class]
+  if tune and tune.bodyBlock == false then return false end
   local list = Scene.Actors and Scene.Actors[S.pov.class]
   local ray = target - eye
   local rl = len(ray)
   for _, info in pairs(list or {}) do
     if info[2] ~= S.pov.actor then
       local hp = S.actorHead(info)
+      -- (the one looked at is not in the way of their own face)
+      if hp and len(hp - target) < 60 then hp = nil end
       if hp then
         if len(hp - eye) < S.BODY_CLEAR then return "body" end
         if rl > 1 then
@@ -537,9 +650,12 @@ function S.updatePOV(dt)
   local tune = S.POV_TUNE[S.pov.class]
   local fwd = tune and tune.forward or 0
   if fwd > 0 then
-    local d = target - S.eye
-    local l = len(d)
-    if l > 1 then pos = pos + V3D(d.x * fwd / l, d.y * fwd / l, d.z * fwd / l) end
+    local f = S.bodyForward(a, S.pov.char)
+    if f then
+      S.fwdDir = lowpass(S.fwdDir, f, 0.5, dt)
+      local l = len(S.fwdDir)
+      if l > 0.01 then pos = pos + V3D(S.fwdDir.x * fwd / l, 0, S.fwdDir.z * fwd / l) end
+    end
   end
   S.blockFrames = (S.blockFrames or 0) + 1
   if S.blockFrames >= S.BLOCK_EVERY then
@@ -589,6 +705,7 @@ function S.unlinkModCams()
 end
 
 function S.install()
+  pcall(S.installSpeakers)
   if S.installed or not Scene or not Scene.EndOfScene then return end
   S.installed = true
   local orig = Scene.EndOfScene
@@ -753,9 +870,9 @@ end
 -- yet): no body there.
 S.NO_BODY = {Apertura = true, Escalada = true, AperturaPuerta = true, DescensoA = true, DescensoB = true}
 
--- Retargeted files the engine hangs on while loading (found by skipping actions one by one;
--- the file passes every format check): the body has no such action.
-S.BODY_SKIP = {["RawlingsTorture.PlayI"] = true}
+-- Retargeted files the engine cannot load: the body has no such action. (RawlingsTorture's
+-- PlayI was one until 0.2: the last record of the pack ran past its end, now padded.)
+S.BODY_SKIP = {}
 
 function S.ensureBody(class)
   if S.NO_BODY[class] then return end

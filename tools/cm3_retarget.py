@@ -35,6 +35,8 @@ DEFAULT_OUT = os.path.join(JERICHO, 'work', 'anim_rt')
 # FP actor -> full-body character folder, when the names differ
 FULL_MODEL_OF = {'rossnude': 'ross'}
 OUT_PREFIX = 'coopbody_'
+# An entry naming this builder's version in the pack; the installer rebuilds a pack without it.
+PACK_MARK = 'coop/coopbody_pack_v2.txt'
 # Full bodies whose props are all hidden: Ross's model holds Jones' rifle, whose textures
 # live only in Jones' folder (untextured on Ross). Textures cannot be added through Pack1:
 # the game hangs loading a level when Pack1 holds model textures (tested 2026-10-19, also
@@ -350,6 +352,150 @@ def retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, max_offset=0.05, hide_props=Fal
     return out, rep
 
 
+# ------------------------------------------------------------ locomotion
+# First-person scenes move the camera through the scene, and the body with it, but nobody
+# animated the legs for a camera that never sees them: the full body glides with its legs
+# still (TheTrap: the whole walk). Where the pelvis travels and the FP legs do not move, the
+# character's own walk cycle (<char>_walk.cm3, in place) is blended onto the legs, its phase
+# advanced by the distance travelled at the speed the cycle was made for.
+
+LEG_PARTS = ('Thigh', 'Calf', 'Foot', 'Toe0')
+WALK_MIN, WALK_FULL = 30.0, 70.0      # pelvis speed (units/s): no walk below, full walk above
+LEGS_STILL = 25.0                     # FP thigh turning slower than this (deg/s): legs not animated
+BLEND_SECONDS = 0.5
+
+
+def slerp(a, b, t):
+    dot = sum(x * y for x, y in zip(a, b))
+    if dot < 0:
+        b, dot = tuple(-x for x in b), -dot
+    if dot > 0.9995:
+        r = tuple(x + (y - x) * t for x, y in zip(a, b))
+    else:
+        th = math.acos(min(1.0, dot))
+        s0, s1 = math.sin((1 - t) * th) / math.sin(th), math.sin(t * th) / math.sin(th)
+        r = tuple(s0 * x + s1 * y for x, y in zip(a, b))
+    n = math.sqrt(sum(x * x for x in r)) or 1.0
+    return tuple(x / n for x in r)
+
+
+def _worlds(sm3, cm3, nframes):
+    by = {n['name']: n for n in sm3['nodes']}
+    mp = cm3.slot_map()
+    cache = {}
+
+    def local(n):
+        if n['name'] not in cache:
+            t = cm3.tracks[mp[n['slot']]] if n['slot'] in mp else None
+            cache[n['name']] = local_xfs(n, t, nframes)
+        return cache[n['name']]
+
+    def world(name):
+        chain, n = [], by.get(name)
+        while n is not None:
+            chain.append(n)
+            n = by.get(n['parent'])
+        return chain_xfs(chain, local, nframes) if chain else None
+    return by, local, world
+
+
+def walk_speed(full_sm3, walk_cm3, pre):
+    """Speed the walk cycle is made for: its pelvis travel (cycles with root motion), else how
+    fast the supporting foot slides back (cycles made in place)."""
+    nf, fps = walk_cm3.frames, walk_cm3.fps_value or 30
+    _, _, world = _worlds(full_sm3, walk_cm3, nf)
+    pel = world(f'{pre} Pelvis')
+    if pel:
+        a, b = pel[0][1], pel[-1][1]
+        v = math.hypot(b[0] - a[0], b[2] - a[2]) * fps / max(1, nf - 1)
+        if v > 20:
+            return v
+    feet = [world(f'{pre} {s} Foot') for s in 'LR']
+    if not all(feet):
+        return None
+    speeds = []
+    for f in range(nf - 1):
+        low = min((0, 1), key=lambda i: feet[i][f][1][1])
+        a, b = feet[low][f][1], feet[low][f + 1][1]
+        speeds.append(math.hypot(b[0] - a[0], b[2] - a[2]) * fps)
+    speeds.sort()
+    v = speeds[len(speeds) // 2]
+    return v if v > 20 else None
+
+
+def add_locomotion(out, full_sm3, walk_cm3, rep):
+    nf, fps = out.frames, out.fps_value or 30
+    pel_node = next((n for n in full_sm3['nodes'] if n['name'].endswith(' Pelvis')), None)
+    if pel_node is None or walk_cm3 is None:
+        return
+    pre = pel_node['name'][:-len(' Pelvis')]
+    vref = walk_speed(full_sm3, walk_cm3, pre)
+    if not vref:
+        rep['locomotion'] = 'no walk speed'
+        return
+    by, local, world = _worlds(full_sm3, out, nf)
+    pel = world(pel_node['name'])
+    k = 3
+    speed, still = [], []
+    thighs = [by.get(f'{pre} {s} Thigh') for s in 'LR']
+    if not all(thighs):
+        return
+    tl = [local(t) for t in thighs]
+    for f in range(nf):
+        a, b = max(0, f - k), min(nf - 1, f + k)
+        dt = (b - a) / fps or 1.0
+        p0, p1 = pel[a][1], pel[b][1]
+        speed.append(math.hypot(p1[0] - p0[0], p1[2] - p0[2]) / dt)
+        turn = max(m3d.quat_angle_deg(m3d.xf_quat(x[a]), m3d.xf_quat(x[b])) for x in tl) / dt
+        still.append(turn < LEGS_STILL)
+    raw = [min(1.0, max(0.0, (v - WALK_MIN) / (WALK_FULL - WALK_MIN))) if st else 0.0
+           for v, st in zip(speed, still)]
+    half = max(1, int(BLEND_SECONDS * fps / 2))
+    w = [sum(raw[max(0, f - half):f + half + 1]) / len(raw[max(0, f - half):f + half + 1]) for f in range(nf)]
+    if max(w) < 0.05:
+        return
+    # walk cycle rotations of the leg bones
+    wnf, wfps = walk_cm3.frames, walk_cm3.fps_value or 30
+    wmap, omap = walk_cm3.slot_map(), out.slot_map()
+    parts = []
+    for s in 'LR':
+        for part in LEG_PARTS:
+            n = by.get(f'{pre} {s} {part}')
+            if n is None or n['slot'] not in wmap or n['slot'] not in omap:
+                continue
+            wt = walk_cm3.tracks[wmap[n['slot']]]
+            if not wt.flags & 0x02:
+                continue
+            parts.append((n, wt.decode(0x02)))
+    if not parts:
+        return
+    phase, ph = [], 0.0
+    for f in range(nf):
+        phase.append(ph)
+        ph = (ph + speed[f] / vref * wfps / fps) % wnf
+    for n, wrot in parts:
+        old = out.tracks[omap[n['slot']]]
+        rot = old.decode(0x02) or [struct.unpack_from('<4f', n['fixed'], 12)] * nf
+        pos = old.decode(0x01) or [bind_pos(n)] * nf
+        new_rot = []
+        for f in range(nf):
+            if w[f] <= 0.001:
+                new_rot.append(rot[f])
+                continue
+            i0 = int(phase[f]) % wnf
+            i1 = (i0 + 1) % wnf
+            wq = slerp(wrot[i0], wrot[i1], phase[f] - int(phase[f]))
+            new_rot.append(slerp(rot[f], wq, w[f]))
+        values = {0x01: pos[0] if all(x == pos[0] for x in pos) else list(pos), 0x02: new_rot}
+        for fl, _, _ in m3d.CHANNELS:
+            if fl not in (0x01, 0x02) and old.flags & fl:
+                values[fl] = old.decode(fl)
+        new = m3d.make_track(old.primer, nf, values)
+        out.tracks[omap[n['slot']]] = new
+        rep.setdefault('locomotion_nodes', []).append(n['name'])
+    rep['locomotion'] = dict(walk_speed=round(vref), frames_walking=sum(1 for x in w if x > 0.5), frames=nf)
+
+
 def check_coverage(c):
     """Every channel must cover the animation's frames the way the game's own files do
     (checked against all 3633 shipped CM3: no stream ends past nframes, every stream
@@ -406,14 +552,21 @@ def validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep):
     fpm, idm = fp_cm3.slot_map(), idle_cm3.slot_map()
     rot_only = {x.split(':')[0] for x in rep['fp_rotation_only']}
     composed = {x.split(':')[0] for x in rep['fp_composed']}
+    walked = set(rep.get('locomotion_nodes', []))
     for name in rep['from_fp']:
         if name in hidden:
             continue
         t = c.tracks[smap[by_name[name]['slot']]]
+        if name in walked:
+            # legs blended with the walk cycle: the FP position kept, a rotation per frame
+            assert t.flags & 0x03 == 0x03 and t.kind(0x02) == 'stream', name
+            continue
         s = fp_cm3.tracks[fpm[fp_names[rep['fp_driver'][name]]['slot']]]
         if name in composed:
             # node relative to the common ancestor must match the FP rig
             ch = rep['composed_chains'][name]
+            if walked & set(ch['full']):
+                continue   # rides on a walking leg (a holster): follows the new leg
             fpn = {n['name']: n for n in fp_sm3['nodes']}
             for fr in sorted({0, c.frames // 2, c.frames - 1}):
                 def at(nodes, cm, names):
@@ -443,7 +596,7 @@ def validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep):
         else:
             assert t.nabk() == s.nabk() and t.nam() == s.nam(), name
     for name in rep['from_idle']:
-        if name in hidden:
+        if name in hidden or name in walked:
             continue
         t = c.tracks[smap[by_name[name]['slot']]]
         s = idle_cm3.tracks[idm[by_name[name]['slot']]]
@@ -498,6 +651,11 @@ def do_one(files, fp_path, out_dir, models_cache):
     fp_sm3, full_sm3 = model(paths['fp_model']), model(paths['full_model'])
     idle_cm3 = m3d.CM3(files.read(paths['idle']))
     out, rep = retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, hide_props=char in HIDE_ALL_PROPS)
+    walk_path = f'models/chars/{char}/anm/{char}_walk.cm3'
+    if files.exists(walk_path):
+        walk_cm3 = m3d.CM3(files.read(walk_path))
+        check_fits(walk_cm3, full_sm3, 'walk vs full model')
+        add_locomotion(out, full_sm3, walk_cm3, rep)
     data = out.serialize()
     validate(data, full_sm3, fp_sm3, fp_cm3, idle_cm3, rep)
     out_name = f'{d}/{OUT_PREFIX}{fname[3:]}'
@@ -602,7 +760,8 @@ def cmd_batch(a, files):
     with open(os.path.join(a.out, 'batch_report.json'), 'w') as f:
         json.dump({'files': reports, 'errors': errors}, f, indent=1)
     if a.pack and items:
-        n = write_pack(a.pack, items)
+        # what built this pack (the installer rebuilds an older one): PACK_MARK
+        n = write_pack(a.pack, items + [(PACK_MARK, PACK_MARK.encode('latin-1'))])
         print(f'packed {n} file(s) into {a.pack} ({os.path.getsize(a.pack)} bytes)')
     bad = 0
     for name, data in items:

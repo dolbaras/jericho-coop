@@ -139,9 +139,15 @@ function Build-Anims($g) {
     $pack = Join-Path $g "Pack1.packed"
     # Somebody else's Pack1 (not ours): left alone.
     if ((Test-Path $pack) -and -not (Select-String -Path $pack -Pattern "coopbody_" -SimpleMatch -Quiet)) { return "foreign" }
-    if (Test-Path $pack) { Fix-PackEnd $pack; return "ok" }
+    # Built by this version of the builder (its mark inside): kept. An older one is rebuilt
+    # (0.2: the scene characters walk instead of gliding), or padded if Python is missing.
+    $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v2" -SimpleMatch -Quiet)
+    if ($current) { Fix-PackEnd $pack; return "ok" }
     $py = Find-Python
-    if (-not $py) { return "nopython" }
+    if (-not $py) {
+        if (Test-Path $pack) { Fix-PackEnd $pack; return "ok" }
+        return "nopython"
+    }
     # The game's archives: the game folder, or Packed\ after SMOD unpacked them.
     $data = $g
     if (-not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))) { $data = Join-Path $g "Packed" }
