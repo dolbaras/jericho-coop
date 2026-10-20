@@ -11,13 +11,14 @@
 (сохранения кооператива этой копии лежат в папке storyline-saves).
 
 Линии:
-  1  Акт 1, Гробница — Разведка Альфы (Джонс). Пройдите первый бой и подойдите к лагерю: после
-     прощания Альфа остаётся, разведка превращается в бой. Через ~4 мин Омега доходит до
-     кровавой двери.
+  1  Акт 1, Гробница — Разведка Альфы (Джонс). Начало у выхода из пещеры. Пройдите первый бой
+     и подойдите к лагерю: после прощания Альфа остаётся, разведка превращается в бой.
+     Через ~4 мин Омега доходит до кровавой двери.
   2  Акт 1, Город — Альфа отрезана на раскопе (Джонс). Держите карман против волн культистов,
      пока Омега пробивается (~5 мин).
   3  Акт 1, Бункер — Восстановление архива (Коул). Через ~20 с Росс отправляет Коул к консоли;
-     стойте у неё, пока идёт восстановление, отряд вас защищает.
+     стойте у неё, пока идёт восстановление, отряд вас защищает. Когда засада перебита,
+     открывается выход из бункера.
   4  Акт 2, Доты — Станции Пути (Роулингс). Выстрел Дельгадо вырывает душу Роулингса: проведите
      её по трём станциям назад к телу (удерживать E — молитва).
   5  Акт 2, Бранденбург — Верх ворот (Коул). Держите пленницу Лихтхаммер (E рядом с ней) и
@@ -30,10 +31,13 @@
      волны, пока он не откроет дверь.
   8  Акт 4, Кальдарий — Зал палачей (Блэк). Дельгадо идёт через огонь; держите зал против
      культистов из кровавых ям.
-  9  Акт 4, Дворец — Один на той стороне (Блэк). После перехода Чёрча через пропасть легион
-     выходит на его сторону: прикройте его с края. Когда легион перебит, отряд опускает мост.
- 10  Акт 5, Финал — Разорвать кровавую связь (Блэк). Перворождённый сковывает отряд: вырвитесь
-     (удерживайте E) и сражайтесь дальше; через минуту Чёрч наносит последний удар (финал игры).
+  9  Акт 4, Дворец — Один на той стороне (Блэк). Пробейтесь с отрядом через легион у моста;
+     когда путь над пропастью открыт, Чёрч переходит её, и легион выходит на его сторону:
+     прикройте его с края. Когда легион перебит, отряд опускает мост.
+ 10  Акт 5, Финал — Разорвать кровавую связь (Блэк). После вступительных сцен Перворождённый
+     сковывает отряд: вырвитесь (удерживайте E) и сражайтесь дальше; через минуту Чёрч наносит
+     последний удар (финал игры). Перворождённый, как и в оригинале, может перебросить вас в
+     тело другого бойца.
 
 Если что-то пошло не так — пришлите файл storyline-saves\coop.log из папки этой копии.
 
@@ -53,13 +57,14 @@ Leave a line: Esc -> quit to the main menu. Your own saves are not touched (this
 saves are in the storyline-saves folder).
 
 Lines:
-  1  Act 1, Alk_Tomb - Alpha's recon (Jones). Win the first fight and walk to the camp: after
-     the goodbye Alpha stays, and the recon turns into a fight. About 4 min later Omega
-     reaches the blood door.
+  1  Act 1, Alk_Tomb - Alpha's recon (Jones). Starts at the cave's exit. Win the first fight
+     and walk to the camp: after the goodbye Alpha stays, and the recon turns into a fight.
+     About 4 min later Omega reaches the blood door.
   2  Act 1, Alk_City - Alpha cut off in the dig (Jones). Hold the pocket against waves of
      cultists while Omega fights its way through (about 5 min).
   3  Act 1, Alk_Bunker_01 - Temporal restoration (Cole). About 20 s in, Ross sends Cole to the
-     console: stay at it while the restoration runs, the squad defends you.
+     console: stay at it while the restoration runs, the squad defends you. When the ambush
+     is down, the way out of the bunker opens.
   4  Act 2, WWII_PillBoxes - Stations of the Path (Rawlings). Delgado's shot tears Rawlings'
      soul out: lead it through three stations back to the body (hold E to pray).
   5  Act 2, Brandenburg - The gate top (Cole). Hold the captive Lichthammer (E next to her) and
@@ -72,10 +77,13 @@ Lines:
      three waves until he opens the door.
   8  Act 4, Rom_Caldarium - The Torturers' Hall (Black). Delgado walks through the fire; hold
      the hall against cultists from the blood pits.
-  9  Act 4, Rom_Palace_01 - Alone on the far side (Black). After Church crosses the abyss the
+  9  Act 4, Rom_Palace_01 - Alone on the far side (Black). Fight through the legion at the
+     bridge with the squad; once the way over the abyss is open, Church crosses it and the
      legion comes out on his side: cover him from the edge. When the legion is down, the squad
      lowers the bridge.
- 10  Act 5, Sum_End - Break the blood link (Black). The First Born binds the squad: break free
-     (hold E) and fight on; a minute later Church strikes the last blow (the game's end).
+ 10  Act 5, Sum_End - Break the blood link (Black). After the opening scenes the First Born
+     binds the squad: break free (hold E) and fight on; a minute later Church strikes the last
+     blow (the game's end). As in the original game, the First Born may throw you into another
+     squad member's body.
 
 If something goes wrong, send storyline-saves\coop.log from this copy's folder.

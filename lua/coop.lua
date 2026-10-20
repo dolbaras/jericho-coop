@@ -700,6 +700,15 @@ end
 -- the first free squad member (a story split may have taken the body away).
 function Coop.startChar()
   if Coop.isHost() and Coop.actOne() and not (cfg.auto and cfg.char) then return "Ross" end
+  -- A story line alone (coop_storysolo.lua): its character, even where the level starts with
+  -- that body put away (Alk_City: Alpha is hidden until Omega reaches it).
+  if cfg.storyline and cfg.char then
+    local e = Game.GetEntity(cfg.char)
+    if e then
+      if e.bActive == false then e.bActive = true end
+      return cfg.char
+    end
+  end
   for _, name in ipairs({cfg.char, cfg.seatChar}) do
     if name ~= "Ross" and Coop.freeFor(name) then return name end
   end

@@ -48,6 +48,7 @@ SS.TEXT = {
     s_merge = "The main group reached the chapel: the patrol rejoins it",
     s_square = "The squad fights its way across the square",
     s_bridgeopen = "The squad is on the plates: the bridge comes down",
+    s_lastdoor = "The way out of the bunker is open",
     s_fbkill = "Church strikes the First Born",
     s_wave2 = "The second wave hits the squad",
     s_gatedoor = "The squad is through the door to the gate",
@@ -88,6 +89,7 @@ SS.TEXT = {
     s_merge = "Основная группа дошла до часовни: патруль возвращается к ней",
     s_square = "Отряд пробивается через площадь",
     s_bridgeopen = "Отряд встал на плиты: мост опускается",
+    s_lastdoor = "Выход из бункера открыт",
     s_fbkill = "Чёрч наносит удар Перворождённому",
     s_wave2 = "На отряд идёт вторая волна",
     s_gatedoor = "Отряд прошёл дверь к воротам",
@@ -114,7 +116,7 @@ SS.LINES = {
   G10 = {level = "Rom_Caldarium", char = "Black", steps = {
     {after = 25, call = "MapCallbacks.AreaTrigger_Fire_0", args = {"AreaTrigger_Fire", 0}, say = "s_fire"},
     {after = 15, call = "MapCallbacks.AreaTriggerOutFire_0", args = {"AreaTriggerOutFire", 0}},
-    {after = 70, call = "MapCallbacks.puerta_delgado_1_0", args = {"Delgado", "puerta_delgado_1"}, say = "s_door1"},
+    {after = 70, call = "CoopStorySolo.G10door1", say = "s_door1"},
     {after = 70, call = "MapCallbacks.AreaTrigger308_0", args = {"AreaTrigger308", 0}, say = "s_lever"},
     {after = 70, call = "MapCallbacks.AreaTriggerDelgadoCae_0", args = {"AreaTriggerDelgadoCae", 0}, say = "s_drop", last = true},
   }},
@@ -124,12 +126,15 @@ SS.LINES = {
     {after = 70, call = "MapCallbacks.AreaTrigger133_0", args = {"AreaTrigger133", 0}, say = "s_omeganear"},
     {after = 40, call = "MapCallbacks.AreaTrigger119_1", args = {"AreaTrigger119", 0}, say = "s_omegain", last = true},
   }},
-  G1A = {level = "Alk_Tomb", char = "Jones", steps = {
+  -- (from the cave's exit: the level's opening crawl is Ross's own scene, no squad body then)
+  G1A = {level = "Alk_Tomb", char = "Jones", spawn = 1, steps = {
     {on = "MapInit.StartSayGoodbye"},
     {after = 240, call = "MapCallbacks.Borrame_cinematica_0", args = {"Borrame_cinematica", 0}, say = "s_blooddoor", last = true},
   }},
   G3 = {level = "Alk_Bunker_01", char = "Cole", steps = {
-    {after = 20, call = "MapInit.GoColeToManipulate", say = "s_console", last = true},
+    {after = 20, call = "MapInit.GoColeToManipulate", say = "s_console"},
+    -- the ambush down and the quake's talk over: the way out opens (the level's own flow)
+    {on = "MapInit.OpenLastDoor", nokick = true, say = "s_lastdoor", last = true},
   }},
   G4 = {level = "WWII_PillBoxes", char = "Rawlings", steps = {
     {after = 20, call = "MapScenes.OnInit_DelgadokillsRawlings", say = "s_shot"},
@@ -151,9 +156,12 @@ SS.LINES = {
   }},
   -- After the wave on Church's side, the main line opens the bridge (vanilla: the others on
   -- the three plates, Church on his).
-  G11 = {level = "Rom_Palace_01", char = "Black", steps = {
-    {after = 20, call = "MapCallbacks.o249_0", args = {"Church", "o249"}, say = "s_abyss"},
-    {when = "CoopStorySolo.G11cleared", after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
+  -- The legion at the bridge is the squad's fight (this player's too); once the way over the
+  -- abyss opens, Church takes it (the use callback of TriggerTheAbyss).
+  G11 = {level = "Rom_Palace_01", char = "Black", spawn = 1, steps = {
+    {when = "CoopStorySolo.G11abyssReady", testkick = "CoopStorySolo.G11testLegion", after = 15,
+     call = "MapCallbacks.o249_0", args = {"Church", "TriggerTheAbyss", "Use", ""}, say = "s_abyss"},
+    {when = "CoopStorySolo.G11cleared", testkick = "CoopStorySolo.G11testWave", after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
   }},
   -- The kill is Church's (blood rune, first person): once this player broke free, the main
   -- line ends it.
@@ -224,6 +232,8 @@ function SS.update()
   if not SS.started then
     if Coop.frame < 40 then return end
     if not SS.atSpawn(line) then SS.started = "reloading" return end
+    -- after the level's opening scenes (Sum_End: TheEndA and B), in a body
+    if (Scene and Scene.IsPlaying) or not Game.UsrEntity(0) then return end
     SS.started = true
     SS.step, SS.stepT = 1, Game.GetTime()
     SS.hookEvents(line)
@@ -245,7 +255,7 @@ function SS.update()
     SS.stepT = Game.GetTime()
     -- Tests (dev, storykick = seconds): nobody walks to the trigger, the story runs it.
     SS.onSince = SS.onSince or Game.GetTime()
-    if cfg.dev and cfg.storykick and Game.GetTime() - SS.onSince > cfg.storykick then
+    if cfg.dev and cfg.storykick and not st.nokick and Game.GetTime() - SS.onSince > cfg.storykick then
       local fn = SS.resolve(st.on)
       SS.onSince = Game.GetTime() + 9999
       Coop.log("story solo: test kick " .. st.on .. (fn and "" or " (not found)"))
@@ -256,7 +266,19 @@ function SS.update()
   end
   if st.when then
     local f = SS.resolve(st.when)
-    if not (f and f()) then SS.stepT = Game.GetTime() return end
+    if not (f and f()) then
+      SS.stepT = Game.GetTime()
+      -- Tests (dev, storykick): what the player would do to get there, done by the story.
+      SS.whenSince = SS.whenSince or Game.GetTime()
+      if cfg.dev and cfg.storykick and st.testkick and Game.GetTime() - SS.whenSince > cfg.storykick then
+        SS.whenSince = Game.GetTime() + 9999
+        local k = SS.resolve(st.testkick)
+        Coop.log("story solo: test kick " .. st.testkick .. (k and "" or " (not found)"))
+        if k then pcall(k) end
+      end
+      return
+    end
+    SS.whenSince = nil
   end
   if st.after and Game.GetTime() - SS.stepT < st.after then return end
   SS.step, SS.stepT = SS.step + 1, Game.GetTime()
@@ -266,15 +288,59 @@ function SS.update()
     if fn then
       local ok, err = pcall(fn, unpack(st.args or {}))
       if not ok then Coop.log("story solo: step error " .. tostring(err)) end
+      -- An area trigger the story ran: someone walking into it later must not run it again.
+      local tname = st.args and st.args[1]
+      if type(tname) == "string" and string.find(tname, "^AreaTrigger") then
+        local t = Game.GetEntity(tname)
+        if t then pcall(function() t.bActive = false end) end
+      end
     end
   end
   if st.say then Scorer.SetMsgText(string.format(SS.text("main"), SS.text(st.say)), Game.GetTime() + 6) end
   if st.last then SS.finishAt = Game.GetTime() + 60 end
 end
 
+-- G10: Delgado's first door, the vanilla use callback without its first-person use animation
+-- (MakeFP.CoolUse plays it on the user's view model: for an AI Delgado the game crashed).
+function SS.G10door1()
+  local door = Game.GetEntity("puerta_delgado_1")
+  if door then
+    door.Action = "Open"
+    door.bArrowCanUse = false
+  end
+  pcall(SaveGame.AutoSaveWaypoint, 1)
+  pcall(NPC.ActivateEnemyGroup, "tercer_cultista_sorpresa")
+  pcall(NPC.ActivateEnemyGroup, "happy_torturer")
+  local e = Game.GetEntity("Enemy163")
+  if e then e.FireRemainTime = 100 end
+  Game.AddScheduledFunc(Game.GetTime() + Game.Rand(35, 45), "SchFireArea2", "MapInit.SchFireArea2")
+end
+
 -- G11: the wave on Church's side is down; the plates and Church's own open the bridge.
 function SS.G11cleared()
   return CoopSplits and CoopSplits.G11 and CoopSplits.G11.cleared and true or false
+end
+
+function SS.G11abyssReady()
+  local t = Game.GetEntity("TriggerTheAbyss")
+  return t ~= nil and t.bActive == true
+end
+
+-- (tests: the legion at the bridge down)
+function SS.G11testLegion()
+  for _, l in ipairs({"LegionariosPuente1", "LegionariosPuente2", "LegionariosPuente3", "LegionariosPuente4"}) do
+    pcall(EnemyGen.Stop, l, true)
+  end
+  local t = Game.GetEntity("TriggerTheAbyss")
+  if t then t.bActive, t.bArrowCanUse = true, true end
+end
+
+-- (tests: the wave on Church's side down)
+function SS.G11testWave()
+  for _, n in ipairs(CoopSplits and CoopSplits.G11 and CoopSplits.G11.spawned or {}) do
+    local e = Game.GetEntity(n)
+    if e and (e.Life or 0) > 0 then e.Invulnerable = 0; e.Life = 0 end
+  end
 end
 
 function SS.G11bridge()
@@ -303,8 +369,13 @@ function SS.G4cure()
   for _, n in ipairs({"Church", "Black", "Jones", "Cole", "Delgado"}) do
     local e = Game.GetEntity(n)
     if e and e.Life > 0 and e.bActive ~= false then
+      -- (Team.CurePlayer is a player's cure, of AI bodies only: the player's own body is
+      -- revived as co-op revives a body its machine holds)
       e.Pos = raw.Pos + V3D(80, 0, 0)
-      Coop.log("story solo: " .. n .. " revives Rawlings: " .. tostring(Team.CurePlayer(e, raw)))
+      pcall(Health.DoCure, n, "Rawlings")
+      if CoopTeam then CoopTeam.holdDowned.Rawlings = nil end
+      if CoopTeam and CoopTeam.reviveLocal then CoopTeam.reviveLocal(raw) end
+      Coop.log("story solo: " .. n .. " revives Rawlings")
       return
     end
   end

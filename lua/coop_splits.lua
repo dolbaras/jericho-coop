@@ -645,7 +645,38 @@ function Sp.installG6(isHost)
     end
   end
   -- The sacrifice scenes take over; afterwards ReposPeople gathers everyone (vanilla).
+  -- Vanilla switches both bodies off for the scenes: a player's body is only hidden (a body
+  -- switched off is no user any more: the second scene found no user and the screen stayed
+  -- black, story line test G6).
+  if MapInit.HideRawlingsCole and not Sp.hooked["G6hide"] then
+    Sp.hooked["G6hide"] = true
+    local origHide = MapInit.HideRawlingsCole
+    MapInit.HideRawlingsCole = function(...)
+      local keep = {}
+      for _, n in ipairs(Sp.G6.chars) do
+        local e = Game.GetEntity(n)
+        if e and e.UsrControl == 0 then keep[n] = e end
+      end
+      local r = {pcall(origHide, ...)}
+      for n, e in pairs(keep) do
+        e.bActive = true
+        e.bObjectVisible = false
+        Sp.G6.hidden = Sp.G6.hidden or {}
+        Sp.G6.hidden[n] = true
+        Coop.log("split G6: " .. n .. " hidden for the sacrifice scenes (a player's body stays on)")
+      end
+      if not r[1] then Coop.log("split G6: HideRawlingsCole error: " .. tostring(r[2])) end
+      return unpack(r, 2)
+    end
+  end
   Sp.after("MapInit.HideRawlingsCole", function() Sp.G6.free = true end)
+  Sp.after("MapInit.ReposPeople", function()
+    for n in pairs(Sp.G6.hidden or {}) do
+      local e = Game.GetEntity(n)
+      if e then e.bObjectVisible = true end
+    end
+    Sp.G6.hidden = nil
+  end)
   if Coop.frame % 10 == 0 then Sp.G6leash() end
   Sp.G6holdUpdate()
   if isHost and Coop.frame % 40 == 0 then Sp.G6summonCheck() end

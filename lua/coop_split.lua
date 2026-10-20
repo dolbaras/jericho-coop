@@ -1160,7 +1160,8 @@ function Sp.installScreenFx()
   FX.BeginEffect = function(...)
     local t, inst = ...
     local r = begin(...)
-    if Sp.on and Sp.SCREEN_FX[t] then
+    -- (not when it did not start, nor while a scene or menu shows one full screen)
+    if r and Sp.on and not Sp.held and Sp.SCREEN_FX[t] then
       Sp.screenFx[t .. "|" .. tostring(inst)] = {t = t, inst = inst or ""}
       pcall(FX.SetEffect, t, inst or "", "ActiveInstance 0")
       if cfg.dev then Coop.log("split: screen effect " .. tostring(inst) .. " off in split screen") end
