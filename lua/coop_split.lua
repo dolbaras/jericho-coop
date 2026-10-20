@@ -620,6 +620,16 @@ function Sp.buildRemap()
     end
   end)
   add(I, "Rumble", function(f) return function(i, ...) return f(one(i), ...) end end)
+  -- The action set is one for both users: player 1's squad selector ("Inactive") is not
+  -- player 2's (Cole's loop stopped when it saw it). Menus and scenes stay what they are.
+  add(I, "GetActionSet", function(f)
+    return function(...)
+      local set = f(...)
+      if set == "Menu" or (Scene and Scene.IsPlaying) then return set end
+      if Sp.p2Astral then return "Astral" end
+      return "Walk"
+    end
+  end)
   return list
 end
 
@@ -1041,8 +1051,10 @@ Sp.screenFx = Sp.screenFx or {}
 function Sp.installScreenFx()
   if not FX or Sp.fxWrapped == FX.BeginEffect then return end
   local begin, stop = FX.BeginEffect, FX.EndEffect
-  FX.BeginEffect = function(t, inst, ...)
-    local r = begin(t, inst, ...)
+  -- (arguments passed on as given: the engine counts them, a nil is not a missing one)
+  FX.BeginEffect = function(...)
+    local t, inst = ...
+    local r = begin(...)
     if Sp.on and Sp.SCREEN_FX[t] then
       Sp.screenFx[t .. "|" .. tostring(inst)] = {t = t, inst = inst or ""}
       pcall(FX.SetEffect, t, inst or "", "ActiveInstance 0")
@@ -1050,9 +1062,10 @@ function Sp.installScreenFx()
     end
     return r
   end
-  FX.EndEffect = function(t, inst, ...)
+  FX.EndEffect = function(...)
+    local t, inst = ...
     Sp.screenFx[tostring(t) .. "|" .. tostring(inst)] = nil
-    return stop(t, inst, ...)
+    return stop(...)
   end
   Sp.fxWrapped = FX.BeginEffect
 end
