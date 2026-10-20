@@ -358,6 +358,30 @@ if cfg.menutest and Coop.level == "levels/menu" then
       local i = (Coop.frame - MENU_WAIT) / 40 % cfg.menufocus + 1
       if Scorer.GetItem(0, "Itm" .. i) then Scorer.SetDefault(0, "Itm" .. i); Coop.log("menufocus Itm" .. i) end
     end
+    -- 'showflow' (host) / 'showjoin' (client): the lobby flow slowly, for a showcase video:
+    -- one step every cfg.showgap ticks (default 45).
+    local gap = cfg.showgap or 45
+    local k = (Coop.frame - MENU_WAIT) / gap
+    if cfg.menutest == "showflow" and k >= 0 and k == math.floor(k) then
+      if k == 0 then CoopMenu.HostSetup()
+      elseif k == 1 then CoopMenu.levelIndex = CoopMenu.indexOf(cfg.menulevel or "Alk_Desert") or 1; CoopMenu.CreateSession()
+      elseif k == 3 then CoopMenu.Settings()
+      elseif k == 4 then CoopMenu.CycleQTE()
+      elseif k == 5 then CoopMenu.Lobby()
+      elseif k == 6 then CoopMenu.ToggleReady()
+      end
+    end
+    if cfg.menutest == "showflow" and k > 7 and CoopMenu.screen == "lobby" and CoopMenu.sub ~= "settings" and
+       #CoopMenu.seats >= 2 and CoopMenu.allReady() and not Coop.devShowStarted then
+      Coop.devShowStarted = Coop.frame
+    end
+    if Coop.devShowStarted and Coop.frame == Coop.devShowStarted + gap then CoopMenu.Start() end
+    if cfg.menutest == "showjoin" and k >= 0 and k == math.floor(k) then
+      if k == 0 then CoopMenu.JoinSetup()
+      elseif k == 1 then CoopMenu.Connect()
+      elseif k == 3 then local me = CoopMenu.seatOf(CoopMenu.myPeer()); if me and not me.ready then CoopMenu.ToggleReady() end
+      end
+    end
     if cfg.menutest == "flowjoin" and Coop.frame > MENU_WAIT and cfg.myId and CoopMenu.screen == "lobby" then
       local me = CoopMenu.seatOf(CoopMenu.myPeer())
       if me and not me.ready and Coop.frame % 20 == 0 then CoopMenu.ToggleReady() end
