@@ -471,7 +471,15 @@ static XInputSetState_t real_XInputSetState;
 typedef struct { DWORD packet; WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } test_pad_state;
 #pragma pack(pop)
 
+/* Test pads 9 and 8 (JERICHO_TESTPAD / JERICHO_TESTPAD2 patterns). */
+static DWORD test_pad_as(void *state, const char *var);
+
 static DWORD test_pad(void *state)
+{
+    return test_pad_as(state, "JERICHO_TESTPAD");
+}
+
+static DWORD test_pad_as(void *state, const char *var)
 {
     static DWORD t0;
     test_pad_state *s = (test_pad_state *)state;
@@ -481,7 +489,30 @@ static DWORD test_pad(void *state)
     memset(s, 0, sizeof *s);
     s->packet = now / 16;
     char v[8];
-    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '3') {
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '5') {
+        /* Walk forward and turn slowly, fire now and then: a player who keeps playing. */
+        DWORD t = (now - t0) % 6000;
+        s->ly = 26000;
+        s->rx = 9000;
+        if (t >= 2000 && t < 2600) s->rt = 255;
+        return ERROR_SUCCESS;
+    }
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '7') {
+        /* Weapons: Y (switch) at 1 s, the right trigger held 3-4.5 s and tapped at 6.5 s; LB
+           (alternative fire / programming) held 8-9 s; every 10 s. */
+        DWORD t = (now - t0) % 10000;
+        if (t >= 1000 && t < 1300) s->buttons = 0x8000;
+        if ((t >= 3000 && t < 4500) || (t >= 6500 && t < 6800)) s->rt = 255;
+        if (t >= 8000 && t < 9000) s->buttons = 0x0100;
+        return ERROR_SUCCESS;
+    }
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '6') {
+        /* Special (RB) held 14 s of every 16 s: Jones's astral projection for that long. */
+        DWORD t = (now - t0) % 16000;
+        if (t >= 500 && t < 14500) s->buttons = 0x0200;
+        return ERROR_SUCCESS;
+    }
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '3') {
         /* Menus from pad 2: Back (help) at 3 s, B at 9 s; Start (pause) at 15 s, B at 21 s,
            Start at 27 s, dpad down at 30 s, A at 33 s; each press 0.5 s. */
         static const struct { DWORD at; WORD b; } seq[] = {{3000, 0x0020}, {9000, 0x2000}, {15000, 0x0010},
@@ -491,7 +522,7 @@ static DWORD test_pad(void *state)
             if (t >= seq[i].at && t < seq[i].at + 500) s->buttons = seq[i].b;
         return ERROR_SUCCESS;
     }
-    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '4') {
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '4') {
         /* Powers, a 16 s cycle: LB held 0-3 s (right trigger 1-2 s), RB held 5-8 s (right
            trigger 6-7 s), taps of LB at 10 s and RB at 12 s; the view turns slowly. */
         DWORD t = (now - t0) % 16000;
@@ -503,7 +534,7 @@ static DWORD test_pad(void *state)
         s->rx = 6000;
         return ERROR_SUCCESS;
     }
-    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '2') {
+    if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '2') {
         /* Every button in turn, 3 s each (pressed 1 s, then released): A B X Y LB RB LT RT
            dpad up/down/left/right, back, start, stick clicks; then 6 s of walking forward. */
         static const WORD buttons[] = {0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0, 0,
@@ -533,6 +564,8 @@ static DWORD read_pad(int phys, void *state)
         return ERROR_DEVICE_NOT_CONNECTED;
     if (phys == 9)
         return test_pad(state);
+    if (phys == 8)
+        return test_pad_as(state, "JERICHO_TESTPAD2");
     return real_XInputGetState((DWORD)phys, state);
 }
 

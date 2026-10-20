@@ -9,6 +9,7 @@ H.HEAD = 195            -- units above the body origin (no head bone)
 H.ABOVE_HEAD = 30       -- units above the head bone
 H.MAX_DIST = 8000       -- hide plates farther than this
 H.items = {}
+H.POWER_CAMS = {AstralCam = true, RawlingsHealtyCam = true}
 
 -- Peer id -> nickname, from the lobby seats ("peer:char:ready:nick;...").
 function H.nicks()
@@ -133,7 +134,10 @@ function H.update()
     local e = Coop.squadEnt(name)
     for _, user in ipairs({0, 1}) do
       local shown = false
-      if e and e.Life > 0 and (user == 0 or split) and H.wants(name, user) then
+      -- (no plates over a power's own view: astral projection, Rawlings's healing flight)
+      local ucam = CoopSplit and CoopSplit.camOf and CoopSplit.camOf(user) or Game.GetCam(user)
+      local powerView = H.POWER_CAMS[ucam or ""]
+      if e and e.Life > 0 and (user == 0 or split) and not powerView and H.wants(name, user) then
         local head = H.headPos(e)
         local cam = CoopSplit and CoopSplit.camOf and CoopSplit.camOf(user) or Game.GetCam(user)
         local camE = cam and Game.GetEntity(cam)

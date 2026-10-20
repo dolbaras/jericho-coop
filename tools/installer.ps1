@@ -141,7 +141,7 @@ function Build-Anims($g) {
     if ((Test-Path $pack) -and -not (Select-String -Path $pack -Pattern "coopbody_" -SimpleMatch -Quiet)) { return "foreign" }
     # Built by this version of the builder (its mark inside): kept. An older one is rebuilt
     # (0.2: the scene characters walk instead of gliding), or padded if Python is missing.
-    $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v2" -SimpleMatch -Quiet)
+    $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v3" -SimpleMatch -Quiet)
     if ($current) { Fix-PackEnd $pack; return "ok" }
     $py = Find-Python
     if (-not $py) {

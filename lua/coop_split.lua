@@ -294,6 +294,7 @@ function Sp.frame()
     if Coop.inSession() then Sp.syncOwner() end
   end
   if not Sp.waiting then Sp.checkDown() end
+  if not hold then Sp.driveDuringAstral() else Sp.stopDrive() end
   if not hold and now >= (Sp.nextHudCheck or 0) then
     Sp.nextHudCheck = now + 0.25
     Sp.checkHud()
@@ -323,6 +324,53 @@ function Sp.checkHud()
   end
   Sp.buildHud()
   Coop.log("split: player 2's HUD back")
+end
+
+-- Player 1's astral projection takes the one action set ("Astral") for its camera, and the
+-- engine then moves no body from its "Walk" bindings: player 2 would stand frozen. Their
+-- pad is read here by its "Walk" bindings (Input.GetInputState, as Black's ghost bullet reads
+-- its owner's pad) and drives the body as the network drives a remote player's: walk,
+-- strafe, turn, look, sprint, fire.
+Sp.TURN_SPEED, Sp.PITCH_SPEED = 160, 110   -- degrees per second at full stick
+function Sp.driveDuringAstral()
+  local b = not Sp.waiting and Sp.body()
+  local astral = Input.GetActionSet and Input.GetActionSet() == "Astral" and not Sp.p2Astral
+  if not astral or not b or b.UsrControl ~= 1 or b.Life <= 0 then
+    Sp.stopDrive()
+    return
+  end
+  local function st(a)
+    local ok, v = pcall(Input.GetInputState, "Walk", a, 1)
+    return ok and tonumber(v) or 0
+  end
+  local now = Game.GetTime()
+  local dt = math.min(0.1, now - (Sp.driveT or now))
+  Sp.driveT = now
+  if not Sp.driving then
+    Sp.driving = true
+    local va = b.ViewAng or b.Ang
+    Sp.driveYaw, Sp.drivePitch = b.Ang.y, va and va.x or 0
+    Coop.log("split: player 2 driven from their pad during player 1's astral projection")
+  end
+  Sp.driveYaw = Sp.driveYaw - (st("TurnRight") - st("TurnLeft")) * Sp.TURN_SPEED * dt
+  Sp.drivePitch = math.max(-80, math.min(80, Sp.drivePitch + (st("TurnUp") - st("TurnDown")) * Sp.PITCH_SPEED * dt))
+  b.Ang = V3D(0, Sp.driveYaw, 0)
+  b.ViewAng = V3D(Sp.drivePitch, Sp.driveYaw, 0)
+  b.InCtrl_Walk = st("Forward")
+  b.InCtrl_Str = st("StrafeRight") - st("StrafeLeft")
+  b.InCtrl_Sprint = st("Sprint") > 0.5 and 1 or 0
+  if b.owc then b.owc.Shot = st("MainShot") > 0.5 and 1 or 0 end
+end
+
+function Sp.stopDrive()
+  if not Sp.driving then return end
+  Sp.driving, Sp.driveT = nil, nil
+  local b = Sp.body()
+  if b then
+    b.InCtrl_Walk, b.InCtrl_Str, b.InCtrl_Sprint = 0, 0, 0
+    if b.owc then b.owc.Shot = 0 end
+  end
+  Coop.log("split: player 2 back on the game's own controls")
 end
 
 -- SMOD's health counter (_G.PrintHealth, autoexec.lua) is user 0's, in scorer 0: the same
@@ -920,7 +968,19 @@ Sp.FX_KEYS = {
   "RT_DOFAutoFocusMin", "RT_DOFAutoFocusFar", "RT_DOFAutoFocusNear", "RT_DOFAutoFocusField",
   "RT_DOFAutoFocus", "RT_DOFValue", "RT_DOFNearDist", "RT_DOFNearDistTo", "RT_DOFNearDistStep",
   "RT_DOFNearRange", "RT_DOFNearRangeTo", "RT_DOFNearRangeStep",
+  "NoFXDamage",   -- (Church's and Rawlings's powers mute their user's damage effects, not the other's)
 }
+-- Resting values (EffectsFrame.RT_Reset / DOF_Normal) for parameters the engine reads back as nothing.
+Sp.FX_DEFAULT = {RT_DOFAutoFocusMin = 600, RT_DOFAutoFocusFar = 1, RT_DOFAutoFocusNear = 0,
+  RT_DOFAutoFocusField = 0.8, RT_DOFAutoFocus = 50000, RT_DOFValue = 0.8, RT_DOFNearDist = 0,
+  RT_DOFNearDistTo = -1, RT_DOFNearDistStep = 0, RT_DOFNearRangeTo = -1, RT_DOFNearRangeStep = 0, NoFXDamage = 0}
+for _, k in ipairs({"RadialBlur", "MotionBlur", "Travel", "EagleView", "CloseBlur", "DirectionalDamage", "Headache"}) do
+  Sp.FX_DEFAULT[k .. "FactorBegin"], Sp.FX_DEFAULT[k .. "FactorEnd"] = 0, 0
+  Sp.FX_DEFAULT[k .. "Time"], Sp.FX_DEFAULT[k .. "EndTime"] = 0, 0
+end
+Sp.FX_DEFAULT.MotionBlurOffVar, Sp.FX_DEFAULT.RT_CloseBlurValue = 0, 0
+Sp.FX_DEFAULT.RT_AberrationValue, Sp.FX_DEFAULT.RT_MonitorViewValue = 0, 0
+Sp.FX_DEFAULT.NoiseFactor, Sp.FX_DEFAULT.NoiseEndTime = 0, 0
 -- The engine runs these clocks of an effect forward in the frames it shows it.
 Sp.FX_CLOCKS = {RadialBlurTime = true, MotionBlurTime = true, TravelTime = true, EagleViewTime = true,
   CloseBlurTime = true, DirectionalDamageTime = true, HeadacheTime = true}
@@ -938,6 +998,10 @@ function Sp.installFxHooks()
     local st = Sp.fx
     if st and Sp.FX_KEY[k] then
       local u = Sp.inUser1 and 1 or 0
+      if cfg.fxprobe and k == "EagleViewFactorEnd" then
+        Coop.log("fxprobe: set " .. k .. "=" .. tostring(v) .. " by user " .. u .. " shown " .. tostring(Sp.fxShown) ..
+          " " .. (string.gsub(debug.traceback("", 2), "%c", " | ")))
+      end
       st[u][k] = v
       if Sp.fxShown ~= u then return end
     end
@@ -958,7 +1022,18 @@ function Sp.fxStart()
   local a, b = {}, {}
   for _, k in ipairs(Sp.FX_KEYS) do
     local ok, v = pcall(Sp.rawGet, k)
-    if ok and v ~= nil then a[k], b[k] = v, v end
+    if not ok or v == nil then v = Sp.FX_DEFAULT[k] end
+    -- Player 1 keeps what the engine has; player 2 starts at rest (the engine's values can
+    -- be the tail of player 1's effect: a green astral tint stayed in player 2's half).
+    local rest = Sp.FX_DEFAULT[k]
+    if rest == nil then rest = v end
+    if v ~= nil then a[k] = v end
+    if rest ~= nil then b[k] = rest end
+  end
+  if cfg.dev then
+    local missing = {}
+    for _, k in ipairs(Sp.FX_KEYS) do if a[k] == nil then missing[#missing + 1] = k end end
+    if #missing > 0 then Coop.log("split: effect parameters without a value: " .. table.concat(missing, ", ")) end
   end
   Sp.fx, Sp.fxShown, Sp.fxAt = {[0] = a, [1] = b}, 0, {[0] = Game.GetTime(), [1] = Game.GetTime()}
 end
@@ -984,6 +1059,11 @@ function Sp.fxShow(u)
     end
     Sp.fxAt[old] = now
   end
+  if cfg.fxprobe and Coop.frame % 30 == 0 then
+    Coop.log(string.format("fxprobe: show %d eagle0 %s eagle1 %s engine %s time0 %s time1 %s", u,
+      tostring(st[0].EagleViewFactorEnd), tostring(st[1].EagleViewFactorEnd), tostring(Sp.rawGet("EagleViewFactorEnd")),
+      tostring(st[0].EagleViewTime), tostring(st[1].EagleViewTime)))
+  end
   local away = now - (Sp.fxAt[u] or now)
   for k, v in pairs(st[u]) do
     if Sp.FX_CLOCKS[k] and type(v) == "number" then v = v + away end
@@ -999,7 +1079,8 @@ local function bodyFor(b, shown)
   if not b then return end
   local saved = Sp.bodyVis[b.Name]
   if saved == nil then saved = b.bObjectVisible; Sp.bodyVis[b.Name] = saved end
-  if shown then b.bObjectVisible = true else b.bObjectVisible = saved end
+  local want = shown and true or saved
+  if b.bObjectVisible ~= want then b.bObjectVisible = want end
 end
 
 function Sp.showFor(u)
@@ -1015,8 +1096,9 @@ function Sp.showFor(u)
   end
   local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
   local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
-  if f0 then f0.bObjectVisible = u == 0 end
-  if f1 then f1.bObjectVisible = u == 1 end
+  -- (written only when it changes: an object made visible as the story deletes it asserts)
+  if f0 and f0.bObjectVisible ~= (u == 0) then f0.bObjectVisible = u == 0 end
+  if f1 and f1.bObjectVisible ~= (u == 1) then f1.bObjectVisible = u == 1 end
   if cfg.splitbodies ~= false then
     bodyFor(b0, u == 1)
     bodyFor(b1, u == 0)

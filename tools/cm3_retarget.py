@@ -36,7 +36,7 @@ DEFAULT_OUT = os.path.join(JERICHO, 'work', 'anim_rt')
 FULL_MODEL_OF = {'rossnude': 'ross'}
 OUT_PREFIX = 'coopbody_'
 # An entry naming this builder's version in the pack; the installer rebuilds a pack without it.
-PACK_MARK = 'coop/coopbody_pack_v2.txt'
+PACK_MARK = 'coop/coopbody_pack_v3.txt'
 # Full bodies whose props are all hidden: Ross's model holds Jones' rifle, whose textures
 # live only in Jones' folder (untextured on Ross). Textures cannot be added through Pack1:
 # the game hangs loading a level when Pack1 holds model textures (tested 2026-10-19, also
@@ -350,6 +350,85 @@ def retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, max_offset=0.05, hide_props=Fal
     rep.update(tracks=len(tracks), model_nodes=len(full_sm3['nodes']), slots=len(remap),
                frames=nframes, first_frame=primer, fps=fp_cm3.fps_value)
     return out, rep
+
+
+# ------------------------------------------------------------ head
+# The first-person camera looks down at hands and props, and the head follows it: on the full
+# body the chin went onto the chest (Ross over the laptop in the helicopter: up to 66 degrees,
+# the other seated actors of that scene stay under 46). The head bone is tilted back to at
+# most HEAD_MAX_LEAN from upright; the neck, which carries the arms, stays.
+
+HEAD_MAX_LEAN = 42.0
+
+
+def _rot_axis_angle(k, ang):
+    """Row-vector rotation matrix (v' = v * C) by ang radians about unit axis k."""
+    x, y, z = k
+    c, s, t = math.cos(ang), math.sin(ang), 1 - math.cos(ang)
+    m = ((t * x * x + c, t * x * y - s * z, t * x * z + s * y),
+         (t * x * y + s * z, t * y * y + c, t * y * z - s * x),
+         (t * x * z - s * y, t * y * z + s * x, t * z * z + c))
+    return tuple(tuple(m[j][i] for j in range(3)) for i in range(3))
+
+
+def _mat_mul(a, b):
+    return tuple(tuple(sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)) for i in range(3))
+
+
+def limit_head(out, full_sm3, rep):
+    nf = out.frames
+    pel = next((n for n in full_sm3['nodes'] if n['name'].endswith(' Pelvis')), None)
+    if pel is None:
+        return
+    pre = pel['name'][:-len(' Pelvis')]
+    by, local, world = _worlds(full_sm3, out, nf)
+    head = by.get(pre + ' Head')
+    omap = out.slot_map()
+    if head is None or head['slot'] not in omap:
+        return
+    parent_w = world(head['parent'])
+    head_w = world(head['name'])
+    old = out.tracks[omap[head['slot']]]
+    rot = old.decode(0x02)
+    if rot is None:
+        return
+    new_rot, fixed = [], 0
+    for f in range(nf):
+        axis = head_w[f][0][0]   # the head bone's own axis (up through the skull)
+        l = math.sqrt(sum(v * v for v in axis)) or 1.0
+        up = axis[1] / l
+        lean = math.degrees(math.acos(max(-1.0, min(1.0, up))))
+        if lean <= HEAD_MAX_LEAN:
+            new_rot.append(rot[f])
+            continue
+        # turn the axis towards world up by the excess, about the horizontal perpendicular
+        k = (axis[2] / l, 0.0, -axis[0] / l)
+        kl = math.sqrt(k[0] ** 2 + k[2] ** 2)
+        if kl < 1e-6:
+            new_rot.append(rot[f])
+            continue
+        k = (k[0] / kl, 0.0, k[2] / kl)
+        ex = math.radians(lean - HEAD_MAX_LEAN)
+        c = _rot_axis_angle(k, ex)
+        test = tuple(sum(axis[i] * c[i][j] for i in range(3)) for j in range(3))
+        if test[1] / l < up:            # wrong way round
+            c = _rot_axis_angle(k, -ex)
+        wr = _mat_mul(head_w[f][0], c)
+        pr = parent_w[f][0]
+        inv = tuple(tuple(pr[j][i] for j in range(3)) for i in range(3))
+        lr = _mat_mul(wr, inv)
+        new_rot.append(m3d.xf_quat((lr, (0, 0, 0))))
+        fixed += 1
+    if not fixed:
+        return
+    pos = old.decode(0x01) or [bind_pos(head)] * nf
+    values = {0x01: pos[0] if all(x == pos[0] for x in pos) else list(pos), 0x02: new_rot}
+    for fl, _, _ in m3d.CHANNELS:
+        if fl not in (0x01, 0x02) and old.flags & fl:
+            values[fl] = old.decode(fl)
+    out.tracks[omap[head['slot']]] = m3d.make_track(old.primer, nf, values)
+    rep.setdefault('locomotion_nodes', []).append(head['name'])
+    rep['head_limited'] = fixed
 
 
 # ------------------------------------------------------------ locomotion
@@ -709,6 +788,7 @@ def do_one(files, fp_path, out_dir, models_cache):
     idle_cm3 = m3d.CM3(files.read(paths['idle']))
     out, rep = retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, hide_props=char in HIDE_ALL_PROPS)
     steady_core(out, full_sm3, rep)
+    limit_head(out, full_sm3, rep)
     walk_path = f'models/chars/{char}/anm/{char}_walk.cm3'
     if files.exists(walk_path):
         walk_cm3 = m3d.CM3(files.read(walk_path))

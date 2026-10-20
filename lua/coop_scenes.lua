@@ -505,7 +505,7 @@ S.EYE_MAX = 2000
 -- right in front of the eye hides the target, the eye leans out (up to LEAN_STEPS units,
 -- the nearest clear direction first) as a person would lean forward to look.
 S.LEAN_NEAR = 90
-S.LEAN_STEPS = {25, 50, 75}
+S.LEAN_STEPS = {25, 50, 75, 100}
 S.LEAN_TAU = 0.5
 S.ZERO = V3D(0, 0, 0)
 
@@ -531,9 +531,38 @@ end
 
 function S.blockedNear(from, to)
   local hit = Game.TestLine(from, to, "")
-  if not hit then return false end
-  local d = len(hit - from)
-  return d < S.LEAN_NEAR and d < len(to - from) - 30
+  if hit then
+    local d = len(hit - from)
+    if d < S.LEAN_NEAR and d < len(to - from) - 30 then return true end
+  end
+  -- World rays pass through people: someone's head, chest or belly near the line of sight
+  -- (Conversation: Delgado's back between Black and the speakers) is in the way too.
+  return S.bodyInWay(from, to) ~= nil
+end
+
+S.BODY_PROBES_LEAN = {0, 45, 90}
+function S.bodyInWay(from, to)
+  local list = Scene.Actors and S.pov and Scene.Actors[S.pov.class]
+  local ray = to - from
+  local rl = len(ray)
+  if rl < 1 then return nil end
+  for _, info in pairs(list or {}) do
+    if info[2] ~= S.pov.actor then
+      local hp = S.actorHead(info)
+      if hp and len(hp - to) > 60 then
+        for _, drop in ipairs(S.BODY_PROBES_LEAN) do
+          local q = hp - V3D(0, drop, 0)
+          local v = q - from
+          local t = (v.x * ray.x + v.y * ray.y + v.z * ray.z) / (rl * rl)
+          if t > 0.02 and t < 0.9 then
+            local c = from + V3D(ray.x * t, ray.y * t, ray.z * t)
+            if len(q - c) < S.BODY_IN_WAY then return info[2] end
+          end
+        end
+      end
+    end
+  end
+  return nil
 end
 
 function S.findLean(eye, target)
@@ -550,12 +579,18 @@ function S.findLean(eye, target)
   for k = 0, 7 do
     local a = k * math.pi / 4
     local dx, dz = math.cos(a), math.sin(a)
-    cands[#cands + 1] = {dx = dx, dz = dz, score = tl > 0 and (dx * t.x + dz * t.z) / tl or 0}
+    cands[#cands + 1] = {dx = dx, dz = dz, dy = 0, score = tl > 0 and (dx * t.x + dz * t.z) / tl or 0}
+  end
+  -- also up, straight or with a side step (a low head under a beam or behind debris)
+  cands[#cands + 1] = {dx = 0, dz = 0, dy = 1, score = -0.5}
+  for k = 0, 3 do
+    local a = k * math.pi / 2
+    cands[#cands + 1] = {dx = math.cos(a) * 0.7, dz = math.sin(a) * 0.7, dy = 0.7, score = -0.6}
   end
   table.sort(cands, function(x, y) return x.score > y.score end)
   for _, r in ipairs(S.LEAN_STEPS) do
     for _, c in ipairs(cands) do
-      local off = V3D(c.dx * r, 0, c.dz * r)
+      local off = V3D(c.dx * r, c.dy * r, c.dz * r)
       local at = eye + off
       if not Game.TestLine(eye, at, "") and not S.blockedNear(at, target) then
         S.leanWant = off
@@ -591,14 +626,61 @@ function S.actionShot(p, dt)
   return len(p - last) / dt > S.ACTION_SPEED and "action" or false
 end
 
+S.ENCLOSED_DIRS = {V3D(40, 0, 0), V3D(-40, 0, 0), V3D(0, 0, 40), V3D(0, 0, -40), V3D(0, 40, 0), V3D(0, -40, 0)}
+function S.eyeEnclosed(eye)
+  local close = 0
+  for _, d in ipairs(S.ENCLOSED_DIRS) do
+    local hit = Game.TestLine(eye, eye + d, "")
+    if hit and len(hit - eye) < 8 then close = close + 1 end
+  end
+  return close >= 4
+end
+
+S.altEvery = 0
+function S.visibleActorFor(eye, target, p, dir)
+  S.altEvery = S.altEvery - 1
+  if S.altEvery > 0 then return S.altLast end
+  S.altEvery = 6
+  S.altLast = nil
+  local hit = Game.TestLine(eye, target, "")
+  if not hit or len(hit - eye) >= len(target - eye) - S.BLOCK_MARGIN then return nil end
+  local list = Scene.Actors and Scene.Actors[S.pov.class]
+  local best, bestScore
+  for _, info in pairs(list or {}) do
+    if info[2] ~= S.pov.actor then
+      local hp = S.actorHead(info)
+      if hp and len(hp - eye) > 60 then
+        local h2 = Game.TestLine(eye, hp, "")
+        if not h2 or len(h2 - eye) >= len(hp - eye) - 40 then
+          -- nearest to the scene camera's view ray
+          local v = hp - p
+          local l = len(v)
+          local c = l > 0 and (v.x * dir.x + v.y * dir.y + v.z * dir.z) / l or -1
+          if not bestScore or c > bestScore then best, bestScore = hp, c end
+        end
+      end
+    end
+  end
+  S.altLast = best
+  return best
+end
+
 function S.viewBlocked(p, eye, target)
   -- Nose against what the scene shows (a door, a wall the scene camera sees from afar);
   -- a face at conversation distance is fine.
   if S.focusActor == "world" and len(target - eye) < S.VIEW_MIN then return "close" end
   local hit = Game.TestLine(eye, target, "")
-  if hit and len(hit - eye) < len(target - eye) - S.BLOCK_MARGIN then return "wall" end
-  hit = Game.TestLine(p, eye, "")
-  if hit and len(hit - p) < len(eye - p) - 30 then return "hidden" end
+  if hit and len(hit - eye) < len(target - eye) - S.BLOCK_MARGIN then
+    if Coop.cfg.dev then
+      S.blockInfo = string.format("eye %s target %s (%s) hit %s at %.0f of %.0f", Coop.v3(eye), Coop.v3(target),
+        tostring(S.focusActor), Coop.v3(hit), len(hit - eye), len(target - eye))
+    end
+    return "wall"
+  end
+  -- The eye inside the set (a head through a wall or under a floor): most short rays out of
+  -- it hit at once. (A wall between this eye and the scene camera alone is fine: the viewer
+  -- stands elsewhere in the room and still sees the scene, scene audit 0.2.1.)
+  if S.eyeEnclosed(eye) then return "hidden" end
   -- World rays pass through characters: a body between the eye and the target (a back in
   -- front of the face, scene audit 14 and 36) is found from the actors' heads and chests.
   -- (rows of seats: the neighbours are always near the line of sight, POV_TUNE bodyBlock)
@@ -669,6 +751,13 @@ function S.updatePOV(dt)
   local focus = S.updateFocus(dt, p, dir)
   local toSelf = focus - S.eye
   local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and S.speakerPos(p) or focus
+  -- A point of the set the scene camera looks at from elsewhere can lie behind a wall for
+  -- this viewer: then the people of the scene this viewer can see, the one nearest the scene
+  -- camera's view first (not the scene camera at once: most of the scene seen from the set).
+  if S.focusActor == "world" then
+    local alt = S.visibleActorFor(S.eye, target, p, dir)
+    if alt then target, S.focusActor = alt, "alt" end
+  end
   S.lean = lowpass(S.lean, S.findLean(S.eye, target), S.LEAN_TAU, dt)
   local pos = S.eye + S.lean
   -- Out of a seat's padded wings (they have no collision for findLean): the eye a little
@@ -690,7 +779,10 @@ function S.updatePOV(dt)
     local why = Coop.cfg.povfallback ~= false and (S.actionShot(p, step) or S.viewBlocked(p, pos, target))
     if why then
       S.clearFor, S.blockedFor = 0, (S.blockedFor or 0) + step
-      if S.blockedFor >= S.BLOCK_IN then S.setFallback(true, why) end
+      if S.blockedFor >= S.BLOCK_IN then
+        if not S.fallback and Coop.cfg.dev and why == "wall" and S.blockInfo then Coop.log("scene POV wall: " .. S.blockInfo) end
+        S.setFallback(true, why)
+      end
     else
       S.blockedFor, S.clearFor = 0, (S.clearFor or 0) + step
       if S.clearFor >= S.CLEAR_IN then S.setFallback(false) end
@@ -703,13 +795,28 @@ function S.updatePOV(dt)
   cam.Pos = pos
   S.look = lowpass(S.look, target, S.LOOK_TAU, dt)
   local look = S.look - pos
-  if math.sqrt(look.x * look.x + look.y * look.y + look.z * look.z) < S.FOCUS_MIN then look = dir end
+  -- A point of the set right at the eye says nothing of where to look: the scene camera's
+  -- direction then. A person this close is looked at (MurielsTale: Ross a step from
+  -- Rawlings, who stared at a crate along Ross's own view).
+  local minLook = S.focusActor == "world" and S.FOCUS_MIN or 25
+  if math.sqrt(look.x * look.x + look.y * look.y + look.z * look.z) < minLook then look = dir end
   local ang = S.dirToAng(look)
   if ang then cam.Ang = S.toFCam(ang) end
+  S.lastLookDir = look
   if Game.GetCam(0) ~= S.CAM then Game.SetCam(0, S.CAM) end
   S.frames = (S.frames or 0) + 1
   if S.frames % 60 == 1 then
-    Coop.log(string.format("POV eye=%s owner=%s off=%s focus=%s (%s)", Coop.v3(pos), Coop.v3(p), Coop.v3(pos - p), Coop.v3(focus), tostring(S.focusActor)))
+    -- how far the camera's view is off the direction set last frame (angle conversion check)
+    local err = -1
+    if cam.camAng and S.lastLookDir then
+      local f = V3D(0, 0, 1):rot(cam.camAng)
+      local l1, l2 = len(f), len(S.lastLookDir)
+      if l1 > 0 and l2 > 0 then
+        err = math.deg(math.acos(math.max(-1, math.min(1, (f.x * S.lastLookDir.x + f.y * S.lastLookDir.y + f.z * S.lastLookDir.z) / (l1 * l2)))))
+      end
+    end
+    Coop.log(string.format("POV eye=%s owner=%s off=%s focus=%s (%s) aim err %.0f", Coop.v3(pos), Coop.v3(p), Coop.v3(pos - p),
+      Coop.v3(focus), tostring(S.focusActor), err))
   end
 end
 

@@ -15,7 +15,7 @@
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
 Coop = {}
-Coop.VERSION = "0.2.0"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.2.1"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
@@ -780,6 +780,13 @@ end
 
 function Coop.frameUpdate(now, dt)
   if Coop.devFrame then pcall(Coop.devFrame, dt) end
+  if CoopStorySolo then
+    local ok, err = pcall(CoopStorySolo.update)
+    if not ok and (Coop.storyErrors or 0) < 5 then
+      Coop.storyErrors = (Coop.storyErrors or 0) + 1
+      Coop.log("story solo error: " .. tostring(err))
+    end
+  end
   if CoopSplit and CoopSplit.on then
     local ok, err = pcall(CoopSplit.frame)
     if not ok and (Coop.splitErrors or 0) < 5 then
@@ -991,6 +998,10 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("splits load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_patrol.lua")
   if not ok then Coop.log("patrol load error: " .. tostring(err)) end
+  if cfg.storyline then
+    ok, err = pcall(dofile, COOP_DIR .. "coop_storysolo.lua")
+    if not ok then Coop.log("story solo load error: " .. tostring(err)) end
+  end
 end
 -- SMOD next to co-op (texts, the same rules for everyone): menu and levels alike.
 do
