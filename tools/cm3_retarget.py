@@ -496,6 +496,63 @@ def add_locomotion(out, full_sm3, walk_cm3, rep):
     rep['locomotion'] = dict(walk_speed=round(vref), frames_walking=sum(1 for x in w if x > 0.5), frames=nf)
 
 
+# ------------------------------------------------------------ steadying
+# A first-person scene shakes its camera (the helicopter's vibration, steps, hits) through
+# the body: root, spine, neck and head jitter frame to frame. Seen on the full body that is a
+# shivering man. The core of the body is smoothed over STEADY_SECONDS (a centred moving
+# average of rotations and of the root's position); slower motion stays.
+
+STEADY_PARTS = ('', ' Pelvis', ' Spine', ' Spine1', ' Spine2', ' Neck', ' Head')
+STEADY_SECONDS = 0.3
+
+
+def _avg_quat(qs):
+    ref = qs[len(qs) // 2]
+    acc = [0.0, 0.0, 0.0, 0.0]
+    for q in qs:
+        sgn = 1.0 if sum(a * b for a, b in zip(q, ref)) >= 0 else -1.0
+        for i in range(4):
+            acc[i] += sgn * q[i]
+    n = math.sqrt(sum(x * x for x in acc)) or 1.0
+    return tuple(x / n for x in acc)
+
+
+def steady_core(out, full_sm3, rep):
+    nf, fps = out.frames, out.fps_value or 30
+    pel = next((n for n in full_sm3['nodes'] if n['name'].endswith(' Pelvis')), None)
+    if pel is None or nf < 5:
+        return
+    pre = pel['name'][:-len(' Pelvis')]
+    by = {n['name']: n for n in full_sm3['nodes']}
+    omap = out.slot_map()
+    half = max(1, int(STEADY_SECONDS * fps / 2))
+    done = []
+    for part in STEADY_PARTS:
+        n = by.get(pre + part)
+        if n is None or n['slot'] not in omap:
+            continue
+        old = out.tracks[omap[n['slot']]]
+        if not old.flags & 0x02 or old.kind(0x02) == 'const':
+            continue
+        rot = old.decode(0x02)
+        new_rot = [_avg_quat(rot[max(0, f - half):f + half + 1]) for f in range(nf)]
+        pos = old.decode(0x01) or [bind_pos(n)] * nf
+        if part == '' and old.kind(0x01) not in (None, 'const'):
+            new_pos = []
+            for f in range(nf):
+                win = pos[max(0, f - half):f + half + 1]
+                new_pos.append(tuple(sum(p[i] for p in win) / len(win) for i in range(3)))
+            pos = new_pos
+        values = {0x01: pos[0] if all(x == pos[0] for x in pos) else list(pos), 0x02: new_rot}
+        for fl, _, _ in m3d.CHANNELS:
+            if fl not in (0x01, 0x02) and old.flags & fl:
+                values[fl] = old.decode(fl)
+        out.tracks[omap[n['slot']]] = m3d.make_track(old.primer, nf, values)
+        rep.setdefault('locomotion_nodes', []).append(n['name'])
+        done.append(n['name'])
+    rep['steadied'] = done
+
+
 def check_coverage(c):
     """Every channel must cover the animation's frames the way the game's own files do
     (checked against all 3633 shipped CM3: no stream ends past nframes, every stream
@@ -651,6 +708,7 @@ def do_one(files, fp_path, out_dir, models_cache):
     fp_sm3, full_sm3 = model(paths['fp_model']), model(paths['full_model'])
     idle_cm3 = m3d.CM3(files.read(paths['idle']))
     out, rep = retarget(fp_cm3, fp_sm3, full_sm3, idle_cm3, hide_props=char in HIDE_ALL_PROPS)
+    steady_core(out, full_sm3, rep)
     walk_path = f'models/chars/{char}/anm/{char}_walk.cm3'
     if files.exists(walk_path):
         walk_cm3 = m3d.CM3(files.read(walk_path))

@@ -181,7 +181,7 @@ S.POV_SCENES = {}
 -- Per scene class: forward = units the eye moves along the chest's facing (out of a seat's
 -- padding), bodyBlock = false: no switch to the scene camera for people in the way (rows of
 -- seats).
-S.POV_TUNE = {HelicopterTrip = {forward = 45, bodyBlock = false}, Landing = {forward = 45, bodyBlock = false}}
+S.POV_TUNE = {HelicopterTrip = {forward = 45, bodyBlock = false}, Landing = {forward = 45}}
 
 function S.povAllowed(class)
   if Coop.cfg.povoff == true then return false end
@@ -398,23 +398,37 @@ function S.installSpeakers()
 end
 
 -- The head of a speaker in this scene: the scene's character (its full body), an actor of
--- that character, or nil (a voice off the scene: radio, thought).
+-- that character, or nil (a voice off the scene: radio, thought). Also the entity and the
+-- character, for its facing.
 function S.speakerHead(who)
   if not who or not S.pov then return nil end
   local b = S.body
   if b and b.class == S.pov.class and (who == b.char or (who == "Ross" and b.char == "Ross")) then
     if b.hidden then return nil end
-    return S.actorHead({"", b.entity, b.char})
+    return S.actorHead({"", b.entity, b.char}), Game.GetEntity(b.entity), b.char
   end
   local list = Scene.Actors and Scene.Actors[S.pov.class]
   for _, info in pairs(list or {}) do
     local cls = info[3] or ""
     if info[2] ~= S.pov.actor and (cls == who or string.find(info[2], who .. "$")) then
       local hp = S.actorHead(info)
-      if hp then return hp end
+      if hp then return hp, Game.GetEntity(info[2]), cls end
     end
   end
   return nil
+end
+
+-- A speaker with their back to the viewer: their face is not what a viewer would look at,
+-- what they look at is (the scene camera leads then).
+S.FACING_AWAY = -0.25
+function S.facesAway(hp, e, char)
+  if not (hp and e and char and S.eye) then return false end
+  local f = S.bodyForward(e, char)
+  if not f then return false end
+  local d = S.eye - hp
+  local l = math.sqrt(d.x * d.x + d.z * d.z)
+  if l < 1 then return false end
+  return (f.x * d.x + f.z * d.z) / l < S.FACING_AWAY
 end
 
 -- What the speaking gives to look at now, or nil.
@@ -433,7 +447,8 @@ function S.speakerTarget()
     if hp then return hp, "answer" end
     return nil
   end
-  local hp = S.speakerHead(sp.who)
+  local hp, e, char = S.speakerHead(sp.who)
+  if hp and S.facesAway(hp, e, char) then return nil end
   if hp then return hp, "speaker" end
   if Coop.cfg.dev and S.noHeadFor ~= sp.who then
     S.noHeadFor = sp.who
@@ -560,7 +575,7 @@ end
 S.BLOCK_IN = 0.5
 S.CLEAR_IN = 2.0
 S.BLOCK_MARGIN = 120      -- a wall this close to the target is the target itself
-S.BODY_CLEAR = 40         -- an eye this close to another actor's head is inside them
+S.BODY_CLEAR = 50         -- an eye this close to another actor's head is in their face
 S.BLOCK_EVERY = 6         -- frames between checks
 S.VIEW_MIN = 160          -- the target this close to the eye fills the view
 S.BODY_IN_WAY = 28        -- a head or chest this close to the line of sight blocks it
@@ -578,17 +593,18 @@ function S.viewBlocked(p, eye, target)
   -- front of the face, scene audit 14 and 36) is found from the actors' heads and chests.
   -- (rows of seats: the neighbours are always near the line of sight, POV_TUNE bodyBlock)
   local tune = S.POV_TUNE[S.pov.class]
-  if tune and tune.bodyBlock == false then return false end
+  local inWay = not (tune and tune.bodyBlock == false)
   local list = Scene.Actors and Scene.Actors[S.pov.class]
   local ray = target - eye
   local rl = len(ray)
   for _, info in pairs(list or {}) do
     if info[2] ~= S.pov.actor then
       local hp = S.actorHead(info)
+      -- an eye inside someone's head: always; others in the way: not in rows of seats
+      if hp and len(hp - eye) < S.BODY_CLEAR then return "body" end
       -- (the one looked at is not in the way of their own face)
-      if hp and len(hp - target) < 60 then hp = nil end
+      if hp and (len(hp - target) < 60 or not inWay) then hp = nil end
       if hp then
-        if len(hp - eye) < S.BODY_CLEAR then return "body" end
         if rl > 1 then
           for _, drop in ipairs(S.BODY_PROBES) do
             local q = hp - V3D(0, drop, 0)
@@ -934,8 +950,11 @@ function S.ensureBody(class)
   -- their animations leave the full body headless. The character's own facial animation
   -- runs on channel 1 on top (as the game does with char.Action = "Facial_Relax") and
   -- drives the head. Ross's model uses Jones' skeleton.
-  local faceDir = model == "TrueRoss" and "Jones" or model
-  if ac:GetAct("CoopFace") == nil and Coop.cfg.bodyface ~= false then
+  -- Only a model's own facial animation: its tracks are bound by the model's bone slots, and
+  -- Jones's on TrueRoss (same bone names, other slots) drove Ross's left upper arm up into the
+  -- air (HelicopterTrip, 0.2). TrueRoss has none; the scene animation moves its head.
+  local faceDir = model
+  if model ~= "TrueRoss" and ac:GetAct("CoopFace") == nil and Coop.cfg.bodyface ~= false then
     local face = ac:NewAct("CoopFace")
     face.AnmFilePath = "Models/Chars/" .. faceDir .. "/Anm/" .. faceDir .. "_Facial_Relax.M3D"
     face.isLoop = 1
