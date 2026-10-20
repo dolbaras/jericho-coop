@@ -173,10 +173,20 @@ function E.installHost()
     end
     -- AI squadmates take less damage if the host chose so in the lobby.
     if To and Coop.SQUAD_SET[To.Name] and Coop.ownerOf(To.Name) == nil and Damage then
-      Damage = Damage * (E.AI_SQUAD_DAMAGE[Coop.cfg.aisquad or "normal"] or 1)
+      Damage = Damage * E.aiSquadFactor()
     end
+    if CoopSmod then BodyMultiplier = CoopSmod.headshot(To, From, BodyMultiplier) end
     return origDamage(From, To, Damage, BodyMultiplier)
   end
+end
+
+-- The lobby's "AI squadmates" choice; left as in the game, SMOD's value when the session
+-- plays by SMOD's rules (coop_smod.lua).
+function E.aiSquadFactor()
+  local mode = Coop.cfg.aisquad or "normal"
+  if mode ~= "normal" then return E.AI_SQUAD_DAMAGE[mode] or 1 end
+  local r = CoopSmod and CoopSmod.rules()
+  return r and r.ai or 1
 end
 
 -- Cutscenes: the host announces every scene it starts (story callbacks run only there);
@@ -779,6 +789,7 @@ function E.installClient()
       -- Resolve the body-part multiplier locally (it needs this machine's hit), then
       -- report the final damage to the host instead of applying it.
       local dmg = Damage
+      if CoopSmod then BodyMultiplier = CoopSmod.headshot(To, From, BodyMultiplier) end
       if BodyMultiplier ~= nil then
         To:SetLastBodyPiece(From)
         local piece = To.oWeapHit and To.oWeapHit.oBodyPiece

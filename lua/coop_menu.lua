@@ -31,6 +31,7 @@ CoopMenu.LEVELS = {
 
 CoopMenu.levelIndex = CoopMenu.levelIndex or 1
 CoopMenu.seats = {}        -- list of {peer=, char=, ready=}
+CoopMenu.smodPeers = {}    -- peers that have SMOD (coop_smod.lua), the host's view
 CoopMenu.screen = nil      -- "root", "host", "join", "lobby"
 
 ------------------------------------------------------------------------------
@@ -56,6 +57,8 @@ CoopMenu.TEXT = {
     aisquad = "AI squadmates", ai_normal = "as in the game", ai_tough = "take 60% damage",
     ai_very = "take 30% damage",
     cutscenes = "Cutscenes", pov_off = "original camera", pov_on = "own eyes (experimental)",
+    rules = "Rules", rules_smod = "host's SMOD", rules_game = "as in the game",
+    rules_notall = "game's (SMOD not for all)", ai_smod = "SMOD (%d%% damage)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -76,6 +79,8 @@ CoopMenu.TEXT = {
     aisquad = "Союзники ИИ", ai_normal = "как в игре", ai_tough = "60% урона",
     ai_very = "30% урона",
     cutscenes = "Катсцены", pov_off = "камера оригинала", pov_on = "своими глазами (эксп.)",
+    rules = "Правила", rules_smod = "SMOD хоста", rules_game = "как в игре",
+    rules_notall = "игры (SMOD не у всех)", ai_smod = "SMOD (%d%% урона)",
   },
 }
 
@@ -412,6 +417,7 @@ function CoopMenu.Connect()
   cfg.role = "client"
   cfg.myId = nil
   CoopMenu.seats = {}
+  CoopMenu.smodPeers = {}
   CoopMenu.Lobby()
 end
 
@@ -469,7 +475,7 @@ end
 -- Host: the session's rules (lobby sub-screen; the lobby keeps running underneath).
 function CoopMenu.Settings()
   CoopMenu.sub = "settings"
-  Menu.VerticalMenu(T("title_settings"), {
+  local options = {
     -- Who does character-only actions nobody holds (coop_claim.lua).
     {"", "CoopMenu.CycleActMode"},
     -- Vanilla difficulty, and how much tougher enemies get per extra player (coop_enemies.lua).
@@ -482,8 +488,11 @@ function CoopMenu.Settings()
     -- First-person scenes from each player's own character instead of the original camera
     -- (coop_scenes.lua S.povAllowed): an experiment, off by default.
     {"", "CoopMenu.TogglePov"},
-    {Menu.GetBackText(), "CoopMenu.Lobby"},
-  }, "CoopMenu.Lobby", nil, 160, 35)
+  }
+  -- With SMOD on the host: its rules for everyone when every player has SMOD (coop_smod.lua).
+  if CoopMenu.hostSmod() then options[#options + 1] = {"", "CoopMenu.ToggleSmodRules"} end
+  options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Lobby"}
+  Menu.VerticalMenu(T("title_settings"), options, "CoopMenu.Lobby", nil, 160, 35)
   CoopMenu.refreshLobby()
 end
 
@@ -494,8 +503,16 @@ function CoopMenu.refreshLobby()
     setText(item("Itm2"), CoopMenu.skillText())
     setText(item("Itm3"), T("scaling") .. ": " .. T("scale_" .. (cfg.scaling or "light")))
     setText(item("Itm4"), T("qte") .. ": " .. T("qte_" .. (cfg.qte or "normal")))
-    setText(item("Itm5"), T("aisquad") .. ": " .. T("ai_" .. (cfg.aisquad or "normal")))
+    local ai = T("ai_" .. (cfg.aisquad or "normal"))
+    if (cfg.aisquad or "normal") == "normal" and CoopMenu.smodRules() then
+      ai = string.format(T("ai_smod"), CoopSmod.ownValues().ai * 100 + 0.5)
+    end
+    setText(item("Itm5"), T("aisquad") .. ": " .. ai)
     setText(item("Itm6"), T("cutscenes") .. ": " .. T(cfg.povall and "pov_on" or "pov_off"))
+    if CoopMenu.hostSmod() then
+      local v = cfg.smodrules == false and "rules_game" or (CoopMenu.smodRules() and "rules_smod" or "rules_notall")
+      setText(item("Itm7"), T("rules") .. ": " .. T(v))
+    end
     return
   end
   CoopMenu.layoutRows()
@@ -520,7 +537,8 @@ function CoopMenu.refreshLobby()
         -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
         local char = CoopMenu.charName(s.char)
         if s.peer == 0 and string.find(string.lower(level or ""), "^alk_") then char = CoopMenu.charName("Ross") .. " -> " .. char end
-        setText(t, who .. ": " .. char .. (s.ready and "  - " .. T("is_ready") or ""))
+        local smod = (s.peer == 0 and Coop.isHost() and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer]) and " [SMOD]" or ""
+        setText(t, who .. ": " .. char .. smod .. (s.ready and "  - " .. T("is_ready") or ""))
       else
         setText(t, "")
       end
@@ -643,6 +661,28 @@ function CoopMenu.CycleAISquad()
   CoopMenu.refreshLobby()
 end
 
+function CoopMenu.hostSmod()
+  return CoopSmod ~= nil and CoopSmod.present()
+end
+
+-- Every seated player has SMOD (the host's own SMOD for seat 0).
+function CoopMenu.allSmod()
+  for _, s in ipairs(CoopMenu.seats) do
+    if not (s.peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer]) then return false end
+  end
+  return #CoopMenu.seats > 0
+end
+
+-- The session will play by the host's SMOD rules (CoopMenu.Start).
+function CoopMenu.smodRules()
+  return CoopMenu.hostSmod() and cfg.smodrules ~= false and CoopMenu.allSmod()
+end
+
+function CoopMenu.ToggleSmodRules()
+  cfg.smodrules = cfg.smodrules == false and nil or false
+  CoopMenu.refreshLobby()
+end
+
 function CoopMenu.TogglePov()
   cfg.povall = not cfg.povall or nil
   CoopMenu.refreshLobby()
@@ -682,13 +722,18 @@ function CoopMenu.Leave()
   cfg.role = nil
   cfg.myId = nil
   CoopMenu.seats = {}
+  CoopMenu.smodPeers = {}
   CoopMenu.Root()
 end
 
 function CoopMenu.broadcastLobby()
   if not Coop.isHost() or CoopMenu.screen ~= "lobby" and CoopMenu.screen ~= "host" then return end
+  local smod = {}
+  for _, s in ipairs(CoopMenu.seats) do
+    if s.peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer] then smod[#smod + 1] = s.peer end
+  end
   Net.CoopSend(-1, 1, "lobby|" .. CoopMenu.LEVELS[CoopMenu.levelIndex] .. "|" .. CoopMenu.seatsString() ..
-               "|" .. (CoopMenu.continueRec and 1 or 0))
+               "|" .. (CoopMenu.continueRec and 1 or 0) .. "|" .. table.concat(smod, ","))
 end
 
 function CoopMenu.Start()
@@ -713,8 +758,10 @@ function CoopMenu.Start()
   cfg.skill = cfg.skill or Game.Get("GameSkill")
   cfg.scaling = cfg.scaling or "light"
   cfg.qte, cfg.aisquad = cfg.qte or "normal", cfg.aisquad or "normal"
+  -- SMOD's rules: the host's values, when every player has SMOD and the host keeps them on.
+  cfg.smod = CoopMenu.smodRules() and CoopSmod.encode(CoopSmod.ownValues()) or nil
   Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats .. "|" .. cfg.skill .. "|" .. cfg.scaling .. "|" ..
-               cfg.qte .. "|" .. cfg.aisquad .. "|" .. (cfg.povall and "own" or "orig"))
+               cfg.qte .. "|" .. cfg.aisquad .. "|" .. (cfg.povall and "own" or "orig") .. "|" .. (cfg.smod or "-"))
   CoopMenu.launch(level, seats)
 end
 
@@ -769,6 +816,7 @@ function CoopMenu.onLeave(peer)
     for i, s in ipairs(CoopMenu.seats) do
       if s.peer == peer then table.remove(CoopMenu.seats, i) break end
     end
+    CoopMenu.smodPeers[peer] = nil
     CoopMenu.broadcastLobby()
   elseif peer == 0 then
     CoopMenu.Root()
@@ -807,6 +855,8 @@ function CoopMenu.onMessage(peer, f)
     end
     CoopMenu.seats = CoopMenu.parseSeats(f[3])
     cfg.continuing = f[4] == "1" or nil
+    CoopMenu.smodPeers = {}
+    for id in string.gmatch(f[5] or "", "%d+") do CoopMenu.smodPeers[tonumber(id)] = true end
     return true
   elseif kind == "start" and Coop.isClient() then
     Coop.log("lobby: host started " .. f[2] .. " (" .. table.concat(f, " ", 4) .. ")")
@@ -814,11 +864,19 @@ function CoopMenu.onMessage(peer, f)
     cfg.scaling = f[5] or cfg.scaling
     cfg.qte, cfg.aisquad = f[6] or cfg.qte, f[7] or cfg.aisquad
     cfg.povall = f[8] == "own" or nil
+    cfg.smod = f[9] ~= nil and f[9] ~= "-" and f[9] or nil
     CoopMenu.launch(f[2], f[3])
     return true
   elseif kind == "welcome" and Coop.isClient() and f[3] == "Menu" then
     cfg.myId = tonumber(f[2])
     Net.CoopSend(0, 1, "nick|" .. CoopMenu.myNick())
+    if CoopMenu.hostSmod() then Net.CoopSend(0, 1, "smod|1") end
+    return true
+  elseif kind == "smod" and Coop.isHost() then
+    CoopMenu.smodPeers[peer] = f[2] == "1" or nil
+    Coop.log("lobby: peer " .. peer .. " has SMOD")
+    CoopMenu.broadcastLobby()
+    CoopMenu.refreshLobby()
     return true
   end
   return false

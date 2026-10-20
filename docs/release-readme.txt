@@ -61,11 +61,18 @@ How it works
   Jericho\Coop. The single-player profile is not touched during a session.
 
 SMOD
-The co-op mod works next to SMOD (SkacikPL's mod pack) and finds it by itself. In a session
-everyone plays by the game's own rules, so players with and without SMOD get the same game:
-SMOD's damage and health multipliers, ironman, checkpoint heal, slow motion in the squad menu,
-its pause and its cheat/debug menus are off during a session. SMOD's looks (FOV, lights,
-flashlight, crosshair, recoil) and its jump stay. SMOD's own texts follow the game language.
+The co-op mod works next to SMOD (SkacikPL's mod pack) and finds it by itself; the lobby marks
+the players who have it with [SMOD].
+- Every player has SMOD: the session plays by the host's SMOD settings (its autoexec.lua):
+  damage, head hits, damage the AI squadmates take, squad health, ironman and the checkpoint
+  heal, the same on every machine. The host can turn this off in Session settings ("Rules").
+- Not every player has SMOD: everyone plays by the game's own rules, so players with and
+  without SMOD get the same game.
+- Always off in a session: SMOD's pause and time scale, slow motion in the squad menu and its
+  cheat/debug menus (they would stop the world for everyone or act on one machine only).
+- Each player's own: FOV, lights, flashlight look, crosshair, recoil, the health counter.
+- The others see your SMOD jump (even without SMOD).
+SMOD's own texts follow the game language.
 
 Split screen (experimental)
 Two copies of the game side by side on one PC, one session between them. Double-click
@@ -143,11 +150,18 @@ previous run; split screen window 2: coop-window2.log).
   Jericho\Coop. Одиночный профиль во время сессии не трогается.
 
 SMOD
-Мод работает вместе со SMOD (сборка SkacikPL) и сам его распознаёт. В сессии у всех действуют
-правила самой игры, чтобы игроки со SMOD и без него играли в одно и то же: множители урона
-и здоровья SMOD, ironman, лечение на чекпоинтах, замедление в меню отряда, его пауза и меню
-читов/отладки на время сессии выключены. Внешние улучшения SMOD (FOV, свет, фонарь, прицел,
-отдача) и его прыжок остаются. Надписи SMOD показываются на языке игры.
+Мод работает вместе со SMOD (сборка SkacikPL) и сам его распознаёт; в лобби у игроков со SMOD
+стоит пометка [SMOD].
+- SMOD у всех игроков: в сессии действуют настройки SMOD хоста (его autoexec.lua): урон,
+  попадания в голову, урон по союзникам ИИ, здоровье отряда, ironman и лечение на чекпоинтах,
+  одинаково на всех машинах. Хост может выключить это в «Настройках сессии» («Правила»).
+- SMOD не у всех: у всех правила самой игры, чтобы игроки со SMOD и без него играли в одно
+  и то же.
+- В сессии всегда выключены: пауза и ускорение времени SMOD, замедление в меню отряда и меню
+  читов/отладки (они остановили бы мир для всех или действовали бы только на одной машине).
+- У каждого своё: FOV, свет, вид фонаря, прицел, отдача, счётчик здоровья.
+- Ваш прыжок SMOD видят остальные (даже без SMOD).
+Надписи SMOD показываются на языке игры.
 
 Сплитскрин (экспериментально)
 Две копии игры рядом на одном ПК, одна сессия между ними. Запустите «Co-op split screen.bat»

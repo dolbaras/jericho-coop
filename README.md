@@ -65,10 +65,11 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   actions, automatic QTEs (as in the game / automatic for everyone), how much damage AI
   squadmates take (as in the game / 60% / 30%). Act 1: the host plays Ross,
   from WWII on the host takes their lobby character (Delgado by default, as in the story).
-- SMOD (SkacikPL's pack) is detected and supported: in a session everyone plays by the
-  game's own rules (its damage/health multipliers, ironman, checkpoint heal, squad-menu
-  slow motion, pause and cheat/debug menus are off), its looks and jump stay, and its menu
-  texts follow the game language.
+- SMOD (SkacikPL's pack) is detected and supported (`coop_smod.lua`): when every player has
+  it, the session plays by the host's SMOD values (damage, head hits, AI squadmates' damage,
+  squad health, ironman, checkpoint heal) on every machine, else by the game's own rules;
+  SMOD's jump is replicated (`jump|`), its pause, time scale, squad-menu slow motion and
+  cheat/debug menus stay off in a session, and its menu texts follow the game language.
 - Split screen (experimental): `Co-op split screen.bat` starts two copies of the game side
   by side (or one above the other), each with its own gamepad; the second one joins the
   first one's lobby by itself.
@@ -102,7 +103,7 @@ player (`docs/usrentity-audit.md`) as playtesting finds them.
   - `coop_story.lua`, `coop_splits.lua`: story steps for several players, the story splits
   - `coop_inst.lua`, `coop_patrol.lua`: side instances in one session, the Lost Patrol
   - `coop_hud.lua`: nameplates
-  - `coop_smod.lua`: SMOD detection, vanilla rules in a session, SMOD texts in Russian
+  - `coop_smod.lua`: SMOD detection, one set of rules per session (the host's SMOD values or the game's), its jump for the others, SMOD texts in Russian
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
 - `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research.
 

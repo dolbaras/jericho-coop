@@ -275,6 +275,8 @@ function CS.onMessage(peer, f)
     -- hint here, and the squad's ammo refill for the body this machine drives.
     Scorer.SetMsgText(Game.GetLangStr("Hint_Checkpoint"), Game.GetTime() + 3)
     if Team and Team.SetMaxAmmo then pcall(Team.SetMaxAmmo) end
+    -- SMOD's rules heal at a checkpoint (the host heals the bodies it runs).
+    if CoopSmod then pcall(CoopSmod.checkpointHeal) end
     return true
   end
   if f[1] ~= "sv" or not Coop.isClient() or peer ~= 0 then return false end

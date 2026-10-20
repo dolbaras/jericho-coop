@@ -239,9 +239,12 @@ function Coop.stateOf(e)
   local p, a = e.Pos, e.Ang
   local va = e.ViewAng or a
   local shot = e.owc and e.owc.Shot or 0
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d",
+  -- The flashlight is the player's own (one camera light per game): on while its timer runs.
+  local usr = Game.UsrEntity(0)
+  local flash = usr and usr.Name == e.Name and (tonumber(Game.Get("FPSFlashLightTimeOn")) or 0) > 0
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
-    e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0)
+    e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0)
 end
 
 function Coop.sendStates()
@@ -331,6 +334,57 @@ function Coop.drivePuppets(dt)
   end
 end
 
+-- Other players' flashlights: the game has one camera-bound flashlight (the local player's),
+-- so another player's beam is a spot light at their body's weapon (the kind SMOD lights
+-- gunfire with), turned with their view; there while their flashlight is on.
+-- Experimental, off (cfg.puppetlights): without the flashlight projector the light floods
+-- the whole room; with it the spot lands where the Ang does not say (yaw -45 left, 0 and
+-- -90 right of the view) and a deleted light kept shining (dev.lua 'lighttest', 2026-10-20).
+Coop.FLASH_NODE = "NodePosHierarchy_DF_Burst_A"
+
+function Coop.puppetLights()
+  if not cfg.puppetlights then return end
+  local scene = Scene and Scene.IsPlaying
+  for _, name in ipairs(Coop.SQUAD) do
+    local id = "CoopFlash" .. name
+    local light = Game.GetEntity(id)
+    local e = Game.GetEntity(name)
+    local st = Coop.remote[name]
+    local on = not scene and e and st and st.flash and e.Life > 0 and Coop.isPuppet(name)
+    if on then
+      local pos = e[Coop.FLASH_NODE] or (e.Pos + V3D(0, 150, 0))
+      local ang = V3D((st.pitch or 0) + 90, st.yaw or 0, 0)
+      if not light then
+        light = PhysicsObj.CreateObj(id, "SpotLight", pos, ang, false)
+        light.LightConeInner00 = 12
+        light.LightConeOuter00 = 30
+        light.LightRange00 = 1500
+        light.LightIntens00 = 0.5
+        light.LightColor00 = V4D(255, 245, 225, 255)
+        -- The cone needs the projector: the flashlight's own texture (lights.ini Light20,
+        -- or SMOD's FPSFlashLightTexture).
+        light.bLightProjEnable00 = true
+        light.ProjID00 = tonumber(Game.Get("FPSFlashLightTexture")) or 20
+        light.bLightOverShoot00 = true
+        light.LightAttStart00 = 0
+        light.LightDotAtt00 = 0.5
+        light.LightDirVector00 = V4D(0, 0, 0, 0)
+        light.bLightShadow00 = (tonumber(Game.Get("FPSFlashLightShadows")) or 0) ~= 0
+        light.LightShadowMapBias00 = 1
+        light.LightQualityDist00 = 2000
+        light.bLightSectorEnable00 = true
+        Coop.log("flashlight of " .. name .. " on")
+      else
+        light.Pos = pos
+        light.Ang = ang
+      end
+    elseif light then
+      light:Del()
+      Coop.log("flashlight of " .. name .. " off")
+    end
+  end
+end
+
 ------------------------------------------------------------------------------
 -- Messages
 ------------------------------------------------------------------------------
@@ -357,8 +411,23 @@ function Coop.onMessage(peer, data)
       x = tonumber(f[3]), y = tonumber(f[4]), z = tonumber(f[5]),
       yaw = tonumber(f[6]), pitch = tonumber(f[7]),
       walk = tonumber(f[8]), str = tonumber(f[9]), sprint = tonumber(f[10]),
-      life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, raw = data, t = Net.CoopTime(),
+      life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
+      raw = data, t = Net.CoopTime(),
     }
+  elseif kind == "jump" then
+    -- Another player jumped (SMOD's jump, coop_smod.lua): the same push for their body here.
+    local name = f[2]
+    if Coop.isHost() then
+      if Coop.owners[name] ~= peer then return end
+      Net.CoopSend(-1, 1, data)
+    end
+    local e = Game.GetEntity(name)
+    local vy = tonumber(f[3])
+    if e and vy and Coop.isPuppet(name) and e.Life > 0 and e.Vel then
+      local v = e.Vel
+      e.Vel = V3D(v.x, vy, v.z)
+      Coop.lastJump = {name = name, y = e.Pos.y, peak = e.Pos.y, frame = Coop.frame}
+    end
   elseif kind == "hello" and Coop.isHost() then
     local pick = Coop.assign(peer, f[2])
     -- Without the lobby (late join, tests) the host builds the seat list here.
@@ -649,7 +718,14 @@ end
 
 function Coop.frameUpdate(now, dt)
   if Coop.devFrame then pcall(Coop.devFrame, dt) end
-  if Coop.inSession() then Coop.drivePuppets(dt) end
+  if Coop.inSession() then
+    Coop.drivePuppets(dt)
+    local ok, err = pcall(Coop.puppetLights)
+    if not ok and (Coop.lightErrors or 0) < 5 then
+      Coop.lightErrors = (Coop.lightErrors or 0) + 1
+      Coop.log("puppet light error: " .. tostring(err))
+    end
+  end
   if CoopHud and Coop.inSession() then
     local ok, err = pcall(CoopHud.update)
     if not ok and (Coop.hudErrors or 0) < 5 then

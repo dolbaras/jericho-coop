@@ -899,3 +899,101 @@ if cfg.fpsprobe and Coop.level ~= "levels/menu" then
   end
 end
 
+
+-- 'smodtest' (any machine, in a level): SMOD in a session. From tick cfg.smodtest: log the
+-- rules in force; jump (SMOD's _G.Jump) every 80 ticks four times; switch the flashlight on
+-- at +400 and off at +700; with cfg.regentest, halve the body's health at +100 and log it
+-- at +400 (no regeneration with ironman).
+if cfg.smodtest and Coop.level ~= "levels/menu" then
+  local prevSm = Coop.dev
+  function Coop.dev()
+    if prevSm then prevSm() end
+    local t = Coop.frame - cfg.smodtest
+    local usr = Game.UsrEntity(0)
+    if t < 0 or not usr then return end
+    if t == 0 then
+      local cls = usr.oActCtrl and usr.oActCtrl.oActClass
+      Coop.log(string.format("smodtest: rules=%s dmgmult=%s life=%s/%s regen=%s,%s,%s",
+        tostring(CoopSmod and CoopSmod.rules() and CoopSmod.encode(CoopSmod.rules()) or "game"),
+        tostring(Weapons and Weapons.DamageMultiplier), tostring(usr.Life), tostring(cls and cls.Life),
+        tostring(cls and cls.RegenStepEasy), tostring(cls and cls.RegenStep), tostring(cls and cls.RegenStepHard)))
+    end
+    if t > 0 and t <= 320 and t % 80 == 0 and type(_G.Jump) == "function" then
+      pcall(_G.Jump)
+      Coop.log(string.format("smodtest: jump, vel.y %.0f", usr.Vel and usr.Vel.y or 0))
+    end
+    if (t == 400 or t == 700) and Soldier and Soldier.FlashlightPress then
+      pcall(Soldier.FlashlightPress, usr.Name)
+      Coop.log("smodtest: flashlight " .. tostring(Game.Get("FPSFlashLightTimeOn")))
+    end
+    -- Another player's jump seen here: how high their body went within 1.5 s.
+    local j = Coop.lastJump
+    if j then
+      local pe = Game.GetEntity(j.name)
+      if pe then j.peak = math.max(j.peak, pe.Pos.y) end
+      if Coop.frame - j.frame >= 22 then
+        Coop.log(string.format("smodtest: %s jumped here, rose %.0f", j.name, j.peak - j.y))
+        Coop.lastJump = nil
+      end
+    end
+    if cfg.regentest and t == 100 then
+      usr.Life = usr.Life * 0.5
+      Coop.log("smodtest: life halved to " .. tostring(usr.Life))
+    elseif cfg.regentest and t == 400 then
+      Coop.log("smodtest: life after 300 ticks " .. tostring(usr.Life))
+    end
+  end
+end
+
+-- 'smodset' (menu): this machine's SMOD settings for a test, e.g. smodset={IRONMAN=true}
+-- (autoexec.lua's own values otherwise); set again before the lobby reads them.
+if cfg.smodset and Coop.level == "levels/menu" then
+  local prevSet = Coop.dev
+  function Coop.dev()
+    if prevSet then prevSet() end
+    if Coop.frame % 50 == 1 then
+      for k, v in pairs(cfg.smodset) do _G[k] = v end
+    end
+  end
+end
+
+-- 'lighttest' (single game, in a level): a spot light from the player's body along the view,
+-- one variant per 60 ticks from tick cfg.lighttest (how the engine takes cone, angle and
+-- projector, for the other players' flashlight beams).
+if cfg.lighttest and Coop.level ~= "levels/menu" then
+  local VARIANTS = {
+    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = -90, intens = 3},
+    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = 90, intens = 3},
+    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = -45, intens = 3},
+    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = 0, intens = 3},
+    {proj = true, id = 20, inner = 20, outer = 45, pitch = 30, yaw = 0, intens = 3},
+  }
+  local prevLt = Coop.dev
+  function Coop.dev()
+    if prevLt then prevLt() end
+    local t = Coop.frame - cfg.lighttest
+    local usr = Game.UsrEntity(0)
+    if t < 0 or not usr then return end
+    local k = math.floor(t / 60) + 1
+    local old = Game.GetEntity("CoopLightTest")
+    if t % 60 == 0 then
+      if old then old:Del() end
+      local v = VARIANTS[k]
+      if not v then return end
+      local va = usr.ViewAng
+      local l = PhysicsObj.CreateObj("CoopLightTest", "SpotLight", usr.Pos + V3D(0, 150, 0),
+        V3D(va.x + v.pitch, va.y + (v.yaw or 0), 0), false)
+      l.LightConeInner00, l.LightConeOuter00 = v.inner, v.outer
+      l.LightRange00, l.LightIntens00 = 1500, v.intens
+      l.LightColor00 = V4D(255, 245, 225, 255)
+      l.bLightOverShoot00, l.LightAttStart00, l.LightDotAtt00 = true, 0, 0.5
+      l.LightDirVector00 = V4D(0, 0, 0, 0)
+      l.bLightShadow00, l.LightShadowMapBias00 = true, 1
+      l.LightQualityDist00, l.bLightSectorEnable00 = 2000, true
+      l.bLightProjEnable00 = v.proj
+      if v.id then l.ProjID00 = v.id end
+      Coop.log(string.format("lighttest: variant %d proj=%s id=%s cone=%d/%d pitch%+d yaw%+d intens=%.1f view=%.0f,%.0f",
+        k, tostring(v.proj), tostring(v.id), v.inner, v.outer, v.pitch, v.yaw or 0, v.intens, va.x, va.y))
+    end
+  end
+end
