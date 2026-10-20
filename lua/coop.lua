@@ -335,15 +335,15 @@ function Coop.drivePuppets(dt)
 end
 
 -- Other players' flashlights: the game has one camera-bound flashlight (the local player's),
--- so another player's beam is a spot light at their body's weapon (the kind SMOD lights
--- gunfire with), turned with their view; there while their flashlight is on.
--- Experimental, off (cfg.puppetlights): without the flashlight projector the light floods
--- the whole room; with it the spot lands where the Ang does not say (yaw -45 left, 0 and
--- -90 right of the view) and a deleted light kept shining (dev.lua 'lighttest', 2026-10-20).
+-- so another player's beam is a spot light at their body's weapon, aimed with their view.
+-- How a SpotLight takes its settings (dev.lua 'lighttest', 2026-10-20): Ang (0,0,0) points
+-- down, (90 + view pitch, yaw, 0) along the view (pitch up is positive); the cone works only
+-- with a projector texture (else it lights all around); bLightOverShoot adds a second spot
+-- the opposite way; Del takes effect on the next frame.
 Coop.FLASH_NODE = "NodePosHierarchy_DF_Burst_A"
 
 function Coop.puppetLights()
-  if not cfg.puppetlights then return end
+  if cfg.puppetlights == false then return end
   local scene = Scene and Scene.IsPlaying
   for _, name in ipairs(Coop.SQUAD) do
     local id = "CoopFlash" .. name
@@ -356,16 +356,16 @@ function Coop.puppetLights()
       local ang = V3D((st.pitch or 0) + 90, st.yaw or 0, 0)
       if not light then
         light = PhysicsObj.CreateObj(id, "SpotLight", pos, ang, false)
-        light.LightConeInner00 = 12
-        light.LightConeOuter00 = 30
-        light.LightRange00 = 1500
-        light.LightIntens00 = 0.5
+        light.LightConeInner00 = 15
+        light.LightConeOuter00 = 32
+        light.LightRange00 = 1400
+        light.LightIntens00 = 1
         light.LightColor00 = V4D(255, 245, 225, 255)
-        -- The cone needs the projector: the flashlight's own texture (lights.ini Light20,
-        -- or SMOD's FPSFlashLightTexture).
+        -- The flashlight's own texture (lights.ini Light20; SMOD sets FPSFlashLightTexture).
         light.bLightProjEnable00 = true
-        light.ProjID00 = tonumber(Game.Get("FPSFlashLightTexture")) or 20
-        light.bLightOverShoot00 = true
+        local tex = tonumber(Game.Get("FPSFlashLightTexture"))
+        light.ProjID00 = (tex and tex > 0) and tex or 20
+        light.bLightOverShoot00 = false
         light.LightAttStart00 = 0
         light.LightDotAtt00 = 0.5
         light.LightDirVector00 = V4D(0, 0, 0, 0)

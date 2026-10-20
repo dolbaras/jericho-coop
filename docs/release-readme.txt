@@ -72,6 +72,8 @@ the players who have it with [SMOD].
   cheat/debug menus (they would stop the world for everyone or act on one machine only).
 - Each player's own: FOV, lights, flashlight look, crosshair, recoil, the health counter.
 - The others see your SMOD jump (even without SMOD).
+- Every player's flashlight shows on the other screens as a beam from their weapon (with or
+  without SMOD).
 SMOD's own texts follow the game language.
 
 Split screen (experimental)
@@ -161,6 +163,7 @@ SMOD
   читов/отладки (они остановили бы мир для всех или действовали бы только на одной машине).
 - У каждого своё: FOV, свет, вид фонаря, прицел, отдача, счётчик здоровья.
 - Ваш прыжок SMOD видят остальные (даже без SMOD).
+- Фонарь каждого игрока виден на экранах остальных как луч от его оружия (со SMOD и без).
 Надписи SMOD показываются на языке игры.
 
 Сплитскрин (экспериментально)

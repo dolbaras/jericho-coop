@@ -70,6 +70,8 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   squad health, ironman, checkpoint heal) on every machine, else by the game's own rules;
   SMOD's jump is replicated (`jump|`), its pause, time scale, squad-menu slow motion and
   cheat/debug menus stay off in a session, and its menu texts follow the game language.
+- Other players' flashlights: a spot light from their weapon, aimed with their view
+  (`Coop.puppetLights`).
 - Split screen (experimental): `Co-op split screen.bat` starts two copies of the game side
   by side (or one above the other), each with its own gamepad; the second one joins the
   first one's lobby by itself.

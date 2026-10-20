@@ -232,8 +232,8 @@ if cfg.exp == "time" and Coop.level ~= "levels/menu" then
   end
 end
 
--- 'pitch': calibrate head-bone pitch against the view: look down, level, up and log the
--- head forward axis and the main camera's angles.
+-- 'pitch': calibrate head-bone pitch against the view: ViewAng.x 30, 0, -30 (positive looks
+-- up, the lighttest of 2026-10-20 showed) and log the head forward axis and camera angles.
 if cfg.exp == "pitch" and Coop.level ~= "levels/menu" then
   function Coop.dev()
     local usr = Game.UsrEntity(0)
@@ -969,6 +969,17 @@ if cfg.smodtest and Coop.level ~= "levels/menu" then
       pcall(_G.Jump)
       Coop.log(string.format("smodtest: jump, vel.y %.0f", usr.Vel and usr.Vel.y or 0))
     end
+    -- While the flashlight is on: look around (the others' beam has to follow).
+    if t > 420 and t < 690 then
+      usr.IgnoreUsrControl = 1
+      local w = (t - 420) / 270 * 2 * math.pi
+      usr.ViewAng = V3D(12 * math.sin(2 * w), (Coop.devYaw0 or usr.ViewAng.y) + 35 * math.sin(w), 0)
+      usr.Ang = V3D(0, usr.ViewAng.y, 0)
+    elseif t == 420 then
+      Coop.devYaw0 = usr.ViewAng.y
+    elseif t == 690 then
+      usr.IgnoreUsrControl = 0
+    end
     if (t == 400 or t == 700) and Soldier and Soldier.FlashlightPress then
       pcall(Soldier.FlashlightPress, usr.Name)
       Coop.log("smodtest: flashlight " .. tostring(Game.Get("FPSFlashLightTimeOn")))
@@ -1004,43 +1015,47 @@ if cfg.smodset and Coop.level == "levels/menu" then
   end
 end
 
--- 'lighttest' (single game, in a level): a spot light from the player's body along the view,
--- one variant per 60 ticks from tick cfg.lighttest (how the engine takes cone, angle and
--- projector, for the other players' flashlight beams).
+-- 'lighttest' (single game, in a level): how a SpotLight's Ang turns it. A light 300 units
+-- ahead of the player (towards cfg.lightto, default Black), 150 up, one Ang per 60 ticks from
+-- tick cfg.lighttest; the last step deletes it (does Del switch it off?).
 if cfg.lighttest and Coop.level ~= "levels/menu" then
-  local VARIANTS = {
-    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = -90, intens = 3},
-    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = 90, intens = 3},
-    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = -45, intens = 3},
-    {proj = true, id = 20, inner = 20, outer = 45, pitch = 0, yaw = 0, intens = 3},
-    {proj = true, id = 20, inner = 20, outer = 45, pitch = 30, yaw = 0, intens = 3},
-  }
+  local ANGS = cfg.lightangs or {{0, 0, 0}, {0, 90, 0}, {0, 180, 0}, {0, 270, 0}, {45, 0, 0}, {-45, 0, 0}, {0, 0, 45}, {0, 0, -45}}
   local prevLt = Coop.dev
   function Coop.dev()
     if prevLt then prevLt() end
     local t = Coop.frame - cfg.lighttest
     local usr = Game.UsrEntity(0)
-    if t < 0 or not usr then return end
-    local k = math.floor(t / 60) + 1
-    local old = Game.GetEntity("CoopLightTest")
-    if t % 60 == 0 then
-      if old then old:Del() end
-      local v = VARIANTS[k]
-      if not v then return end
-      local va = usr.ViewAng
-      local l = PhysicsObj.CreateObj("CoopLightTest", "SpotLight", usr.Pos + V3D(0, 150, 0),
-        V3D(va.x + v.pitch, va.y + (v.yaw or 0), 0), false)
-      l.LightConeInner00, l.LightConeOuter00 = v.inner, v.outer
-      l.LightRange00, l.LightIntens00 = 1500, v.intens
-      l.LightColor00 = V4D(255, 245, 225, 255)
-      l.bLightOverShoot00, l.LightAttStart00, l.LightDotAtt00 = true, 0, 0.5
-      l.LightDirVector00 = V4D(0, 0, 0, 0)
-      l.bLightShadow00, l.LightShadowMapBias00 = true, 1
-      l.LightQualityDist00, l.bLightSectorEnable00 = 2000, true
-      l.bLightProjEnable00 = v.proj
-      if v.id then l.ProjID00 = v.id end
-      Coop.log(string.format("lighttest: variant %d proj=%s id=%s cone=%d/%d pitch%+d yaw%+d intens=%.1f view=%.0f,%.0f",
-        k, tostring(v.proj), tostring(v.id), v.inner, v.outer, v.pitch, v.yaw or 0, v.intens, va.x, va.y))
+    if t < 0 or not usr or t % 60 ~= 0 then return end
+    local k = t / 60 + 1
+    local old = Game.GetEntity("CoopLightTest" .. (k - 1))
+    if old then old:Del() end
+    local a = ANGS[k]
+    if not a then
+      Coop.log("lighttest: deleted, exists after Del: " .. tostring(Game.GetEntity("CoopLightTest" .. (k - 1)) ~= nil))
+      return
     end
+    local to = Game.GetEntity(cfg.lightto or "Black")
+    local d = to and (to.Pos - usr.Pos) or V3D(0, 0, 1)
+    local len = math.sqrt(d.x * d.x + d.z * d.z)
+    local pos = usr.Pos + V3D(d.x / len * 300, 150, d.z / len * 300)
+    local ang = V3D(a[1], a[2], a[3])
+    if cfg.lightrel then
+      -- From the camera, relative to the view: Ang = (90 + a1, view yaw + a2, a3).
+      local cam = Game.GetEntity(Game.GetCam(0))
+      pos = cam and cam.camPos or (usr.Pos + V3D(0, 170, 0))
+      -- a[4]: hold the view at that pitch (positive looks down) and aim the beam with it.
+      if a[4] then usr.IgnoreUsrControl = 1; usr.ViewAng = V3D(a[4], usr.ViewAng.y, 0) end
+      ang = V3D(90 - (a[4] or 0) + a[1], usr.ViewAng.y + a[2], a[3])
+    end
+    local l = PhysicsObj.CreateObj("CoopLightTest" .. k, "SpotLight", pos, ang, false)
+    l.LightConeOuter00, l.LightConeInner00, l.LightRange00, l.LightIntens00 = 40, 20, 1200, 3
+    l.LightColor00 = V4D(255, 200, 120, 255)
+    l.bLightOverShoot00, l.LightAttStart00, l.LightDotAtt00 = cfg.lightover == true, 0, 0.5
+    l.bLightShadow00, l.LightShadowMapBias00, l.bLightSectorEnable00 = true, 1, true
+    l.bLightEnable00 = true
+    l.bLightProjEnable00, l.ProjID00 = true, cfg.lightproj or 20
+    l.LightIntens00 = 1.5
+    Coop.log(string.format("lighttest: %d Ang=%d,%d,%d at %s (player %s, towards %.0f,%.0f) view=%.0f,%.0f",
+      k, a[1], a[2], a[3], Coop.v3(pos), Coop.v3(usr.Pos), d.x / len, d.z / len, usr.ViewAng.x, usr.ViewAng.y))
   end
 end
