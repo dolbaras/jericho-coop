@@ -3,8 +3,9 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: first test release (0.1.0, see Releases): download the zip, extract it into the game
-folder, and read `README-COOP.txt` inside (Russian and English). QA level: automated tests with
+Status: test release (0.1.1, see Releases): download the zip, extract it anywhere and run
+`Install Co-op.bat` (it finds the game, backs up what it replaces and can uninstall); details
+in `README-COOP.txt` inside (English and Russian). QA level: automated tests with
 two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
 campaign runs through level by level in a test and every in-engine cutscene is compared with
 the original frame by frame; a full human playthrough is what this release is for. Please
@@ -16,8 +17,9 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 ### What works (each checked in a test run)
 
 - Main menu "Co-op" entry: host, join by IP or from the list of games on the local network,
-  lobby with character (with the game's own portrait), nickname, ready and chapter; all
-  players load the level together. Menu text follows the game language (Russian, English).
+  lobby with character, nickname, ready and chapter, session settings on their own screen;
+  all players load the level together. Menu text follows the game language (Russian or
+  English for every other language) and is laid out to fit 4:3 and widescreen.
 - Each player controls one squad member; the others stay AI. Players see each other move,
   aim and shoot, with nameplates (can be turned off).
 - Enemies are run by the host and mirrored on clients; hits from clients reach the host,
@@ -33,7 +35,9 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   player's own character was tried (head camera, full-body copy of the first-person
   character with its retargeted scene motion) and checked scene by scene from two seats:
   without collision in the scene sets and with speakers turned to the scene's owner, it
-  never framed a scene as well as the original, so it stays an experiment (`povall=true`).
+  never framed a scene as well as the original, so it stays an experiment: the session
+  setting "Cutscenes: own eyes (experimental)" (`povall`; its animations are built by the
+  installer from the player's game files with Python 3).
 - An AI character that does a first-person traversal (climb, descent, door) ends up where
   the scene ends, as the player's character does in the original.
 - QTEs: only the player holding the scene's character sees and plays them; the branch they
@@ -56,9 +60,20 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   to `Documents\Codemasters\Clive Barker's Jericho\Coop`; "Continue" and the unlocked
   chapters in the host menu; the single-player profile is never written during a session.
   Clients load the host's exact state on every restart and checkpoint.
-- Lobby difficulty (vanilla Easy/Normal/Hard) and enemy toughness per player
-  (off / light +15% / full +30% health per extra player); Act 1: the host plays Ross, from
-  WWII on the host takes their lobby character (Delgado by default, as in the story).
+- Session settings (host): difficulty (vanilla Easy/Normal/Hard), enemy toughness per
+  player (off / light +15% / full +30% health per extra player), who does character-only
+  actions, automatic QTEs (as in the game / automatic for everyone), how much damage AI
+  squadmates take (as in the game / 60% / 30%). Act 1: the host plays Ross,
+  from WWII on the host takes their lobby character (Delgado by default, as in the story).
+- SMOD (SkacikPL's pack) is detected and supported: in a session everyone plays by the
+  game's own rules (its damage/health multipliers, ironman, checkpoint heal, squad-menu
+  slow motion, pause and cheat/debug menus are off), its looks and jump stay, and its menu
+  texts follow the game language.
+- Split screen (experimental): `Co-op split screen.bat` starts two copies of the game side
+  by side (or one above the other), each with its own gamepad; the second one joins the
+  first one's lobby by itself.
+- Installer: finds the game (its folder, registry, GOG, Steam libraries or asks), keeps the
+  files it replaces in `coop-backup`, updates over an older version and uninstalls.
 
 ### Not done yet
 
@@ -87,6 +102,7 @@ player (`docs/usrentity-audit.md`) as playtesting finds them.
   - `coop_story.lua`, `coop_splits.lua`: story steps for several players, the story splits
   - `coop_inst.lua`, `coop_patrol.lua`: side instances in one session, the Lost Patrol
   - `coop_hud.lua`: nameplates
+  - `coop_smod.lua`: SMOD detection, vanilla rules in a session, SMOD texts in Russian
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
 - `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research.
 
@@ -103,7 +119,8 @@ powershell tools/install.ps1 -Game <game dir>
 Lua files to `<game dir>\coop\`. Then start the game normally: the main menu has a
 "Co-op" entry. `-Anims` also builds `Pack1.packed` from the game's own archives (needs
 Python 3): retargeted scene animations, used only by the experimental own-character
-cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\`.
+cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\`
+(players' installer: `tools/installer.ps1`; split screen launcher: `tools/splitscreen.ps1`).
 
 ## Tests
 

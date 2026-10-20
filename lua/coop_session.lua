@@ -45,6 +45,14 @@ function CS.installMenu()
     end
     return origVertical(title, options, ...)
   end
+  -- The world goes on while the menu is open, so no "Paused" label (Menu.StartNewMenu draws
+  -- it when InitMenuSys sets UsePauseMessage).
+  local origInitSys = Menu.InitMenuSys
+  Menu.InitMenuSys = function(...)
+    local r = {origInitSys(...)}
+    if Coop.inSession() then Menu.UsePauseMessage = false end
+    return unpack(r)
+  end
   -- Back to title: no profile save in a session (coop_save.lua), and on a client the level
   -- change must get past the client guards (level changes are otherwise the host's).
   local origBack = Menu.BackTitle

@@ -293,6 +293,12 @@ if cfg.exp == "trigger" and (Coop.isHost() or cfg.role == "solo") and Coop.level
   end
 end
 
+-- 'gamelang': switch the game's own texts in the menu (e.g. 'German'), as the language screen
+-- does; with lang='en' this shows the English mod next to Latin-script game strings.
+if cfg.gamelang and Coop.level == "levels/menu" then
+  Game.SetLanguage(cfg.gamelang)
+end
+
 -- 'menutest': open co-op menu screens by script for screenshots (no input needed).
 --   root: Co-op menu; host: host setup; lobby: create a session and show the lobby;
 --   join: join screen. The main menu is shown first for MENU_WAIT network ticks.
@@ -322,6 +328,12 @@ if cfg.menutest and Coop.level == "levels/menu" then
         CoopMenu.JoinSetup()
         CoopMenu.Connect()
       end
+    end
+    -- 'menufocus': move the focus over the first N items, 40 ticks each (the focused item
+    -- is drawn wider: every line has to fit while it has the focus).
+    if cfg.menufocus and Coop.frame > MENU_WAIT and (Coop.frame - MENU_WAIT) % 40 == 0 then
+      local i = (Coop.frame - MENU_WAIT) / 40 % cfg.menufocus + 1
+      if Scorer.GetItem(0, "Itm" .. i) then Scorer.SetDefault(0, "Itm" .. i); Coop.log("menufocus Itm" .. i) end
     end
     if cfg.menutest == "flowjoin" and Coop.frame > MENU_WAIT and cfg.myId and CoopMenu.screen == "lobby" then
       local me = CoopMenu.seatOf(CoopMenu.myPeer())

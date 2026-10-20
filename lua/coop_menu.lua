@@ -41,39 +41,41 @@ CoopMenu.TEXT = {
   en = {
     coop = "Co-op", title_root = "CO-OP", host = "Host game", join = "Join game",
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
-    title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host address (IP), then Connect",
+    title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host IP, then Connect",
     title_lobby = "CO-OP LOBBY", character = "Character", ready = "Ready", yes = "YES", no = "no",
     start = "Start", start_wait = "Start (waiting)", close = "Close session",
     leave = "Leave", connecting = "Connecting to", host_name = "Host", player = "Player",
     you = "(you)", is_ready = "READY", port_fail = "Could not open port", host_left = "Host closed the session",
     nick = "Nickname", tags = "Names above players", on = "on", off = "off",
-    act = "Special actions", act_players = "players, AI after 30 s", act_humans = "players only",
+    act = "Special actions", act_players = "players, then AI", act_humans = "players only",
     act_ai = "AI at once", lan = "Games on the local network:", lan_none = "(searching...)",
     continue = "Continue", continue_from = "Continue from",
-    scaling = "Enemy toughness", scale_off = "as in single player", scale_light = "+15% per player",
+    scaling = "Enemy toughness", scale_off = "as in the game", scale_light = "+15% per player",
     scale_full = "+30% per player", settings = "Session settings...", title_settings = "SESSION SETTINGS",
     qte = "QTE", qte_normal = "as in the game", qte_auto = "automatic",
-    aisquad = "AI squadmates", ai_normal = "as in the game", ai_tough = "tougher (60% damage)",
-    ai_very = "much tougher (30% damage)",
+    aisquad = "AI squadmates", ai_normal = "as in the game", ai_tough = "take 60% damage",
+    ai_very = "take 30% damage",
+    cutscenes = "Cutscenes", pov_off = "original camera", pov_on = "own eyes (experimental)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
     join = "Присоединиться", title_host = "СОЗДАТЬ ИГРУ", chapter = "Глава",
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
-    join_hint = "Адрес хоста (IP), затем Подключиться", title_lobby = "ЛОББИ",
+    join_hint = "IP хоста, затем Подключиться", title_lobby = "ЛОББИ",
     character = "Персонаж", ready = "Готов", yes = "ДА", no = "нет", start = "Начать",
     start_wait = "Начать (ждём)", close = "Закрыть сессию", leave = "Выйти",
     connecting = "Подключение к", host_name = "Хост", player = "Игрок", you = "(вы)",
     is_ready = "ГОТОВ", port_fail = "Не удалось открыть порт", host_left = "Хост закрыл сессию",
     nick = "Ник", tags = "Имена над игроками", on = "вкл", off = "выкл",
-    act = "Спец. действия", act_players = "игроки, ИИ через 30 с", act_humans = "только игроки",
+    act = "Спец. действия", act_players = "игроки, затем ИИ", act_humans = "только игроки",
     act_ai = "сразу ИИ", lan = "Игры в локальной сети:", lan_none = "(поиск...)",
     continue = "Продолжить", continue_from = "Продолжение",
-    scaling = "Живучесть врагов", scale_off = "как в одиночной игре", scale_light = "+15% за игрока",
+    scaling = "Живучесть врагов", scale_off = "как в игре", scale_light = "+15% за игрока",
     scale_full = "+30% за игрока", settings = "Настройки сессии...", title_settings = "НАСТРОЙКИ СЕССИИ",
     qte = "QTE", qte_normal = "как в игре", qte_auto = "автоматически",
-    aisquad = "Союзники ИИ", ai_normal = "как в игре", ai_tough = "крепче (60% урона)",
-    ai_very = "намного крепче (30%)",
+    aisquad = "Союзники ИИ", ai_normal = "как в игре", ai_tough = "60% урона",
+    ai_very = "30% урона",
+    cutscenes = "Катсцены", pov_off = "камера оригинала", pov_on = "своими глазами (эксп.)",
   },
 }
 
@@ -340,7 +342,7 @@ function CoopMenu.JoinSetup()
   CoopMenu.lanNext = 0
   local it = item("Itm1")
   it.MaxInput = 21
-  Coop.textBlock("CoopHint", T("join_hint"), {y = 130, font = Menu.SmallFont, color = Menu.ItemColor, width = 480})
+  Coop.textBlock("CoopHint", T("join_hint"), {y = 130, font = Menu.SmallFont, color = Menu.ItemColor, width = 600})
 end
 
 function CoopMenu.refreshLan()
@@ -477,6 +479,9 @@ function CoopMenu.Settings()
     -- the AI squadmates take (coop_enemies.lua): the host's choice, the same for all.
     {"", "CoopMenu.CycleQTE"},
     {"", "CoopMenu.CycleAISquad"},
+    -- First-person scenes from each player's own character instead of the original camera
+    -- (coop_scenes.lua S.povAllowed): an experiment, off by default.
+    {"", "CoopMenu.TogglePov"},
     {Menu.GetBackText(), "CoopMenu.Lobby"},
   }, "CoopMenu.Lobby", nil, 160, 35)
   CoopMenu.refreshLobby()
@@ -490,6 +495,7 @@ function CoopMenu.refreshLobby()
     setText(item("Itm3"), T("scaling") .. ": " .. T("scale_" .. (cfg.scaling or "light")))
     setText(item("Itm4"), T("qte") .. ": " .. T("qte_" .. (cfg.qte or "normal")))
     setText(item("Itm5"), T("aisquad") .. ": " .. T("ai_" .. (cfg.aisquad or "normal")))
+    setText(item("Itm6"), T("cutscenes") .. ": " .. T(cfg.povall and "pov_on" or "pov_off"))
     return
   end
   CoopMenu.layoutRows()
@@ -637,6 +643,11 @@ function CoopMenu.CycleAISquad()
   CoopMenu.refreshLobby()
 end
 
+function CoopMenu.TogglePov()
+  cfg.povall = not cfg.povall or nil
+  CoopMenu.refreshLobby()
+end
+
 function CoopMenu.CycleActMode()
   local cur = cfg.actmode or "players"
   for i, m in ipairs(CoopMenu.ACT_MODES) do
@@ -703,7 +714,7 @@ function CoopMenu.Start()
   cfg.scaling = cfg.scaling or "light"
   cfg.qte, cfg.aisquad = cfg.qte or "normal", cfg.aisquad or "normal"
   Net.CoopSend(-1, 1, "start|" .. level .. "|" .. seats .. "|" .. cfg.skill .. "|" .. cfg.scaling .. "|" ..
-               cfg.qte .. "|" .. cfg.aisquad)
+               cfg.qte .. "|" .. cfg.aisquad .. "|" .. (cfg.povall and "own" or "orig"))
   CoopMenu.launch(level, seats)
 end
 
@@ -798,10 +809,11 @@ function CoopMenu.onMessage(peer, f)
     cfg.continuing = f[4] == "1" or nil
     return true
   elseif kind == "start" and Coop.isClient() then
-    Coop.log("lobby: host started " .. f[2])
+    Coop.log("lobby: host started " .. f[2] .. " (" .. table.concat(f, " ", 4) .. ")")
     cfg.skill = tonumber(f[4]) or cfg.skill
     cfg.scaling = f[5] or cfg.scaling
     cfg.qte, cfg.aisquad = f[6] or cfg.qte, f[7] or cfg.aisquad
+    cfg.povall = f[8] == "own" or nil
     CoopMenu.launch(f[2], f[3])
     return true
   elseif kind == "welcome" and Coop.isClient() and f[3] == "Menu" then

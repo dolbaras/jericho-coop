@@ -17,6 +17,9 @@ Copy-Item $dll (Join-Path $files "bin")
 Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $files "coop")
 Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encoding ASCII
+# The animation builder the installer runs for the experimental "own eyes" cutscene view.
+New-Item -ItemType Directory -Force (Join-Path $files "coop\anims") | Out-Null
+Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot "bfpk.py"), (Join-Path $PSScriptRoot "m3d.py") (Join-Path $files "coop\anims")
 # Split screen launcher (experimental): double-click the .bat in the game folder.
 Copy-Item (Join-Path $root "tools\splitscreen.ps1") (Join-Path $files "coop-splitscreen.ps1")
 Set-Content -Path (Join-Path $files "Co-op split screen.bat") -Encoding ASCII `

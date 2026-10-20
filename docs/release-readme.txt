@@ -31,7 +31,7 @@ Play
 - Host: Co-op -> Host game -> pick a chapter (or Continue) -> Create session. In the lobby
   everyone picks a character and a nickname and presses Ready; the host presses Start.
   Session settings (host): difficulty, enemy toughness, who does character-only actions,
-  automatic QTEs, how much damage the AI squadmates take.
+  automatic QTEs, how much damage the AI squadmates take, and the cutscene view (below).
 - Others: Co-op -> Join game -> pick a game from the local network list or type the host's
   IP -> Connect.
 - Network: UDP 28100 (game) and UDP 28199 (finding games on the local network). Allow the game
@@ -45,6 +45,12 @@ How it works
 - Everyone sees the cutscenes at the same time, with the original camera; a scene seen through
   another character's eyes is captioned "Through X's eyes". A scene is skipped only when every
   player pressed Esc.
+- Cutscene view (session setting): "original camera" (default) or "own eyes (experimental)":
+  each player watches a first-person scene from their own character, with the scene's
+  character shown as a full model. This view is a work in progress: the scene sets were
+  made for one camera, so expect odd angles, see-through walls and people looking past you.
+  Its animations are built by the installer from your game files and need Python 3
+  (python.org); without Python the view works, but the scene's character is not shown.
 - QTEs are seen and played only by the player of the scene's character (or pass by themselves
   if the host turned on automatic QTEs).
 - Character-only actions: the players are offered to take that character; if nobody does
@@ -107,7 +113,7 @@ previous run; split screen window 2: coop-window2.log).
 - Хост: «Совместная игра» -> «Создать игру» -> выбрать главу (или «Продолжить») ->
   «Создать сессию». В лобби каждый выбирает персонажа и ник и нажимает «Готов», хост — «Начать».
   «Настройки сессии» (хост): сложность, живучесть врагов, кто делает действия персонажей,
-  автоматические QTE, сколько урона получают союзники ИИ.
+  автоматические QTE, сколько урона получают союзники ИИ и вид катсцен (ниже).
 - Остальные: «Совместная игра» -> «Присоединиться» -> выбрать игру из списка «Игры в
   локальной сети» или ввести IP хоста -> «Подключиться».
 - Сеть: порты UDP 28100 (игра) и UDP 28199 (поиск игр в локальной сети). Разрешите игре доступ
@@ -121,6 +127,12 @@ previous run; split screen window 2: coop-window2.log).
 - Катсцены видят все одновременно, оригинальной камерой; если сцена показана глазами
   другого персонажа, вверху подпись «Вид глазами: …». Пропуск сцены — только когда Esc
   нажали все игроки.
+- Вид катсцен (настройка сессии): «камера оригинала» (по умолчанию) или «своими глазами
+  (эксп.)»: каждый игрок смотрит сцену от первого лица из глаз своего персонажа, а персонаж
+  сцены показан полной моделью. Режим в разработке: декорации сцен сделаны под одну камеру,
+  поэтому возможны странные ракурсы, видимые насквозь стены и взгляды мимо вас. Анимации для
+  него установщик собирает из файлов вашей игры, нужен Python 3 (python.org); без Python режим
+  работает, но персонаж сцены не виден.
 - QTE видит и проходит только тот, кто играет за персонажа сцены (или они проходят сами,
   если хост включил автоматические QTE).
 - Действия, которые может сделать только определённый персонаж: игрокам предлагают взять
