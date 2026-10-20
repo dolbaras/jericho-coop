@@ -112,11 +112,34 @@ function Find-Python {
     $null
 }
 
+# Zeros after the last record of an archive up to where its index sizes reach: the game reads
+# that far, and a Pack1 built before 0.2 ended short ("File access error, retry?" in a scene).
+function Fix-PackEnd($pack) {
+    $need = 0
+    $f = [System.IO.File]::OpenRead($pack)
+    try {
+        $r = New-Object System.IO.BinaryReader($f)
+        $null = $r.ReadBytes(8)
+        $count = $r.ReadUInt32()
+        for ($i = 0; $i -lt $count; $i++) {
+            $n = $r.ReadUInt32()
+            $null = $r.ReadBytes($n)
+            $size = $r.ReadUInt32(); $off = $r.ReadUInt32()
+            if ($off + $size -gt $need) { $need = $off + $size }
+        }
+        $len = $f.Length
+    } finally { $f.Close() }
+    if ($need -gt $len) {
+        $a = [System.IO.File]::Open($pack, [System.IO.FileMode]::Append)
+        try { $a.Write((New-Object byte[] ($need - $len)), 0, [int]($need - $len)) } finally { $a.Close() }
+    }
+}
+
 function Build-Anims($g) {
     $pack = Join-Path $g "Pack1.packed"
     # Somebody else's Pack1 (not ours): left alone.
     if ((Test-Path $pack) -and -not (Select-String -Path $pack -Pattern "coopbody_" -SimpleMatch -Quiet)) { return "foreign" }
-    if (Test-Path $pack) { return "ok" }
+    if (Test-Path $pack) { Fix-PackEnd $pack; return "ok" }
     $py = Find-Python
     if (-not $py) { return "nopython" }
     # The game's archives: the game folder, or Packed\ after SMOD unpacked them.

@@ -485,8 +485,19 @@ static int l_status(lua_State *L)
     return 1;
 }
 
+/* Net.CoopClose([peer]): the whole session, or (host) one peer, after what was sent to it. */
 static int l_close(lua_State *L)
 {
+    if (lua_gettop(L) >= 1 && lua_tointeger(L, 1) > 0) {
+        int id = lua_tointeger(L, 1);
+        EnterCriticalSection(&lock);
+        if (is_host && id <= MAX_PEERS && peers[id])
+            enet_peer_disconnect_later(peers[id], 0);
+        LeaveCriticalSection(&lock);
+        coop_log("close peer %d", id);
+        lua_pushnumber(L, 1);
+        return 1;
+    }
     close_host();
     coop_log("close");
     lua_pushnumber(L, 1);

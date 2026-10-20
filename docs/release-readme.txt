@@ -15,7 +15,7 @@ Requirements
 - Your own copy of the game. Tested: retail DVD release (Jericho.exe SHA-256
   7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62), Windows 10 and 11.
   Other versions are untested.
-- Every player needs the same mod version.
+- Every player needs the same mod version (the lobby says so when they differ).
 
 Install
 1. Extract the archive anywhere and run "Install Co-op.bat". It finds the game folder (or asks
@@ -83,7 +83,15 @@ character; it works in a hosted game and when you join one (up to 4 players in a
 - Gamepads: with two connected, player 1 uses the first (and keyboard + mouse), player 2 the
   second; with one connected, it is player 2's and player 1 plays with keyboard + mouse.
 - In menus and cutscenes the screen is whole again and both gamepads work there.
-- Each half shows the whole picture (black bars at the sides).
+- Each half shows the whole picture with black bars at the sides; the HUD keeps its normal
+  shape, its corners (weapons and ammo, powers, squad, SMOD's health) sit on the bars at the
+  screen's edges and only the crosshair, messages and subtitles stay over the picture.
+- Each player sees their own arms and the other player's whole body, and the screen effects
+  of a power (blur, colours, noise) only in the half of the player who uses it. Delgado's fire
+  barrier flames are not shown in split screen (they would cover both halves); the barrier
+  itself works.
+- All powers work for both players. Jones's astral projection: while one player projects, the
+  other player's character waits (the game has one set of controls for it).
 - It uses the game's own split screen leftovers (from the engine's Scrapland days): each frame
   draws one player's view in turn, so each view runs at half the frame rate.
 
@@ -107,7 +115,8 @@ previous run).
 - Своя копия игры. Проверено на розничной DVD-версии (Jericho.exe SHA-256
   7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62), Windows 10 и 11.
   Другие версии не проверялись.
-- Мод должен стоять у всех игроков, одной и той же версии.
+- Мод должен стоять у всех игроков, одной и той же версии (если версии разные, лобби об
+  этом скажет).
 
 Установка
 1. Распакуйте архив куда угодно и запустите «Install Co-op.bat». Он сам найдёт папку игры (или
@@ -174,7 +183,14 @@ SMOD
 - Геймпады: если подключены два, у игрока 1 первый (и клавиатура с мышью), у игрока 2 второй;
   если подключён один, он у игрока 2, а игрок 1 играет клавиатурой и мышью.
 - В меню и катсценах экран снова целый, и там работают оба геймпада.
-- В каждой половине видна вся картинка (чёрные полосы по бокам).
+- В каждой половине видна вся картинка, по бокам чёрные полосы; HUD в своих обычных
+  пропорциях: его углы (оружие и патроны, способности, отряд, здоровье SMOD) стоят на полосах
+  у краёв экрана, а над картинкой остаются только прицел, сообщения и субтитры.
+- Каждый видит свои руки и второго игрока целиком, а экранные эффекты способностей (размытие,
+  цвет, шум) — только в половине того, кто ими пользуется. Пламя огненного барьера Дельгадо в
+  сплитскрине не показывается (оно закрыло бы обе половины), сам барьер работает.
+- Все способности работают у обоих игроков. Астральная проекция Джонс: пока один игрок в
+  проекции, персонаж второго ждёт (управление для неё в игре одно на всех).
 - Сделано на остатках сплитскрина самого движка (со времён Scrapland): кадры по очереди рисуют
   вид каждого игрока, поэтому у каждого вида половина частоты кадров.
 

@@ -14,6 +14,9 @@ import os
 import sys
 import time
 
+# The co-op version the host expects in hello (lua/coop.lua Coop.VERSION).
+COOP_VERSION = "0.2"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DLL = os.path.join(HERE, '..', '..', 'native', 'build', 'enet64.dll')
 
@@ -186,7 +189,7 @@ class Bot:
             while enet.enet_host_service(self.host, ctypes.byref(ev), 0) > 0:
                 if ev.type == EV_CONNECT:
                     self.log('connected')
-                    self.send('hello|' + self.args.want, True)
+                    self.send('hello|' + self.args.want + '||' + COOP_VERSION, True)
                 elif ev.type == EV_RECEIVE:
                     pk = ev.packet.contents
                     self.on_message(ctypes.string_at(pk.data, pk.dataLength).decode('latin-1'))

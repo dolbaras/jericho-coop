@@ -111,15 +111,19 @@ static void draw_composite(IDirect3DDevice9 *dev)
     IDirect3DStateBlock9_Apply(saved_state);
 }
 
-/* Back buffer -> (resolved copy if multisampled) -> its half of the composite -> back buffer. */
-static void compose(IDirect3DDevice9 *dev)
+/* Back buffer -> (resolved copy if multisampled) -> its half of the composite -> back buffer.
+   0: not the frame's back buffer (the HUD of an off-screen pass), nothing done. */
+static int compose(IDirect3DDevice9 *dev)
 {
     IDirect3DSurface9 *bb = NULL, *rt = NULL;
     D3DSURFACE_DESC d;
+    int frame = 1;
     if (FAILED(IDirect3DDevice9_GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)))
-        return;
-    if (FAILED(IDirect3DDevice9_GetRenderTarget(dev, 0, &rt)) || rt != bb)
-        goto out;   /* the HUD of an off-screen pass, not the frame */
+        return 0;
+    if (FAILED(IDirect3DDevice9_GetRenderTarget(dev, 0, &rt)) || rt != bb) {
+        frame = 0;
+        goto out;
+    }
     IDirect3DSurface9_GetDesc(bb, &d);
     if (d.Width != cw || d.Height != ch || d.Format != cf || !composite) {
         release_surfaces();
@@ -169,6 +173,7 @@ static void compose(IDirect3DDevice9 *dev)
 out:
     if (rt) IDirect3DSurface9_Release(rt);
     IDirect3DSurface9_Release(bb);
+    return frame;
 }
 
 static UINT bbw, bbh;   /* back buffer size, read at every Present */
@@ -226,6 +231,7 @@ static void trace_draw(IDirect3DDevice9 *dev, const char *what, UINT count, cons
    so each HUD draw is repeated: once over the picture with the corners cut away (scissor), and
    once per side, moved out by the side's width, cut to the corners. HUD units: 640x480. */
 static int hud_edges = 1;   /* JERICHO_SPLITHUD=0: the whole HUD over the picture */
+static IDirect3DBaseTexture9 *bound_texture(IDirect3DDevice9 *dev);
 #define HUD_X_L 140
 #define HUD_X_R 500
 #define HUD_Y_T 110
@@ -323,10 +329,13 @@ static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
 static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hud_draw *g)
 {
     real_SetViewport(dev, pic);
-    if (!hud_edges || mode != 2 || is_overlay(dev, g))
+    int overlay = hud_edges && mode == 2 && is_overlay(dev, g);
+    if (trace_frames > 0 && g->n == 2)
+        coop_log("split trace: 2-triangle draw, overlay %d, texture %p", overlay, (void *)bound_texture(dev));
+    if (!hud_edges || mode != 2 || overlay)
         return do_draw(dev, g);
     DWORD sc = FALSE;
-    RECT old;
+    RECT old = {0, 0, (LONG)bbw, (LONG)bbh};
     IDirect3DDevice9_GetRenderState(dev, D3DRS_SCISSORTESTENABLE, &sc);
     IDirect3DDevice9_GetScissorRect(dev, &old);
     IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, TRUE);
@@ -359,7 +368,17 @@ static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hu
 /* The picture viewport a HUD draw goes to (0: not a user's HUD draw). After both users'
    HUDs, on the whole screen: the power icons of both users in one list (two quads each),
    placed in whole-screen space; user 0's come first thing in user 1's pass. */
-static int hud_target(const hud_draw *g, D3DVIEWPORT9 *out)
+static IDirect3DBaseTexture9 *icons_tex;   /* the power icons' texture (compared only, no reference) */
+
+static IDirect3DBaseTexture9 *bound_texture(IDirect3DDevice9 *dev)
+{
+    IDirect3DBaseTexture9 *t = NULL;
+    if (SUCCEEDED(IDirect3DDevice9_GetTexture(dev, 0, &t)) && t)
+        IDirect3DBaseTexture9_Release(t);   /* the pointer only identifies it */
+    return t;
+}
+
+static int hud_target(IDirect3DDevice9 *dev, const hud_draw *g, D3DVIEWPORT9 *out)
 {
     if (!mode || !in_hud)
         return 0;
@@ -370,8 +389,18 @@ static int hud_target(const hud_draw *g, D3DVIEWPORT9 *out)
     /* two quads per icon, plus one when a power glows (trace: 8 or 10 triangles) */
     int icons = !g->indexed && g->t == D3DPT_TRIANGLELIST && g->n >= 4 && g->n <= 16 && g->n % 2 == 0;
     if (icons_mode == 4 && icons && hud_halves >= 2) {
-        if (cur_vp.Y == mid && bottom_draws++ == 0) { *out = fit_vp(&top); return 1; }
-        if (cur_vp.Y == 0 && cur_vp.Height == bbh && cur_vp.Width == bbw) { *out = fit_vp(&bottom); return 1; }
+        IDirect3DBaseTexture9 *tex = bound_texture(dev);
+        /* user 0's: the first draw of user 1's pass, with the icons' texture once it is known
+           (user 0 may have no icons this frame: then it is user 1's own first draw) */
+        if (cur_vp.Y == mid && bottom_draws++ == 0 && (!icons_tex || tex == icons_tex)) {
+            *out = fit_vp(&top);
+            return 1;
+        }
+        if (cur_vp.Y == 0 && cur_vp.Height == bbh && cur_vp.Width == bbw) {
+            icons_tex = tex;   /* user 1's, after both passes on the whole screen */
+            *out = fit_vp(&bottom);
+            return 1;
+        }
     }
     if (mode == 2 && cur_vp.X == 0 && cur_vp.Width == bbw && cur_vp.Height < bbh) {
         *out = fit_vp(&cur_vp);
@@ -383,7 +412,7 @@ static int hud_target(const hud_draw *g, D3DVIEWPORT9 *out)
 static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g)
 {
     D3DVIEWPORT9 pic;
-    if (!hud_target(g, &pic))
+    if (!hud_target(dev, g, &pic))
         return do_draw(dev, g);
     if (mode == 1) {   /* wide halves: the icons into their half, as drawn */
         real_SetViewport(dev, &pic);
@@ -464,9 +493,8 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
         vp_logged++;
     }
     if (mode && !done_this_frame && vp && bbw && vp->X == 0 && vp->Y == 0 && vp->Width == bbw &&
-        vp->Height == (bbh + 1) / 2) {
+        vp->Height == (bbh + 1) / 2 && compose(dev)) {
         done_this_frame = 1;
-        compose(dev);
         in_hud = 1;
         hud_halves = 1;
         if (trace_frames > 0)
@@ -519,6 +547,7 @@ static HRESULT WINAPI hook_Present(IDirect3DDevice9 *dev, const RECT *s, const R
 
 static HRESULT WINAPI hook_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp)
 {
+    icons_tex = NULL;
     release_surfaces();   /* D3DPOOL_DEFAULT: gone before a reset */
     return real_Reset(dev, pp);
 }

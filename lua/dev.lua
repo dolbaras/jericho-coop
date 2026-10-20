@@ -1339,3 +1339,19 @@ if cfg.astrallog and Coop.level ~= "levels/menu" then
     if set ~= Coop.astralSet then Coop.astralSet = set; Coop.log("astrallog: action set " .. tostring(set)) end
   end
 end
+
+-- 'barriertest' (split screen, player 2 Delgado): Delgado's fire barrier on at tick
+-- cfg.barriertest, off 600 ticks later.
+if cfg.barriertest and Coop.level ~= "levels/menu" then
+  local prevBt = Coop.dev
+  function Coop.dev()
+    if prevBt then prevBt() end
+    local t = Coop.frame - cfg.barriertest
+    if t ~= 0 and t ~= 600 then return end
+    local e = Game.GetEntity("Delgado")
+    if e then e.uData.bProtection = t ~= 0 end
+    local f = t == 0 and Delgado.ActivateBarrier or Delgado.DeactivateBarrier
+    if e and e.UsrControl == 1 then CoopSplit.asUser1(f) else f() end
+    Coop.log("barriertest: " .. (t == 0 and "on" or "off"))
+  end
+end

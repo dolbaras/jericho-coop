@@ -4,9 +4,12 @@
 #                                            coop\*.lua, the cutscene animation builder)
 #   README-COOP.txt, LICENSE.txt, ENET-LICENSE.txt
 # Run native\build.sh first. The test helpers (dev.lua, probe.lua) are left out.
-# Usage: package.ps1 -Version 0.1.1
+# Usage: package.ps1 -Version 0.2
 param([Parameter(Mandatory)] [string] $Version)
 $root = Split-Path $PSScriptRoot -Parent
+# Players of different versions are kept apart by Coop.VERSION (lobby check): it must be this one.
+$luaVersion = (Select-String -Path (Join-Path $root "lua\coop.lua") -Pattern '^Coop.VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+if ($luaVersion -ne $Version) { throw "lua\coop.lua has Coop.VERSION = $luaVersion, not $Version" }
 $dll = Join-Path $root "native\build\dinput8.dll"
 if (-not (Test-Path $dll)) { throw "build native\build\dinput8.dll first (sh native/build.sh)" }
 $stage = Join-Path $root "dist\jericho-coop-$Version"

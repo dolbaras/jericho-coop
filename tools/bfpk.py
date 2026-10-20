@@ -85,10 +85,18 @@ def write_archive(path, files, version=1):
     table = 12 + sum(4 + len(n) + 8 for n in names)
     out = [struct.pack('<4sII', b'BFPK', version, len(files))]
     off = table
+    offsets = []
     for n, (_, d), s in zip(names, files, stored):
         out.append(struct.pack('<I', len(n)) + n + struct.pack('<II', len(d), off))
+        offsets.append(off)
         off += len(s)
     out.extend(stored)
+    # The game reads an entry's index size (the uncompressed size) from its offset: past the
+    # last records that runs off the end of the file ("File access error, retry?" when the
+    # last animation of a scene loads, 0.2 audit, RawlingsTorture PlayI). Zeros after them.
+    end = sum(len(b) for b in out)
+    need = max([o + len(d) for o, (_, d) in zip(offsets, files)] + [end])
+    out.append(b'\0' * (need - end))
     with open(path, 'wb') as f:
         f.write(b''.join(out))
 

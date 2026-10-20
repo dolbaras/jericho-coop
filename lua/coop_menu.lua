@@ -60,6 +60,8 @@ CoopMenu.TEXT = {
     rules = "Rules", rules_smod = "host's SMOD", rules_game = "as in the game",
     p2 = "Player 2 (gamepad)", p2_none = "none",
     rules_notall = "game's (SMOD not for all)", ai_smod = "SMOD (%d%% damage)",
+    version_host = "The host has co-op %s, you have %s: both need the same version",
+    version_peer = "%s has another co-op version (this is %s)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -83,6 +85,8 @@ CoopMenu.TEXT = {
     rules = "Правила", rules_smod = "SMOD хоста", rules_game = "как в игре",
     p2 = "Игрок 2 (геймпад)", p2_none = "нет",
     rules_notall = "игры (SMOD не у всех)", ai_smod = "SMOD (%d%% урона)",
+    version_host = "У хоста кооп %s, у вас %s: версии должны совпадать",
+    version_peer = "У игрока %s другая версия коопа (здесь %s)",
   },
 }
 
@@ -895,9 +899,18 @@ function CoopMenu.onJoin(peer)
     if #CoopMenu.seats >= CoopMenu.MAX_PLAYERS then return end
     CoopMenu.seats[#CoopMenu.seats + 1] = {peer = peer, char = CoopMenu.firstFree(peer), ready = false,
                                            nick = T("player") .. " " .. (peer + 1)}
-    Net.CoopSend(peer, 1, "welcome|" .. peer .. "|Menu|" .. CoopMenu.seats[#CoopMenu.seats].char)
+    Net.CoopSend(peer, 1, "welcome|" .. peer .. "|Menu|" .. CoopMenu.seats[#CoopMenu.seats].char .. "|" .. Coop.VERSION)
     CoopMenu.broadcastLobby()
   end
+end
+
+-- A player with another co-op version: off the session (the network messages differ).
+function CoopMenu.refuse(peer, ver, nick)
+  Coop.log("lobby: peer " .. peer .. " has version " .. tostring(ver) .. ", refused")
+  Net.CoopClose(peer)
+  CoopMenu.onLeave(peer)
+  CoopMenu.message(string.format(T("version_peer"), Coop.cleanNick(nick or "") ~= "" and Coop.cleanNick(nick) or
+    (T("player") .. " " .. (peer + 1)), Coop.VERSION))
 end
 
 function CoopMenu.onLeave(peer)
@@ -927,8 +940,15 @@ function CoopMenu.onMessage(peer, f)
       CoopMenu.broadcastLobby()
     end
     return true
+  elseif kind == "ver" and Coop.isHost() then
+    local s = CoopMenu.seatOf(peer)
+    if s then s.ver = f[2] end
+    if f[2] ~= Coop.VERSION then CoopMenu.refuse(peer, f[2]) end
+    return true
   elseif kind == "nick" and Coop.isHost() then
     local s = CoopMenu.seatOf(peer)
+    -- A client before 0.2 says nothing of its version: another version.
+    if s and not s.ver then CoopMenu.refuse(peer, "<0.2", f[2]) return true end
     if s then
       s.nick = Coop.cleanNick(f[2])
       CoopMenu.broadcastLobby()
@@ -963,7 +983,15 @@ function CoopMenu.onMessage(peer, f)
     CoopMenu.launch(f[2], f[3])
     return true
   elseif kind == "welcome" and Coop.isClient() and f[3] == "Menu" then
+    if f[5] ~= Coop.VERSION then
+      Coop.log("lobby: host version " .. tostring(f[5]) .. ", mine " .. Coop.VERSION)
+      Net.CoopClose()
+      CoopMenu.Root()
+      CoopMenu.message(string.format(T("version_host"), f[5] or "0.1", Coop.VERSION))
+      return true
+    end
     cfg.myId = tonumber(f[2])
+    Net.CoopSend(0, 1, "ver|" .. Coop.VERSION)
     Net.CoopSend(0, 1, "nick|" .. CoopMenu.myNick())
     if CoopMenu.hostSmod() then Net.CoopSend(0, 1, "smod|1") end
     return true
@@ -990,33 +1018,6 @@ function CoopMenu.update()
     cfg.notice = nil
     CoopMenu.Root()
     CoopMenu.message(T(why))
-  end
-  -- Split screen, second window (cfg.autojoin, set by the launcher): straight into the
-  -- first window's lobby, ready; its player picks the character there.
-  if cfg.autojoin and not CoopMenu.autojoined and Coop.frame > 40 then
-    -- Past the language list (the language is the first window's, from the config).
-    if CoopMenu.onLanguageScreen() and MainMenu and MainMenu.Init2 then
-      MainMenu.Init2()
-      return
-    end
-    CoopMenu.autojoined = true
-    CoopMenu.JoinSetup()
-    CoopMenu.Connect()
-  end
-  -- The first window may not host yet: knock again every few seconds until it answers.
-  if cfg.autojoin and CoopMenu.screen == "lobby" and not cfg.myId and Coop.frame >= (CoopMenu.joinRetry or 0) then
-    if CoopMenu.joinRetry then
-      Net.CoopClose()
-      Net.CoopJoin(cfg.addr or "127.0.0.1", cfg.port or CoopMenu.PORT)
-    end
-    CoopMenu.joinRetry = Coop.frame + 100
-  end
-  if cfg.autojoin and CoopMenu.screen == "lobby" and cfg.myId and Coop.frame % 20 == 0 then
-    local me = CoopMenu.seatOf(CoopMenu.myPeer())
-    if me and not me.ready and not CoopMenu.autoReadied then
-      CoopMenu.autoReadied = true
-      CoopMenu.ToggleReady()
-    end
   end
   if CoopMenu.screen == "lobby" then CoopMenu.refreshLobby() end
   if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then

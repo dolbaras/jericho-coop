@@ -8,13 +8,14 @@
 -- snap when they drift too far.
 --
 -- Messages (text, fields separated by "|"):
---   hello|<wantedChar>                      client -> host, reliable
+--   hello|<wantedChar>|<nick>|<version>     client -> host, reliable
 --   welcome|<peerId>|<level>|<char>         host -> client, reliable
 --   own|<char>=<peer>,...                   host -> all, reliable (ownership table)
 --   claim|<char>                            client -> host, reliable (player switched)
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
 Coop = {}
+Coop.VERSION = "0.2"        -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
@@ -473,6 +474,11 @@ function Coop.onMessage(peer, data)
       Coop.lastJump = {name = name, y = e.Pos.y, peak = e.Pos.y, frame = Coop.frame}
     end
   elseif kind == "hello" and Coop.isHost() then
+    if f[4] ~= Coop.VERSION then   -- another co-op version (before 0.2: no field)
+      Coop.log("hello from " .. peer .. " with version " .. tostring(f[4]) .. ": refused")
+      Net.CoopClose(peer)
+      return
+    end
     local pick = Coop.assign(peer, f[2])
     -- Without the lobby (late join, tests) the host builds the seat list here.
     local seats = {}
@@ -535,7 +541,8 @@ end
 function Coop.onJoin(peer)
   Coop.log("peer " .. peer .. " connected")
   if Coop.isClient() then
-    Net.CoopSend(0, 1, "hello|" .. tostring(cfg.char or cfg.want or "") .. "|" .. Coop.cleanNick(cfg.nick))
+    Net.CoopSend(0, 1, "hello|" .. tostring(cfg.char or cfg.want or "") .. "|" .. Coop.cleanNick(cfg.nick) .. "|" ..
+      Coop.VERSION)
   end
 end
 

@@ -177,6 +177,8 @@ end
 -- ("through X's eyes"), as the game shows it. POV_SCENES lists scene classes allowed the own
 -- view (none); cfg.povall forces it on everywhere (experimental), cfg.povoff off.
 S.POV_SCENES = {}
+-- Per scene class: forward = units the eye moves towards what it looks at (seated scenes).
+S.POV_TUNE = {HelicopterTrip = {forward = 45}, Landing = {forward = 45}}
 
 function S.povAllowed(class)
   if Coop.cfg.povoff == true then return false end
@@ -273,6 +275,7 @@ end
 S.HEAD_NODES = {"Bip01 Head", "Bip %s Head", "Bip Head"}
 S.LOOK_PERP_MIN = 45     -- the view ray passes this close to a looked-at head ...
 S.LOOK_PERP_K = 0.12      -- ... or within about 7 degrees of it at a distance
+S.GROUP_COS = 0.88        -- heads within about 28 degrees of the view's middle: a group it frames
 
 function S.actorHead(info)
   local e = Game.GetEntity(info[2])
@@ -301,6 +304,7 @@ function S.lookedAtActor(p, dir, maxDist)
   local list = Scene.Actors and S.pov and Scene.Actors[S.pov.class]
   if not list then return nil end
   local best, bestCos, mine
+  local gx, gy, gz, gw, selfW = 0, 0, 0, 0, nil
   for _, info in pairs(list) do
     local hp = S.actorHead(info)
     if hp then
@@ -318,9 +322,25 @@ function S.lookedAtActor(p, dir, maxDist)
         if perp < math.max(S.LOOK_PERP_MIN, along * S.LOOK_PERP_K) and (not bestCos or ratio < bestCos) then
           best, bestCos, mine = hp, ratio, info[2] == S.pov.actor
         end
+        -- Near the middle of the scene camera's view: a group it frames (its ray can pass
+        -- between them and end on the wall behind, scene audit 0.2: TombCollapses).
+        if dist > 0 and c >= S.GROUP_COS then
+          local w = (c - S.GROUP_COS) / (1 - S.GROUP_COS)
+          w = w * w
+          if info[2] == S.pov.actor then
+            selfW = (selfW or 0) + w
+          else
+            gw = gw + w
+            gx, gy, gz = gx + hp.x * w, gy + hp.y * w, gz + hp.z * w
+          end
+        end
       end
     end
   end
+  if not best and gw > 0 and gw >= (selfW or 0) then
+    return V3D(gx / gw, gy / gw, gz / gw), false, "group"
+  end
+  if not best and selfW then return nil, true end
   return best, mine
 end
 
@@ -350,15 +370,17 @@ function S.updateFocus(dt, p, dir)
     if hitDist < S.FOCUS_MIN then hit = nil end
   end
   S.debugLook = ((S.frames or 0) % 60 == 0) and {} or nil
-  local head, mine = S.lookedAtActor(p, dir, hitDist + 100)
+  local head, mine, kind = S.lookedAtActor(p, dir, hitDist + 100)
   if S.debugLook then Coop.log(string.format("look: hit %.0f, %s", hitDist, table.concat(S.debugLook, " "))) end
   local target
-  if head then
-    target = mine and S.speakerPos(p) or head
+  if mine then
+    target = S.speakerPos(p)
+  elseif head then
+    target = head
   else
     target = hit or (p + V3D(dir.x * S.FOCUS_DEFAULT, dir.y * S.FOCUS_DEFAULT, dir.z * S.FOCUS_DEFAULT))
   end
-  S.focusActor = head and (mine and "self" or "actor") or "world"
+  S.focusActor = mine and "self" or (head and (kind or "actor")) or "world"
   S.focus = lowpass(S.focus, target, S.FOCUS_TAU, dt)
   return S.focus
 end
@@ -510,6 +532,15 @@ function S.updatePOV(dt)
   local target = math.sqrt(toSelf.x * toSelf.x + toSelf.y * toSelf.y + toSelf.z * toSelf.z) < S.SELF_FOCUS and S.speakerPos(p) or focus
   S.lean = lowpass(S.lean, S.findLean(S.eye, target), S.LEAN_TAU, dt)
   local pos = S.eye + S.lean
+  -- Out of a seat's padded wings (they have no collision for findLean): the eye a little
+  -- forward, towards what it looks at (S.POV_TUNE).
+  local tune = S.POV_TUNE[S.pov.class]
+  local fwd = tune and tune.forward or 0
+  if fwd > 0 then
+    local d = target - S.eye
+    local l = len(d)
+    if l > 1 then pos = pos + V3D(d.x * fwd / l, d.y * fwd / l, d.z * fwd / l) end
+  end
   S.blockFrames = (S.blockFrames or 0) + 1
   if S.blockFrames >= S.BLOCK_EVERY then
     local step = S.blockFrames * (dt or 0.033)

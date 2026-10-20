@@ -23,7 +23,7 @@ Sp.CAM = "CoopCam1"
 -- Effects that blend the previous frame into this one: with the cameras taking turns they
 -- smear one view into the other (pixel motion blur) or flicker (HDR adaptation).
 Sp.FX = {RT_PixelMotionBlurPower = 0, RT_PixelMotionBlur = 0, RT_HDRExposureTime = 0.01}
--- How each half shows its view (lobby setting cfg.splitview):
+-- How each half shows its view (cfg.splitview; players get "full"):
 --   "full" (default): the whole normal frame, shape kept, in the middle of the half (black
 --     sides): everything the game shows, the first-person weapon included.
 --   "wide": the half filled, the view drawn wider than high (view scales below) and squeezed
@@ -113,6 +113,8 @@ function Sp.takeBody(char, from)
   -- What the game does for a body user 0 switches into (power icons, the FP model's state).
   local sw = Team and Team.OnSwitchChar and Team.OnSwitchChar[t.ActCtrl or char]
   if sw then Sp.asUser1(sw, t) end
+  -- Scripts of a character loaded since (wrapFn skips what is wrapped already).
+  if Sp.on then pcall(Sp.installPowers) end
   Coop.log("split: " .. char .. " FPSEntity=" .. tostring(t.FPSEntity))
   if Coop.owners then
     for n, p in pairs(Coop.owners) do
@@ -190,6 +192,7 @@ function Sp.start(char, owner)
   Sp.applyFx(true)
   Sp.on, Sp.held = true, false
   Sp.fxStart()
+  Sp.installScreenFx()
   Sp.applyEngine(true)
   Sp.installHooks()
   local ok, err = pcall(Sp.installPowers)
@@ -202,6 +205,7 @@ function Sp.stop()
   Sp.on = false
   Sp.fxStop()
   Sp.showAll()
+  Sp.screenFxBack()
   local m = Scorer.GetItem(0, "Msg")
   if m then m.Y = 40 end   -- Menu.ShowScorer's
   Sp.applyEngine(false, -1)
@@ -241,8 +245,11 @@ function Sp.frame()
   -- pad 0 meanwhile (player 1's body waits in the "Astral" set anyway).
   -- The engine moves only slot 0's camera by input: the astral camera goes into slot 0 and
   -- player 1's into slot 1 meanwhile, and each half still draws its player's camera.
-  local astral = Sp.p2Astral and Input.GetActionSet and Input.GetActionSet() == "Astral" or false
-  if not astral then Sp.p2Astral = nil end
+  -- (Sp.p2Astral: from player 2's "Astral" set until their return gives "Walk" back; a menu
+  -- or a scene meanwhile changes neither)
+  local b = Sp.body()
+  if Sp.p2Astral and (Sp.waiting or not b or b.Life <= 0) then Sp.p2Astral = nil end
+  local astral = Sp.p2Astral or false
   if astral and not Sp.camSwap and Game.GetCam(1) == "AstralCam" then
     Sp.p1Cam = Game.GetCam(0)
     Game.SetCam(0, "AstralCam")
@@ -549,74 +556,106 @@ local function fxArg(v)
   return v
 end
 
-function Sp.asUser1(fn, ...)
-  if Sp.inUser1 then return fn(...) end
+-- The remap of user 0's things to user 1's while player 2's code runs: a list of
+-- {table, key, original, replacement}, put in place by Sp.asUser1 and taken back after; Sp.asUser0
+-- takes it back for a call made from inside for player 1's body (a damage to player 1 from
+-- player 2's explosion runs as player 1).
+function Sp.buildRemap()
   local G, S, I = Game, Scorer, Input
-  local oU, oGC, oSC, oAdd, oSet, oGE = G.UsrEntity, G.GetCam, G.SetCam, G.AddScheduledFunc, I.SetActionSet, G.GetEntity
-  local oS = {}
+  local list = {}
+  local function add(t, k, make)
+    local f = t and t[k]
+    if type(f) == "function" then list[#list + 1] = {t, k, f, make(f)} end
+  end
   for k, f in pairs(S) do
     if type(f) == "function" then
-      oS[k] = f
-      S[k] = function(a, ...) if a == 0 then a = 1 end return f(a, ...) end
+      list[#list + 1] = {S, k, f, function(a, ...) if a == 0 then a = 1 end return f(a, ...) end}
     end
   end
-  local oFX = {}
-  if FX then
-    for _, k in ipairs({"SetEffect", "BeginEffect"}) do
-      local f = FX[k]
-      if type(f) == "function" then
-        oFX[k] = f
-        FX[k] = function(...)
-          local args, n = {...}, select("#", ...)
-          for i = 1, n do args[i] = fxArg(args[i]) end
-          return f(unpack(args, 1, n))
-        end
+  for _, k in ipairs({"SetEffect", "BeginEffect"}) do
+    add(FX, k, function(f)
+      return function(...)
+        local args, n = {...}, select("#", ...)
+        for i = 1, n do args[i] = fxArg(args[i]) end
+        return f(unpack(args, 1, n))
       end
-    end
+    end)
   end
-  G.UsrEntity = function(i) return oU(one(i)) end
+  add(G, "UsrEntity", function(f) return function(i) return f(one(i)) end end)
   -- User 1's camera answers to "MainCam" (jones.lua: no astral projection unless the camera
   -- is "MainCam"; the returns set "MainCam" back).
-  G.GetCam = function(i)
-    local c = oGC(one(i))
-    if one(i) == 1 and c == Sp.CAM then return "MainCam" end
-    return c
-  end
-  G.SetCam = function(i, n) return oSC(one(i), fpName(n)) end
-  G.GetEntity = function(n, ...) return oGE(fpName(n), ...) end
-  G.AddScheduledFunc = function(t, id, func, ...) return oAdd(t, id, Sp.later(func), ...) end
-  -- One action set for both users: player 2's powers do not take player 1's controls.
-  -- Except Jones's astral projection: its camera takes the "Astral" set (one for both users,
-  -- so player 1's body waits meanwhile, as player 2's does for player 1's projection).
-  I.SetActionSet = function(set)
-    Sp.p2Set = set
-    if set == "Astral" then
-      Sp.p2Astral = true
-      return oSet(set)
-    elseif Sp.p2Astral and set == "Walk" then
-      Sp.p2Astral = nil
-      return oSet(set)
+  add(G, "GetCam", function(f)
+    return function(i)
+      local c = f(one(i))
+      if one(i) == 1 and c == Sp.CAM then return "MainCam" end
+      return c
     end
-  end
+  end)
+  add(G, "SetCam", function(f) return function(i, n) return f(one(i), fpName(n)) end end)
+  add(G, "GetEntity", function(f) return function(n, ...) return f(fpName(n), ...) end end)
+  add(G, "AddScheduledFunc", function(f) return function(t, id, func, ...) return f(t, id, Sp.later(func), ...) end end)
+  -- One action set for both users: player 2's powers do not take player 1's controls. Except
+  -- Jones's astral projection: its camera takes the "Astral" set (one for both users, so
+  -- player 1's body waits meanwhile, as player 2's does for player 1's projection), and its
+  -- end gives "Walk" back whenever the set is still "Astral".
+  add(I, "SetActionSet", function(f)
+    return function(set)
+      Sp.p2Set = set
+      if set == "Astral" then
+        Sp.p2Astral = true
+        return f(set)
+      elseif set == "Walk" and (Sp.p2Astral or (I.GetActionSet and I.GetActionSet() == "Astral")) then
+        Sp.p2Astral = nil
+        return f(set)
+      end
+    end
+  end)
   -- The scripts recognise a first-person model by its "0FP_" prefix (FireWeapons.DoFire takes
   -- the character's name from it): user 1's "1FP_" reads the same.
-  local oSub = string.sub
-  string.sub = function(str, i, j)
-    local r = oSub(str, i, j)
-    if i == 1 and j == 4 and r == "1FP_" then return "0FP_" end
-    return r
-  end
-  local oRumble = I.Rumble
-  if oRumble then I.Rumble = function(i, ...) return oRumble(one(i), ...) end end
-  Sp.inUser1 = true
+  add(string, "sub", function(f)
+    return function(str, i, j)
+      local r = f(str, i, j)
+      if i == 1 and j == 4 and r == "1FP_" then return "0FP_" end
+      return r
+    end
+  end)
+  add(I, "Rumble", function(f) return function(i, ...) return f(one(i), ...) end end)
+  return list
+end
+
+local function remapOn(list) for _, e in ipairs(list) do e[1][e[2]] = e[4] end end
+local function remapOff(list) for _, e in ipairs(list) do e[1][e[2]] = e[3] end end
+
+Sp.errorsBy = Sp.errorsBy or {}
+function Sp.logError(where, err)
+  local key = tostring(where)
+  local n = (Sp.errorsBy[key] or 0) + 1
+  Sp.errorsBy[key] = n
+  if n <= 3 then Coop.log("split: player 2 error in " .. key .. ": " .. tostring(err)) end
+end
+
+function Sp.asUser1(fn, ...)
+  if Sp.inUser1 then return fn(...) end
+  local list = Sp.buildRemap()
+  remapOn(list)
+  Sp.inUser1, Sp.remap = true, list
   local r = {pcall(fn, ...)}
-  Sp.inUser1 = false
-  string.sub = oSub
-  I.Rumble = oRumble
-  G.UsrEntity, G.GetCam, G.SetCam, G.AddScheduledFunc, I.SetActionSet, G.GetEntity = oU, oGC, oSC, oAdd, oSet, oGE
-  for k, f in pairs(oS) do S[k] = f end
-  for k, f in pairs(oFX) do FX[k] = f end
-  if not r[1] then Coop.log("split: player 2 power error: " .. tostring(r[2])) return end
+  Sp.inUser1, Sp.remap = false, nil
+  remapOff(list)
+  if not r[1] then Sp.logError(Sp.callLabel or "power", r[2]) return end
+  return unpack(r, 2)
+end
+
+-- From inside player 2's code, for player 1's body: the game as it is.
+function Sp.asUser0(fn, ...)
+  local list = Sp.inUser1 and Sp.remap
+  if not list then return fn(...) end
+  remapOff(list)
+  Sp.inUser1, Sp.remap = false, nil
+  local r = {pcall(fn, ...)}
+  remapOn(list)
+  Sp.inUser1, Sp.remap = true, list
+  if not r[1] then Coop.log("split: player 1 error inside player 2's call: " .. tostring(r[2])) return end
   return unpack(r, 2)
 end
 
@@ -624,15 +663,19 @@ end
 Sp.trampolines = Sp.trampolines or {}
 function Sp.later(func)
   if type(func) ~= "string" or func == "" then return func end
-  local key = string.gsub(func, "[^%w]", "_")
-  if not Sp.trampolines[key] then
-    Sp.trampolines[key] = true
-    Sp["at_" .. key] = function(...)
+  local key = Sp.trampolines[func]
+  if not key then
+    Sp.trampolineCount = (Sp.trampolineCount or 0) + 1
+    key = "at_" .. Sp.trampolineCount
+    Sp.trampolines[func] = key
+    Sp[key] = function(...)
       local f = Sp.resolve(func)
-      if f then return Sp.asUser1(f, ...) end
+      if not f then return end
+      if not Sp.on then return f(...) end   -- split screen over meanwhile
+      return Sp.asUser1(f, ...)
     end
   end
-  return "CoopSplit.at_" .. key
+  return "CoopSplit." .. key
 end
 
 function Sp.resolve(path)
@@ -683,6 +726,28 @@ function Sp.isP2Subject(x, death)
   return ok and yes
 end
 
+-- Player 1's body (or first-person model), seen from inside player 2's code (the engine's
+-- functions as they are, not the remapped ones).
+function Sp.isP1Subject(x)
+  local get = Game.GetEntity
+  for _, e in ipairs(Sp.remap or {}) do
+    if e[1] == Game and e[2] == "GetEntity" then get = e[3] end
+  end
+  local name = x
+  if type(x) ~= "string" then
+    if type(x) ~= "table" and type(x) ~= "userdata" then return false end
+    local ok, n = pcall(function() return x.Name end)
+    name = ok and n
+  end
+  if type(name) ~= "string" or name == "" then return false end
+  if string.find(name, "^0FP_") then return true end
+  local ok, yes = pcall(function()
+    local e = get(name)
+    return e ~= nil and e.UsrControl == 0
+  end)
+  return ok and yes
+end
+
 Sp.wrappers = Sp.wrappers or setmetatable({}, {__mode = "k"})
 function Sp.wrapFn(parent, key, make)
   local f = type(parent) == "table" and parent[key]
@@ -697,8 +762,10 @@ local function asP2(orig, label, death)
   return function(a, ...)
     if Sp.on and not Sp.inUser1 and Sp.isP2Subject(a, death) then
       if cfg.dev and label then Coop.log("split: player 2 " .. label) end
+      Sp.callLabel = label or "power"
       return Sp.asUser1(orig, a, ...)
     end
+    if Sp.inUser1 and Sp.isP1Subject(a) then return Sp.asUser0(orig, a, ...) end
     return orig(a, ...)
   end
 end
@@ -785,7 +852,8 @@ function Sp.installPowers()
     Sp.wrapFn(Weapons, "QuakeFX", function(orig)
       return function(...)
         local r = orig(...)
-        if Sp.on and not Sp.inUser1 then Sp.asUser1(orig, ...) end
+        if Sp.on and not Sp.inUser1 then Sp.asUser1(orig, ...)
+        elseif Sp.inUser1 then Sp.asUser0(orig, ...) end
         return r
       end
     end)
@@ -803,7 +871,7 @@ function Sp.installPowers()
       end
     end
   end
-  Coop.log("split: " .. n .. " functions run as player 2 for their body")
+  if n > 0 then Coop.log("split: " .. n .. " functions run as player 2 for their body") end
 end
 
 function Sp.parentOf(path)
@@ -898,8 +966,9 @@ function Sp.fxShow(u)
   local now = Game.GetTime()
   local old = Sp.fxShown
   if old ~= nil then
+    -- What the engine moved meanwhile (clocks, DOF steps towards their targets) stays.
     local o = st[old]
-    for k in pairs(Sp.FX_CLOCKS) do
+    for _, k in ipairs(Sp.FX_KEYS) do
       local ok, v = pcall(Sp.rawGet, k)
       if ok and v ~= nil then o[k] = v end
     end
@@ -926,6 +995,14 @@ end
 function Sp.showFor(u)
   local b0, b1 = Game.UsrEntity(0), not Sp.waiting and Sp.body()
   if b1 == b0 then b1 = nil end
+  -- A body no longer a player's (a switch, a move): back to what the game gave it.
+  for name, v in pairs(Sp.bodyVis) do
+    if not ((b0 and b0.Name == name) or (b1 and b1.Name == name)) then
+      local e = Game.GetEntity(name)
+      if e and e.bObjectVisible ~= v then e.bObjectVisible = v end
+      Sp.bodyVis[name] = nil
+    end
+  end
   local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
   local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
   if f0 then f0.bObjectVisible = u == 0 end
@@ -952,4 +1029,37 @@ function Sp.showAll()
   end
   Sp.bodyVis = {}
   Sp.shownFor = nil
+end
+
+-- Particle effects drawn over the whole screen (Delgado's fire barrier is linked to the
+-- camera) show in both halves, and the engine cannot show an instance in one view only
+-- (ActiveInstance 0 stops it for good, BirthEnabled toggled per frame asserts): in split
+-- screen they are off, the power itself works (its icon shows it); back on when split ends.
+Sp.SCREEN_FX = {["EFFECT_PARTICLES" .. string.char(183) .. "DELGADO_BARRIER"] = true}
+Sp.screenFx = Sp.screenFx or {}
+
+function Sp.installScreenFx()
+  if not FX or Sp.fxWrapped == FX.BeginEffect then return end
+  local begin, stop = FX.BeginEffect, FX.EndEffect
+  FX.BeginEffect = function(t, inst, ...)
+    local r = begin(t, inst, ...)
+    if Sp.on and Sp.SCREEN_FX[t] then
+      Sp.screenFx[t .. "|" .. tostring(inst)] = {t = t, inst = inst or ""}
+      pcall(FX.SetEffect, t, inst or "", "ActiveInstance 0")
+      if cfg.dev then Coop.log("split: screen effect " .. tostring(inst) .. " off in split screen") end
+    end
+    return r
+  end
+  FX.EndEffect = function(t, inst, ...)
+    Sp.screenFx[tostring(t) .. "|" .. tostring(inst)] = nil
+    return stop(t, inst, ...)
+  end
+  Sp.fxWrapped = FX.BeginEffect
+end
+
+function Sp.screenFxBack()
+  for k, e in pairs(Sp.screenFx) do
+    pcall(FX.SetEffect, e.t, e.inst, "ActiveInstance 1")
+    Sp.screenFx[k] = nil
+  end
 end

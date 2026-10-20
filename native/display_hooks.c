@@ -721,12 +721,12 @@ void display_hooks_install(void)
                 real_MoveWindow = MoveWindow;
         }
     }
+    /* Always: split screen (split.c) needs the device on every launch, not only in tests;
+       JERICHO_ADAPTER only picks the adapter (tests). */
     GetEnvironmentVariableA("JERICHO_ADAPTER", adapter_mode, sizeof adapter_mode);
-    if (adapter_mode[0] || capture_enabled()) {
-        real_Direct3DCreate9 = (Direct3DCreate9_t)patch_iat("d3d9.dll", "Direct3DCreate9", (void *)hook_Direct3DCreate9);
-        if (!real_Direct3DCreate9)
-            coop_log("adapter: Direct3DCreate9 not in import table");
-    }
+    real_Direct3DCreate9 = (Direct3DCreate9_t)patch_iat("d3d9.dll", "Direct3DCreate9", (void *)hook_Direct3DCreate9);
+    if (!real_Direct3DCreate9)
+        coop_log("adapter: Direct3DCreate9 not in import table");
 }
 
 void display_hooks_set_background(int on)
