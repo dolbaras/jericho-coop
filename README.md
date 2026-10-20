@@ -3,7 +3,7 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: test release (0.2, see Releases): download the zip, extract it anywhere and run
+Status: test release (0.2.0, see Releases): download the zip, extract it anywhere and run
 `Install Co-op.bat` (it finds the game, backs up what it replaces and can uninstall); details
 in `README-COOP.txt` inside (English and Russian). QA level: automated tests with
 two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
