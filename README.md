@@ -3,7 +3,7 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: test release (0.1.1, see Releases): download the zip, extract it anywhere and run
+Status: test release (0.1.2, see Releases): download the zip, extract it anywhere and run
 `Install Co-op.bat` (it finds the game, backs up what it replaces and can uninstall); details
 in `README-COOP.txt` inside (English and Russian). QA level: automated tests with
 two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
@@ -76,7 +76,7 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   with a gamepad, a seat of its own in the session. The engine kept Scrapland's split screen
   data (four users, a camera and HUD per user, pad 2 driving user 1's body); it renders one
   camera per frame, so the camera slot alternates every frame and split.c puts each frame
-  into its half before the HUDs are drawn (`work/splitscreen-research.md`).
+  into its half before the HUDs are drawn (`docs/splitscreen-research.md`, `docs/scrapland-engine-audit.md`).
 - Installer: finds the game (its folder, registry, GOG, Steam libraries or asks), keeps the
   files it replaces in `coop-backup`, updates over an older version and uninstalls.
 

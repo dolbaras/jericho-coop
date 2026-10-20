@@ -1,5 +1,5 @@
 /*
- * Local split screen in one game (work/splitscreen-research.md). The engine kept the
+ * Local split screen in one game (docs/splitscreen-research.md). The engine kept the
  * Scrapland split screen data: four users, a camera per user, and a HUD per user drawn in
  * the top and bottom halves (SplitScreen=1), but it renders the world once per frame, from
  * camera slot R_SplitScreenCamera (R_SplitScreen=1). The Lua side switches that slot every

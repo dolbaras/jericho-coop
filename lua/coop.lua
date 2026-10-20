@@ -42,6 +42,17 @@ local function v3(v)
 end
 Coop.v3 = v3
 
+-- A squad body by name for the per-frame loops: a body the level does not have is not looked
+-- up again for a second (the engine writes a log line for every lookup of a missing entity).
+Coop.absent = {}
+function Coop.squadEnt(name)
+  local now = Net.CoopTime()
+  if (Coop.absent[name] or 0) > now then return nil end
+  local e = Game.GetEntity(name)
+  if not e then Coop.absent[name] = now + 1 end
+  return e
+end
+
 local function split(s)
   local t = {}
   for part in string.gmatch(s, "([^|]*)|?") do
@@ -273,7 +284,7 @@ end
 function Coop.sendStates()
   if Coop.isHost() then
     for _, name in ipairs(Coop.SQUAD) do
-      local e = Game.GetEntity(name)
+      local e = Coop.squadEnt(name)
       if e and (not Coop.isRemoteOwned(name) or Coop.storyDriven[name]) then
         Net.CoopSend(-1, 0, Coop.stateOf(e))
       end
@@ -318,7 +329,7 @@ function Coop.drivePuppets(dt)
   -- NUDGE is the share of the error removed per 0.05 s; scale it to this frame's length.
   local nudge = 1 - (1 - Coop.NUDGE) ^ (math.min(dt, 0.25) / 0.05)
   for _, name in ipairs(Coop.SQUAD) do
-    local e = Game.GetEntity(name)
+    local e = Coop.squadEnt(name)
     local st = Coop.remote[name]
     if e and st and CoopTeam and Coop.isPuppet(name) then CoopTeam.syncPuppetLife(e, st) end
     if e and e.Life and e.Life > 0 then
@@ -372,8 +383,10 @@ function Coop.puppetLights()
   local scene = Scene and Scene.IsPlaying
   for _, name in ipairs(Coop.SQUAD) do
     local id = "CoopFlash" .. name
-    local light = Game.GetEntity(id)
-    local e = Game.GetEntity(name)
+    -- Looked up only once made (the engine logs every lookup of a missing entity).
+    Coop.flashLights = Coop.flashLights or {}
+    local light = Coop.flashLights[name] and Game.GetEntity(id)
+    local e = Coop.squadEnt(name)
     local st = Coop.remote[name]
     -- A split screen player's body (coop_split.lua) is driven here, its flashlight too.
     local p2 = CoopSplit and CoopSplit.on and CoopSplit.char == name
@@ -385,6 +398,7 @@ function Coop.puppetLights()
       local ang = va and V3D(va.x + 90, va.y, 0) or V3D((st.pitch or 0) + 90, st.yaw or 0, 0)
       if not light then
         light = PhysicsObj.CreateObj(id, "SpotLight", pos, ang, false)
+        Coop.flashLights[name] = true
         light.LightConeInner00 = 15
         light.LightConeOuter00 = 32
         light.LightRange00 = 1400
@@ -409,6 +423,7 @@ function Coop.puppetLights()
       end
     elseif light then
       light:Del()
+      Coop.flashLights[name] = nil
       Coop.log("flashlight of " .. name .. " off")
     end
   end
@@ -900,7 +915,7 @@ function Coop.report()
   Coop.errN, Coop.errSum, Coop.errMax = 0, 0, 0
   for _, name in ipairs(Coop.SQUAD) do
     local st = Coop.remote[name]
-    local e = Game.GetEntity(name)
+    local e = Coop.squadEnt(name)
     if st and e and Coop.isPuppet(name) then
       parts[#parts + 1] = name .. ":err=" .. string.format("%.0f", Coop.perr and Coop.perr[name] or -1) ..
                           ",act=" .. tostring(e.Action)

@@ -130,7 +130,7 @@ function H.update()
   -- camera here (Scorer.Get2DPos follows the camera being drawn, which alternates).
   local split = CoopSplit and CoopSplit.on and not CoopSplit.held
   for _, name in ipairs(Coop.SQUAD) do
-    local e = Game.GetEntity(name)
+    local e = Coop.squadEnt(name)
     for _, user in ipairs({0, 1}) do
       local shown = false
       if e and e.Life > 0 and (user == 0 or split) and H.wants(name, user) then
@@ -146,12 +146,6 @@ function H.update()
             -- Full view (coop_split.lua): the frame fills the middle half of the half's width.
             if x and not CoopSplit.wide() then
               x = (x > 0 and x < 640) and 160 + x * 0.5 or nil   -- off the picture: no plate on the bars
-            end
-            if Coop.cfg.dev and Coop.frame % 100 == 0 then
-              local c = Game.GetEntity(cam)
-              Coop.log(string.format("hud: plate %s user %d cam %s at %s,%s; cam pos %s ang %s; head %s", name, user,
-                tostring(cam), tostring(x), tostring(y), c and c.camPos and Coop.v3(c.camPos) or "-",
-                c and c.camAng and string.format("%.0f,%.0f", c.camAng.x, c.camAng.y) or "-", Coop.v3(head)))
             end
           else
             local camPos, fwd = cameraForward()

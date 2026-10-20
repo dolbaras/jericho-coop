@@ -1,6 +1,6 @@
 -- Local split screen in one game: a second player on this PC with gamepad 2.
 --
--- The engine kept the Scrapland split screen data (work/splitscreen-research.md): four
+-- The engine kept the Scrapland split screen data (docs/splitscreen-research.md): four
 -- users, a camera per user, a HUD per user drawn in the top and bottom halves
 -- (SplitScreen=1), and its input drives a body with UsrControl 1 from pad 2 (Joy2) by
 -- itself: walking, aiming, shooting, reloading, the squad selector. What it lost is the
@@ -64,7 +64,7 @@ function Sp.ensureFP(char)
   if not Game.GetEntity(name) and MakeFP and Act.GetClass("FP_" .. char) then
     MakeFP.MakeFPObject("FP_" .. char, 1)
   end
-  -- Its user: an FP model's hidden "id" (default 0) says whose it is (work/scrapland-engine-audit.md).
+  -- Its user: an FP model's hidden "id" (default 0) says whose it is (docs/scrapland-engine-audit.md).
   local fp = Game.GetEntity(name)
   if fp then fp.id = 1 end
   return name
@@ -241,13 +241,20 @@ end
 Sp.DOWN_WAIT = 2
 Sp.ORDER = {"Black", "Church", "Rawlings", "Jones", "Cole", "Delgado"}
 
--- A body player 2 may take: alive, in the level, free of players and of the story.
-function Sp.freeBody(except)
+-- A body player 2 may take: alive, in the level, free of players and of the story, and not
+-- player 1's (their seat's body too: player 1 may be a spirit waiting for it).
+function Sp.isPlayer1s(name)
   local usr0 = Game.UsrEntity(0)
+  return (usr0 and usr0.Name == name) or name == Coop.localChar() or name == cfg.char or name == cfg.seatChar
+end
+
+function Sp.freeBody(except)
+  -- Player 1 without a body (a spirit, coop_spirit.lua) gets the next free one first.
+  if CoopSpirit and CoopSpirit.active then return nil end
   for _, other in ipairs(Sp.ORDER) do
     local e = Game.GetEntity(other)
     if other ~= except and e and e.Life > 0 and e.bActive ~= false and e.Active ~= 0 and
-       (not usr0 or usr0.Name ~= other) and Coop.ownerOf(other) == nil and
+       not Sp.isPlayer1s(other) and Coop.ownerOf(other) == nil and
        not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) then
       return other
     end
@@ -301,6 +308,8 @@ function Sp.checkBody()
     if t then Sp.waiting = nil; Sp.takeBody(t) end
     return
   end
+  -- Scenes hide and deactivate the squad: no verdict while one plays.
+  if Scene and Scene.IsPlaying then return end
   -- Taken by the story (coop_story.lua: the same rule as for the other players); a tutorial
   -- lock on switching (Team.UnavaliablePlayers) does not move a player out of their seat.
   local gone = not b or b.bActive == false or b.Active == 0 or
@@ -336,7 +345,7 @@ function Sp.checkDown()
   if not hold and (not Team.isWithTheTeam or Team.isWithTheTeam()) then
     for _, other in ipairs(Sp.ORDER) do
       local e = Game.GetEntity(other)
-      if other ~= b.Name and e and e.Life > 0 and e.bActive ~= false and (not usr0 or usr0.Name ~= other) and
+      if other ~= b.Name and e and e.Life > 0 and e.bActive ~= false and not Sp.isPlayer1s(other) and
          Coop.ownerOf(other) == nil and not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) then
         Sp.downAt = nil
         Sp.takeBody(other, b.Name)

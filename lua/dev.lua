@@ -1067,7 +1067,7 @@ if cfg.lighttest and Coop.level ~= "levels/menu" then
 end
 
 -- 'splitprobe' (single game, in a level): what is left of the engine's own split screen
--- (work/splitscreen-research.md). Phases of 60 ticks from tick cfg.splitprobe:
+-- (docs/splitscreen-research.md). Phases of 60 ticks from tick cfg.splitprobe:
 --   1 SplitScreen=1; 2 + R_SplitScreen=1, camera index 0; 3 a second FCam "CoopCam1" on Black
 --   in user slot 1, camera index 1; 4 camera index switched every frame; 5 Black UsrControl=1
 --   (is it Game.UsrEntity(1)?); 6 all back.
