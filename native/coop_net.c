@@ -672,10 +672,11 @@ static int l_boot(lua_State *L)
 static int l_split(lua_State *L)
 {
     /* arg 2 (split screen session): 1 while a menu or scene is up (pads merged), 0 back in play,
-       -1 split screen over (pads as the game reads them). */
+       -1 split screen over (pads as the game reads them), 2 merged without holding back the
+       buttons held at the change. */
     if (lua_gettop(L) >= 2) {
         int p = lua_tointeger(L, 2);
-        display_hooks_pads_split(p >= 0, p == 1);
+        display_hooks_pads_split(p >= 0, p >= 1 ? p : 0);
     }
     lua_pushnumber(L, split_set(lua_tointeger(L, 1)));
     return 1;

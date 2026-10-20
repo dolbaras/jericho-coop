@@ -491,6 +491,18 @@ static DWORD test_pad(void *state)
             if (t >= seq[i].at && t < seq[i].at + 500) s->buttons = seq[i].b;
         return ERROR_SUCCESS;
     }
+    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '4') {
+        /* Powers, a 16 s cycle: LB held 0-3 s (right trigger 1-2 s), RB held 5-8 s (right
+           trigger 6-7 s), taps of LB at 10 s and RB at 12 s; the view turns slowly. */
+        DWORD t = (now - t0) % 16000;
+        if (t < 3000) s->buttons = 0x0100;
+        else if (t >= 5000 && t < 8000) s->buttons = 0x0200;
+        else if (t >= 10000 && t < 10300) s->buttons = 0x0100;
+        else if (t >= 12000 && t < 12300) s->buttons = 0x0200;
+        if ((t >= 1000 && t < 2000) || (t >= 6000 && t < 7000)) s->rt = 255;
+        s->rx = 6000;
+        return ERROR_SUCCESS;
+    }
     if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '2') {
         /* Every button in turn, 3 s each (pressed 1 s, then released): A B X Y LB RB LT RT
            dpad up/down/left/right, back, start, stick clicks; then 6 s of walking forward. */
@@ -603,8 +615,10 @@ static DWORD WINAPI pad_SetState(DWORD i, void *vib);
    as connected later. Off: as the game reads them. */
 void display_hooks_pads_split(int on, int merge)
 {
+    /* merge 2: no latch, the buttons held go on being held (player 2's astral projection is
+       held with the button that started it) */
     if ((on && merge) != pads_merge) {
-        latch[0] = latch[1] = -1;
+        latch[0] = latch[1] = merge == 2 ? 0 : -1;
         InterlockedExchange(&pads_merge, on && merge);
     }
     if (pads_env || !real_XInputGetState)

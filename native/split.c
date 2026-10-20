@@ -173,6 +173,19 @@ out:
 
 static UINT bbw, bbh;   /* back buffer size, read at every Present */
 
+/* Mode 2: a user's half viewport for the HUD shrunk to the picture in it (black sides), so the
+   HUD keeps the shape it has on the whole screen instead of being stretched over the bars. */
+static D3DVIEWPORT9 fit_vp(const D3DVIEWPORT9 *v)
+{
+    D3DVIEWPORT9 r = *v;
+    if (mode == 2 && bbw && bbh && v->X == 0 && v->Width == bbw && v->Height < bbh) {
+        DWORD w = (DWORD)((double)bbw * v->Height / bbh + 0.5);
+        r.X = (bbw - w) / 2;
+        r.Width = w;
+    }
+    return r;
+}
+
 static int vp_logged;   /* the first viewports after split mode is on, for diagnosis */
 static int trace_frames;   /* JERICHO_SPLITTRACE: log the HUD pass draws of a few frames */
 static int in_hud;         /* after the composite went back into the back buffer, until Present */
@@ -205,44 +218,188 @@ static void trace_draw(IDirect3DDevice9 *dev, const char *what, UINT count, cons
              cur_vp.X, cur_vp.Y, cur_vp.Width, cur_vp.Height, minx, maxx, miny, maxy);
 }
 
-static HRESULT WINAPI hook_DrawPrimitiveUP(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT n, const void *v, UINT stride)
+
+/* Mode 2: each user's HUD is laid out as on the whole screen over its picture (fit_vp), and
+   (hud_edges, default) what sits in its corners (weapons and ammo, squad, power icons, SMOD's
+   health) goes out to the black sides, next to the screen's edges, so only the crosshair,
+   messages and subtitles stay over the picture. The engine batches many HUD items in one draw,
+   so each HUD draw is repeated: once over the picture with the corners cut away (scissor), and
+   once per side, moved out by the side's width, cut to the corners. HUD units: 640x480. */
+static int hud_edges = 1;   /* JERICHO_SPLITHUD=0: the whole HUD over the picture */
+#define HUD_X_L 140
+#define HUD_X_R 500
+#define HUD_Y_T 110
+#define HUD_Y_B 330
+
+typedef struct {
+    int indexed;   /* 0 DrawPrimitive, 1 DrawIndexedPrimitive, 2 DrawPrimitiveUP, 3 DrawIndexedPrimitiveUP */
+    D3DPRIMITIVETYPE t;
+    INT base;
+    UINT start, n, mn, nv;
+    const void *v, *idx;
+    UINT stride;
+    D3DFORMAT ifmt;
+} hud_draw;
+
+static HRESULT do_draw(IDirect3DDevice9 *dev, const hud_draw *g)
 {
-    trace_draw(dev, "DrawPrimitiveUP", t == D3DPT_TRIANGLESTRIP || t == D3DPT_TRIANGLEFAN ? n + 2 : n * 3, v, stride);
-    return real_DrawPrimitiveUP(dev, t, n, v, stride);
+    switch (g->indexed) {
+    case 1: return real_DrawIndexedPrimitive(dev, g->t, g->base, g->mn, g->nv, g->start, g->n);
+    case 2: return real_DrawPrimitiveUP(dev, g->t, g->n, g->v, g->stride);
+    case 3: return real_DrawIndexedPrimitiveUP(dev, g->t, g->mn, g->nv, g->n, g->idx, g->ifmt, g->v, g->stride);
+    }
+    return real_DrawPrimitive(dev, g->t, g->start, g->n);
 }
 
-static HRESULT WINAPI hook_DrawIndexedPrimitiveUP(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT mn, UINT nv, UINT n,
-                                                  const void *idx, D3DFORMAT f, const void *v, UINT stride)
+static HRESULT draw_scissored(IDirect3DDevice9 *dev, const hud_draw *g, LONG l, LONG t, LONG r, LONG b)
 {
-    trace_draw(dev, "DrawIndexedPrimitiveUP", nv, v, stride);
-    return real_DrawIndexedPrimitiveUP(dev, t, mn, nv, n, idx, f, v, stride);
+    if (r <= l || b <= t)
+        return D3D_OK;
+    RECT rc = {l, t, r, b};
+    IDirect3DDevice9_SetScissorRect(dev, &rc);
+    return do_draw(dev, g);
+}
+
+/* A single quad (2 triangles) across most of the HUD: a fade or a full-screen overlay, drawn
+   as it is over the picture. Read from the vertex buffer (the position comes first). */
+static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
+{
+    if ((g->indexed != 0 && g->indexed != 2) || g->n != 2 ||
+        (g->t != D3DPT_TRIANGLELIST && g->t != D3DPT_TRIANGLESTRIP && g->t != D3DPT_TRIANGLEFAN))
+        return 0;
+    UINT nverts = g->t == D3DPT_TRIANGLELIST ? 6 : 4;
+    IDirect3DVertexBuffer9 *vb = NULL;
+    UINT off = 0, stride = g->stride;
+    const void *p = g->v;
+    if (g->indexed == 0) {
+        if (FAILED(IDirect3DDevice9_GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb)
+            return 0;
+        void *lp = NULL;
+        if (stride < 12 || FAILED(IDirect3DVertexBuffer9_Lock(vb, off + g->start * stride, nverts * stride, &lp,
+                                                               D3DLOCK_READONLY)))
+            lp = NULL;
+        p = lp;
+    }
+    DWORD fvf = 0;
+    IDirect3DDevice9_GetFVF(dev, &fvf);
+    int full = 0;
+    if (p && stride >= 12 && (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW) {
+        float minx = 1e9f, maxx = -1e9f;
+        for (UINT i = 0; i < nverts; i++) {
+            float x = *(const float *)((const char *)p + i * stride);
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+        }
+        full = maxx - minx > 0.6f * cur_vp.Width;
+    } else if (p && stride >= 12) {
+        D3DMATRIX w, v, pr;
+        IDirect3DDevice9_GetTransform(dev, D3DTS_WORLD, &w);
+        IDirect3DDevice9_GetTransform(dev, D3DTS_VIEW, &v);
+        IDirect3DDevice9_GetTransform(dev, D3DTS_PROJECTION, &pr);
+        const D3DMATRIX *m[3] = {&w, &v, &pr};
+        float minx = 1e9f, maxx = -1e9f;
+        for (UINT i = 0; i < nverts; i++) {
+            const float *q = (const float *)((const char *)p + i * stride);
+            float in[4] = {q[0], q[1], q[2], 1}, a[4];
+            for (int k = 0; k < 3; k++) {
+                for (int j = 0; j < 4; j++)
+                    a[j] = in[0] * m[k]->m[0][j] + in[1] * m[k]->m[1][j] + in[2] * m[k]->m[2][j] + in[3] * m[k]->m[3][j];
+                for (int j = 0; j < 4; j++)
+                    in[j] = a[j];
+            }
+            float x = in[3] != 0 ? in[0] / in[3] : in[0];
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+        }
+        full = maxx - minx > 1.2f;
+    }
+    if (vb) {
+        if (p) IDirect3DVertexBuffer9_Unlock(vb);
+        IDirect3DVertexBuffer9_Release(vb);
+    }
+    return full;
+}
+
+static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hud_draw *g)
+{
+    real_SetViewport(dev, pic);
+    if (!hud_edges || mode != 2 || is_overlay(dev, g))
+        return do_draw(dev, g);
+    DWORD sc = FALSE;
+    RECT old;
+    IDirect3DDevice9_GetRenderState(dev, D3DRS_SCISSORTESTENABLE, &sc);
+    IDirect3DDevice9_GetScissorRect(dev, &old);
+    IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, TRUE);
+    float sx = pic->Width / 640.0f, sy = pic->Height / 480.0f;
+    LONG left = (LONG)pic->X, right = (LONG)(pic->X + pic->Width), top = (LONG)pic->Y, bot = (LONG)(pic->Y + pic->Height);
+    LONG L = left + (LONG)(HUD_X_L * sx), R = left + (LONG)(HUD_X_R * sx);
+    LONG T = top + (LONG)(HUD_Y_T * sy), B = top + (LONG)(HUD_Y_B * sy);
+    /* over the picture: the middle band, and the top and bottom bands between the corners */
+    HRESULT hr = draw_scissored(dev, g, left, T, right, B);
+    draw_scissored(dev, g, L, top, R, T);
+    draw_scissored(dev, g, L, B, R, bot);
+    /* the left corners at the screen's left edge */
+    D3DVIEWPORT9 v = *pic;
+    LONG dl = left;
+    v.X = 0;
+    real_SetViewport(dev, &v);
+    draw_scissored(dev, g, 0, top, L - dl, T);
+    draw_scissored(dev, g, 0, B, L - dl, bot);
+    /* the right corners at the right edge */
+    LONG dr = (LONG)bbw - right;
+    v.X = pic->X + dr;
+    real_SetViewport(dev, &v);
+    draw_scissored(dev, g, R + dr, top, (LONG)bbw, T);
+    draw_scissored(dev, g, R + dr, B, (LONG)bbw, bot);
+    IDirect3DDevice9_SetScissorRect(dev, &old);
+    IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, sc);
+    return hr;
+}
+
+/* The picture viewport a HUD draw goes to (0: not a user's HUD draw). After both users'
+   HUDs, on the whole screen: the power icons of both users in one list (two quads each),
+   placed in whole-screen space; user 0's come first thing in user 1's pass. */
+static int hud_target(const hud_draw *g, D3DVIEWPORT9 *out)
+{
+    if (!mode || !in_hud)
+        return 0;
+    DWORD mid = (bbh + 1) / 2;
+    D3DVIEWPORT9 top = cur_vp, bottom = cur_vp;
+    top.X = 0; top.Width = bbw; top.Y = 0; top.Height = mid;
+    bottom.X = 0; bottom.Width = bbw; bottom.Y = mid; bottom.Height = bbh - mid;
+    /* two quads per icon, plus one when a power glows (trace: 8 or 10 triangles) */
+    int icons = !g->indexed && g->t == D3DPT_TRIANGLELIST && g->n >= 4 && g->n <= 16 && g->n % 2 == 0;
+    if (icons_mode == 4 && icons && hud_halves >= 2) {
+        if (cur_vp.Y == mid && bottom_draws++ == 0) { *out = fit_vp(&top); return 1; }
+        if (cur_vp.Y == 0 && cur_vp.Height == bbh && cur_vp.Width == bbw) { *out = fit_vp(&bottom); return 1; }
+    }
+    if (mode == 2 && cur_vp.X == 0 && cur_vp.Width == bbw && cur_vp.Height < bbh) {
+        *out = fit_vp(&cur_vp);
+        return 1;
+    }
+    return 0;
+}
+
+static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g)
+{
+    D3DVIEWPORT9 pic;
+    if (!hud_target(g, &pic))
+        return do_draw(dev, g);
+    if (mode == 1) {   /* wide halves: the icons into their half, as drawn */
+        real_SetViewport(dev, &pic);
+        HRESULT hr = do_draw(dev, g);
+        real_SetViewport(dev, &cur_vp);
+        return hr;
+    }
+    HRESULT hr = draw_hud(dev, &pic, g);
+    D3DVIEWPORT9 back = fit_vp(&cur_vp);
+    real_SetViewport(dev, &back);
+    return hr;
 }
 
 static HRESULT WINAPI hook_DrawPrimitive(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT start, UINT n)
 {
     trace_draw(dev, "DrawPrimitive", n, NULL, 0);
-    /* After both users' HUDs, on the whole screen: the power icons of both users in one list
-       (two quads each), placed in whole-screen space. Each user's pair goes to its half. */
-    /* Icon lists: pairs of quads (a fade or a single sprite is 2 triangles and stays as it is). */
-    int icons = t == D3DPT_TRIANGLELIST && n >= 4 && n <= 16 && n % 4 == 0;
-    if (mode && in_hud && icons_mode == 4 && icons) {
-        D3DVIEWPORT9 top = cur_vp, bottom = cur_vp;
-        DWORD mid = (bbh + 1) / 2;
-        top.Y = 0; top.Height = mid; bottom.Y = mid; bottom.Height = bbh - mid;
-        if (hud_halves >= 2 && cur_vp.Y == mid && bottom_draws++ == 0) {
-            /* user 0's icons, drawn late, in user 1's pass */
-            real_SetViewport(dev, &top);
-            HRESULT hr = real_DrawPrimitive(dev, t, start, n);
-            real_SetViewport(dev, &cur_vp);
-            return hr;
-        }
-        if (hud_halves >= 2 && cur_vp.Y == 0 && cur_vp.Height == bbh) {
-            real_SetViewport(dev, &bottom);
-            HRESULT hr = real_DrawPrimitive(dev, t, start, n);
-            real_SetViewport(dev, &cur_vp);
-            return hr;
-        }
-    }
     if (mode && in_hud && hud_halves >= 2 && icons_mode > 0 && icons_mode < 4 && t == D3DPT_TRIANGLELIST && n >= 4 &&
         n % 4 == 0 && cur_vp.Height == bbh) {
         if (icons_mode == 1)
@@ -260,14 +417,31 @@ static HRESULT WINAPI hook_DrawPrimitive(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE
         real_SetViewport(dev, &full);
         return hr;
     }
-    return real_DrawPrimitive(dev, t, start, n);
+    hud_draw g = {0, t, 0, start, n, 0, 0, NULL, NULL, 0, D3DFMT_UNKNOWN};
+    return hud_or_plain(dev, &g);
 }
 
 static HRESULT WINAPI hook_DrawIndexedPrimitive(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, INT base, UINT mn, UINT nv,
                                                 UINT si, UINT n)
 {
     trace_draw(dev, "DrawIndexedPrimitive", nv, NULL, 0);
-    return real_DrawIndexedPrimitive(dev, t, base, mn, nv, si, n);
+    hud_draw g = {1, t, base, si, n, mn, nv, NULL, NULL, 0, D3DFMT_UNKNOWN};
+    return hud_or_plain(dev, &g);
+}
+
+static HRESULT WINAPI hook_DrawPrimitiveUP(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT n, const void *v, UINT stride)
+{
+    trace_draw(dev, "DrawPrimitiveUP", t == D3DPT_TRIANGLESTRIP || t == D3DPT_TRIANGLEFAN ? n + 2 : n * 3, v, stride);
+    hud_draw g = {2, t, 0, 0, n, 0, 0, v, NULL, stride, D3DFMT_UNKNOWN};
+    return hud_or_plain(dev, &g);
+}
+
+static HRESULT WINAPI hook_DrawIndexedPrimitiveUP(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT mn, UINT nv, UINT n,
+                                                  const void *idx, D3DFORMAT f, const void *v, UINT stride)
+{
+    trace_draw(dev, "DrawIndexedPrimitiveUP", nv, v, stride);
+    hud_draw g = {3, t, 0, 0, n, mn, nv, v, idx, stride, f};
+    return hud_or_plain(dev, &g);
 }
 
 static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *vp)
@@ -298,11 +472,28 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
         if (trace_frames > 0)
             coop_log("split trace: ---- HUD pass, cam %ld", (long)cam);
     }
+    if (mode == 2 && in_hud && vp) {
+        D3DVIEWPORT9 f = fit_vp(vp);
+        return real_SetViewport(dev, &f);
+    }
     return real_SetViewport(dev, vp);
 }
 
+/* Frames drawn without a Lua update before them (the per-view state set in Lua would be the
+   other view's): counted for the log. */
+static volatile LONG lua_calls;
+static long presents, missed, doubled;
+
 static HRESULT WINAPI hook_Present(IDirect3DDevice9 *dev, const RECT *s, const RECT *d, HWND w, const RGNDATA *r)
 {
+    if (mode) {
+        LONG c = InterlockedExchange(&lua_calls, 0);
+        presents++;
+        if (c == 0) missed++;
+        if (c > 1) doubled++;
+        if (presents % 600 == 0)
+            coop_log("split: %ld frames, %ld without a Lua update, %ld with several", presents, missed, doubled);
+    }
     if (in_hud && trace_frames > 0)
         trace_frames--;
     in_hud = 0;
@@ -357,18 +548,19 @@ void split_on_device(IDirect3DDevice9 *dev)
     char v[16];
     icons_mode = GetEnvironmentVariableA("JERICHO_SPLITICONS", v, sizeof v) > 0 ? atoi(v) : 4;
     real_DrawPrimitive = (DrawPrimitive_t)patch(vt, VT_DRAWPRIMITIVE, (void *)hook_DrawPrimitive);
+    real_DrawIndexedPrimitive = (DrawIndexedPrimitive_t)patch(vt, VT_DRAWINDEXEDPRIMITIVE, (void *)hook_DrawIndexedPrimitive);
+    hud_edges = GetEnvironmentVariableA("JERICHO_SPLITHUD", v, sizeof v) > 0 ? atoi(v) : 1;
+    real_DrawPrimitiveUP = (DrawPrimitiveUP_t)patch(vt, VT_DRAWPRIMITIVEUP, (void *)hook_DrawPrimitiveUP);
+    real_DrawIndexedPrimitiveUP = (DrawIndexedPrimitiveUP_t)patch(vt, VT_DRAWINDEXEDPRIMITIVEUP,
+                                                                  (void *)hook_DrawIndexedPrimitiveUP);
     if (GetEnvironmentVariableA("JERICHO_SPLITTRACE", v, sizeof v) > 0) {
         trace_frames = atoi(v);
-        real_DrawPrimitiveUP = (DrawPrimitiveUP_t)patch(vt, VT_DRAWPRIMITIVEUP, (void *)hook_DrawPrimitiveUP);
-        real_DrawIndexedPrimitiveUP = (DrawIndexedPrimitiveUP_t)patch(vt, VT_DRAWINDEXEDPRIMITIVEUP,
-                                                                      (void *)hook_DrawIndexedPrimitiveUP);
-        real_DrawIndexedPrimitive = (DrawIndexedPrimitive_t)patch(vt, VT_DRAWINDEXEDPRIMITIVE,
-                                                                  (void *)hook_DrawIndexedPrimitive);
     }
 }
 
 int split_set(int m)
 {
+    InterlockedIncrement(&lua_calls);
     if (m != mode)
         coop_log("split: mode %d", m);
     if (m && !mode)

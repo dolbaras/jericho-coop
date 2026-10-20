@@ -135,18 +135,18 @@ function H.update()
       local shown = false
       if e and e.Life > 0 and (user == 0 or split) and H.wants(name, user) then
         local head = H.headPos(e)
-        local cam = Game.GetCam(user)
+        local cam = CoopSplit and CoopSplit.camOf and CoopSplit.camOf(user) or Game.GetCam(user)
         local camE = cam and Game.GetEntity(cam)
         local d = camE and camE.camPos and (head - camE.camPos)
         local dist = d and math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
         if dist and dist < H.MAX_DIST then
           local x, y
           if split then
+            -- Full view (coop_split.lua): split.c draws each HUD over its picture only, so
+            -- the HUD space is the picture's, as on the whole screen.
             x, y = H.project(cam, head)
-            -- Full view (coop_split.lua): the frame fills the middle half of the half's width.
-            if x and not CoopSplit.wide() then
-              x = (x > 0 and x < 640) and 160 + x * 0.5 or nil   -- off the picture: no plate on the bars
-            end
+            -- The HUD's corners are drawn out on the black sides (split.c): no plate there.
+            if x and y and not CoopSplit.wide() and (x < 140 or x > 500) and (y < 110 or y > 330) then x = nil end
           else
             local camPos, fwd = cameraForward()
             local dd = head - camPos

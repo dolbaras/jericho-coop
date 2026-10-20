@@ -18,7 +18,7 @@ end
 S.CAM = "CoopPOVCam"
 S.FOCUS_TAU = 0.2         -- smoothing of the shared focus point
 S.FOCUS_RANGE = 6000      -- view ray length for the focus
-S.FOCUS_DEFAULT = 1500    -- focus distance when the ray hits nothing
+S.FOCUS_DEFAULT = 5000    -- focus distance when the ray hits nothing (far: the same direction)
 S.FOCUS_MIN = 150
 
 function S.headNode(char)
@@ -281,6 +281,10 @@ function S.actorHead(info)
   local node = S.headCache[info[2]]
   if node == nil then
     local tries = {"NodePosHierarchy_" .. S.headNode(info[3] or "")}
+    -- The class names its head bone (Centurion: "Bip Centurian Head").
+    local ok, ac = pcall(Act.GetClass, info[3] or "")
+    local n0 = ok and ac and ac.Node0Name
+    if type(n0) == "string" and string.find(n0, "Head") then tries[#tries + 1] = "NodePosHierarchy_" .. n0 end
     for _, n in ipairs(S.HEAD_NODES) do tries[#tries + 1] = "NodePosHierarchy_" .. string.format(n, info[3] or "") end
     for _, k in ipairs(tries) do
       local ok, v = pcall(function() return e[k] end)

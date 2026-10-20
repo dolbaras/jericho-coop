@@ -1303,3 +1303,39 @@ if cfg.headprobe and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'inputprobe' (in a level): the input bindings of users 0 and 1 for the astral camera.
+if cfg.inputprobe and Coop.level ~= "levels/menu" then
+  local prevIp = Coop.dev
+  function Coop.dev()
+    if prevIp then prevIp() end
+    if Coop.frame ~= cfg.inputprobe then return end
+    for u = 0, 1 do
+      for _, sa in ipairs({{"Walk", "Special"}, {"Walk", "SpecialPlus"}, {"Walk", "PC_Up"}, {"Walk", "Fire"},
+                           {"Astral", "Return"}, {"Astral", "GoTo"}, {"Astral", "MoveUp"}, {"Astral", "Fire"}}) do
+        local ok, l = pcall(Input.GetDefinedList, u, sa[1], sa[2])
+        Coop.log(string.format("inputprobe: user %d %s.%s = %s", u, sa[1], sa[2], tostring(ok and l or ("err " .. tostring(l)))))
+      end
+    end
+  end
+end
+
+-- 'astrallog' (in a level): log the astral camera's callbacks and the action set (vanilla timing).
+if cfg.astrallog and Coop.level ~= "levels/menu" then
+  local prevAl = Coop.dev
+  function Coop.dev()
+    if prevAl then prevAl() end
+    if not Coop.astralHooked and AstralCamera then
+      Coop.astralHooked = true
+      for _, k in ipairs({"Start", "EndReturn", "InmediateReturn", "InitReturn", "SetFirstPerson", "InitProjection",
+                          "EndProjection", "InitZoom", "EndZoom"}) do
+        local f = AstralCamera[k]
+        if type(f) == "function" then
+          AstralCamera[k] = function(...) Coop.log("astrallog: " .. k .. " set=" .. tostring(Input.GetActionSet())) return f(...) end
+        end
+      end
+    end
+    local set = Input.GetActionSet()
+    if set ~= Coop.astralSet then Coop.astralSet = set; Coop.log("astrallog: action set " .. tostring(set)) end
+  end
+end
