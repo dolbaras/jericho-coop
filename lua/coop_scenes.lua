@@ -155,6 +155,7 @@ function S.stop(ending)
   S.speaking, S.lastSpeaker, S.lastCamPos = nil, nil, nil
   S.lean, S.leanWant, S.leanNext = nil, nil, nil
   S.fallback, S.blockedFor, S.clearFor, S.blockFrames = nil, nil, nil, nil
+  S.peopleAt, S.peopleT, S.leanHoldUntil = nil, nil, nil
   -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
   -- deleted, as EndOfScene does with the main camera, or the engine asserts on the node's
   -- references (objref.h "!Refs").
@@ -486,9 +487,21 @@ function S.updateFocus(dt, p, dir)
     target = hit or (p + V3D(dir.x * S.FOCUS_DEFAULT, dir.y * S.FOCUS_DEFAULT, dir.z * S.FOCUS_DEFAULT))
   end
   S.focusActor = mine and "self" or (head and (kind or "actor")) or "world"
+  -- A shot of nothing in particular (the scene camera's ray ends on the floor or a wall)
+  -- right after people were looked at: the eyes stay with those people a while instead of
+  -- swinging to the floor and back (scene audit 0.2.1: 18, 40 degrees to and fro).
+  local now = Game.GetTime()
+  if S.focusActor == "world" then
+    if S.peopleAt and now - S.peopleT < S.PEOPLE_HOLD then
+      target, S.focusActor = S.peopleAt, "held"
+    end
+  elseif S.focusActor ~= "self" then
+    S.peopleAt, S.peopleT = target, now
+  end
   S.focus = lowpass(S.focus, target, S.FOCUS_TAU, dt)
   return S.focus
 end
+S.PEOPLE_HOLD = 5
 
 -- The vanilla scene camera is directed (it pans to what matters). Other players see that
 -- direction from their own character's eyes: the eye is the head of their character's scene

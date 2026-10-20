@@ -100,7 +100,7 @@ SS.TEXT = {
 
 -- The line's own messages, in a block of their own under the top of the screen (the game's
 -- message line is shared with the split's hints: two texts ran over each other in G4).
-SS.SAY_Y = 140
+SS.SAY_Y = 330   -- under the crosshair: the squad wheel takes the middle above it
 function SS.say(text, secs)
   Coop.textBlock("StorySolo", text, {y = SS.SAY_Y, color = Color(210, 225, 255, 255)})
   SS.sayUntil = Game.GetTime() + (secs or 8)
@@ -136,7 +136,10 @@ SS.LINES = {
     {after = 70, call = "MapCallbacks.AreaTriggerDelgadoCae_0", args = {"AreaTriggerDelgadoCae", 0}, say = "s_drop", last = true},
   }},
   G1C = {level = "Alk_City", char = "Jones", spawn = 0, steps = {
-    {after = 90, call = "MapCallbacks.AreaTrigger_3", args = {"AreaTrigger_3", 0}, say = "s_omega"},
+    -- (the pocket's first wave: co-op starts it when the level hides Alpha, which a line
+    -- started as Jones skips)
+    {after = 8, call = "CoopSplits.G1Cwave", args = {1}},
+    {after = 82, call = "MapCallbacks.AreaTrigger_3", args = {"AreaTrigger_3", 0}, say = "s_omega"},
     {after = 80, call = "MapCallbacks.AreaTrigger49_0", args = {"AreaTrigger49", 0}},
     {after = 70, call = "MapCallbacks.AreaTrigger133_0", args = {"AreaTrigger133", 0}, say = "s_omeganear"},
     {after = 40, call = "CoopStorySolo.G1Cthrough", say = "s_omegain", last = true},

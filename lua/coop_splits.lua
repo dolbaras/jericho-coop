@@ -853,6 +853,9 @@ function Sp.G3afterRestore()
     e = Game.GetEntity(e.NextInSlot)
   end
   local since = Game.GetTime() - g.restoredAt
+  if cfg.dev and Coop.frame % 300 == 0 then
+    Coop.log("split G3: after the restoration, " .. alive .. " alive, list left " .. tostring(left))
+  end
   if (alive == 0 and since > 5) or (left == 0 and since > 20) then
     g.ended = true
     Coop.log("split G3: ambush down (list left " .. tostring(left) .. "), the level goes on")

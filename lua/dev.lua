@@ -89,10 +89,26 @@ function Coop.botGuard()
   if usr.Life < 50 then usr.Life = 100 end
   -- G3: the hacker's place is at the console.
   local g3 = CoopSplits and CoopSplits.G3
-  if g3 and g3.hacking and MapInit.ColePos and not Coop.guardAtConsole then
-    Coop.guardAtConsole = true
-    usr.Pos = MapInit.ColePos
-    Coop.log("guard: at the console")
+  local atConsole = g3 and g3.hacking and MapInit.ColePos
+  if atConsole then
+    local d = usr.Pos - MapInit.ColePos
+    if d.x * d.x + d.z * d.z > 100 * 100 then
+      usr.Pos = MapInit.ColePos
+      if not Coop.guardAtConsole then Coop.log("guard: at the console") end
+      Coop.guardAtConsole = true
+    end
+  end
+  -- A downed squad member is revived (a player would walk over and press use), not while
+  -- the console needs this player.
+  if not atConsole and Coop.frame % 90 == 0 and Team and Team.CurePlayer then
+    for _, name in ipairs(Coop.SQUAD) do
+      local m = Game.GetEntity(name)
+      if m and m ~= usr and m.bActive and (m.Life or 1) <= 0 and Team.CanCure(m) then
+        usr.Pos = m.Pos + V3D(80, 0, 0)
+        Coop.log("guard: revives " .. name .. ": " .. tostring(Team.CurePlayer(usr, m)))
+        break
+      end
+    end
   end
   local p, best, bestD = usr.Pos, nil, nil
   local e = Game.GetFirst()
