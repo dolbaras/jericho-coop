@@ -164,10 +164,32 @@ function Coop.ownerOf(name)
   return Coop.owners[name]
 end
 
+-- A second player on the same PC (split screen, coop_split.lua) is an owner of its own:
+-- the machine's peer id + P2, so every owner still holds one body.
+Coop.P2 = 8
+
+-- The machine (peer) an owner id plays on.
+function Coop.peerOf(owner)
+  if owner and owner >= Coop.P2 then return owner - Coop.P2 end
+  return owner
+end
+
+-- Owners that play on this machine: its player, and its split screen player.
+function Coop.isMine(owner)
+  return owner ~= nil and Coop.myId() ~= nil and Coop.peerOf(owner) == Coop.myId()
+end
+
 -- True when another human controls this body.
 function Coop.isRemoteOwned(name)
   local o = Coop.owners[name]
-  return o ~= nil and o ~= Coop.myId()
+  return o ~= nil and not Coop.isMine(o)
+end
+
+-- Bodies the players of this machine control (user 0, and user 1 in split screen).
+function Coop.isLocalPlayer(name)
+  if name == nil then return false end
+  if name == Coop.localChar() then return true end
+  return CoopSplit ~= nil and CoopSplit.on and CoopSplit.char == name
 end
 
 function Coop.ownString()
@@ -242,6 +264,7 @@ function Coop.stateOf(e)
   -- The flashlight is the player's own (one camera light per game): on while its timer runs.
   local usr = Game.UsrEntity(0)
   local flash = usr and usr.Name == e.Name and (tonumber(Game.Get("FPSFlashLightTimeOn")) or 0) > 0
+  if CoopSplit and CoopSplit.on and CoopSplit.char == e.Name then flash = CoopSplit.flash end
   return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0)
@@ -264,6 +287,8 @@ function Coop.sendStates()
   else
     local usr = Game.UsrEntity(0)
     if usr and not Coop.storyDriven[usr.Name] then Net.CoopSend(0, 0, Coop.stateOf(usr)) end
+    local p2 = CoopSplit and CoopSplit.on and CoopSplit.body()
+    if p2 then Net.CoopSend(0, 0, Coop.stateOf(p2)) end
   end
 end
 
@@ -275,7 +300,7 @@ end
 function Coop.isPuppet(name)
   -- A story walk (coop_story.lua): the host's AI walks the body, everyone else follows it.
   if Coop.storyDriven and Coop.storyDriven[name] then return not Coop.isHost() end
-  if name == Coop.localChar() then return false end
+  if Coop.isLocalPlayer(name) then return false end
   if Coop.isHost() then return Coop.isRemoteOwned(name) end
   return Coop.isClient() and cfg.myId ~= nil
 end
@@ -350,10 +375,14 @@ function Coop.puppetLights()
     local light = Game.GetEntity(id)
     local e = Game.GetEntity(name)
     local st = Coop.remote[name]
-    local on = not scene and e and st and st.flash and e.Life > 0 and Coop.isPuppet(name)
+    -- A split screen player's body (coop_split.lua) is driven here, its flashlight too.
+    local p2 = CoopSplit and CoopSplit.on and CoopSplit.char == name
+    local on = not scene and e and e.Life > 0 and
+               (p2 and CoopSplit.flash or (st and st.flash and Coop.isPuppet(name)))
     if on then
       local pos = e[Coop.FLASH_NODE] or (e.Pos + V3D(0, 150, 0))
-      local ang = V3D((st.pitch or 0) + 90, st.yaw or 0, 0)
+      local va = p2 and e.ViewAng
+      local ang = va and V3D(va.x + 90, va.y, 0) or V3D((st.pitch or 0) + 90, st.yaw or 0, 0)
       if not light then
         light = PhysicsObj.CreateObj(id, "SpotLight", pos, ang, false)
         light.LightConeInner00 = 15
@@ -406,7 +435,7 @@ function Coop.onMessage(peer, data)
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
     local owner = Coop.owners[name]
-    if Coop.isHost() and owner ~= peer then return end
+    if Coop.isHost() and Coop.peerOf(owner) ~= peer then return end
     Coop.remote[name] = {
       x = tonumber(f[3]), y = tonumber(f[4]), z = tonumber(f[5]),
       yaw = tonumber(f[6]), pitch = tonumber(f[7]),
@@ -418,7 +447,7 @@ function Coop.onMessage(peer, data)
     -- Another player jumped (SMOD's jump, coop_smod.lua): the same push for their body here.
     local name = f[2]
     if Coop.isHost() then
-      if Coop.owners[name] ~= peer then return end
+      if Coop.peerOf(Coop.owners[name]) ~= peer then return end
       Net.CoopSend(-1, 1, data)
     end
     local e = Game.GetEntity(name)
@@ -456,6 +485,17 @@ function Coop.onMessage(peer, data)
         if p == peer then Coop.owners[n] = nil end
       end
       Coop.owners[name] = peer
+      Coop.broadcastOwners()
+    end
+  elseif kind == "claim2" and Coop.isHost() then
+    -- A client's split screen player (coop_split.lua) holds this body now ("" none).
+    local name, id = f[2] or "", peer + Coop.P2
+    local unav = name ~= "" and CoopStory and CoopStory.taken and CoopStory.taken(name)
+    if not unav and (name == "" or not Coop.isRemoteOwned(name) or Coop.owners[name] == id) then
+      for n, p in pairs(Coop.owners) do
+        if p == id then Coop.owners[n] = nil end
+      end
+      if name ~= "" then Coop.owners[name] = id end
       Coop.broadcastOwners()
     end
   elseif kind == "welcome" and Coop.isClient() then
@@ -718,6 +758,13 @@ end
 
 function Coop.frameUpdate(now, dt)
   if Coop.devFrame then pcall(Coop.devFrame, dt) end
+  if CoopSplit and CoopSplit.on then
+    local ok, err = pcall(CoopSplit.frame)
+    if not ok and (Coop.splitErrors or 0) < 5 then
+      Coop.splitErrors = (Coop.splitErrors or 0) + 1
+      Coop.log("split error: " .. tostring(err))
+    end
+  end
   if Coop.inSession() then
     Coop.drivePuppets(dt)
     local ok, err = pcall(Coop.puppetLights)
@@ -754,6 +801,10 @@ end
 
 function Coop.update()
   Coop.frame = Coop.frame + 1
+  if CoopSplit and not CoopSplit.on and Coop.frame >= 10 then
+    local ok, err = pcall(CoopSplit.autoStart)
+    if not ok then Coop.log("split start error: " .. tostring(err)) end
+  end
   -- SMOD (autoexec.lua, re-run every level) slows the whole world while the squad menu is
   -- open: in a session that would slow one machine only.
   -- Lobby option: QTEs pass by themselves on every machine (the game's own QTEMode 2; its
@@ -923,6 +974,9 @@ end
 do
   local ok, err = pcall(dofile, COOP_DIR .. "coop_smod.lua")
   if not ok then Coop.log("smod load error: " .. tostring(err)) end
+  -- Split screen in one game: off at every load, on again in a level with a player 2.
+  ok, err = pcall(dofile, COOP_DIR .. "coop_split.lua")
+  if not ok then Coop.log("split load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.

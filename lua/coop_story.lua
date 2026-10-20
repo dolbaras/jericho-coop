@@ -450,7 +450,7 @@ function St.evictCheck()
       local target = St.freeBody(name)
       if target then Coop.owners[target] = peer end
       Coop.broadcastOwners()
-      Net.CoopSend(peer, 1, "evict|" .. name .. "|" .. (target or ""))
+      Net.CoopSend(Coop.peerOf(peer), 1, "evict|" .. name .. "|" .. (target or ""))
       Coop.log("story: " .. name .. " is taken by the story; peer " .. peer .. " -> " .. tostring(target))
     end
   end
@@ -458,6 +458,11 @@ end
 
 function St.onEvict(f)
   local name, target = f[2], f[3]
+  -- This machine's split screen player (coop_split.lua).
+  if CoopSplit and CoopSplit.on and CoopSplit.char == name then
+    CoopSplit.moveOut(target ~= "" and target or nil)
+    return
+  end
   if Coop.localChar() ~= name then return end
   Coop.log("story: the story takes " .. name .. ", moving to " .. (target ~= "" and target or "spirit"))
   if target and target ~= "" and Team and Team.SwitchSoldier then

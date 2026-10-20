@@ -28,6 +28,7 @@
 
 #include "coop_net.h"
 #include "display_hooks.h"
+#include "split.h"
 #include "capture.h"
 
 static int win_x, win_y, have_winpos, run_in_background;
@@ -439,8 +440,10 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
         hr = real_CreateDevice(d3d, adapter, type, focus, flags, pp, out);
         coop_log("CreateDevice fallback to %u hr=0x%08lx", adapter, (unsigned long)hr);
     }
-    if (SUCCEEDED(hr) && out)
+    if (SUCCEEDED(hr) && out) {
         capture_on_device(*out);
+        split_on_device(*out);   /* after capture: the split hooks wrap the recording */
+    }
     return hr;
 }
 
@@ -461,16 +464,172 @@ typedef DWORD (WINAPI *XInputSetState_t)(DWORD, void *);
 static XInputGetState_t real_XInputGetState;
 static XInputSetState_t real_XInputSetState;
 
+/* Test pad (pad number 9 in JERICHO_PADS): a connected XInput pad that runs a fixed
+ * pattern, 4 s each: left stick forward, right trigger, right stick right, A, idle. For
+ * tests without a physical pad (XINPUT_STATE: packet, buttons, LT, RT, LX, LY, RX, RY). */
+#pragma pack(push, 1)
+typedef struct { DWORD packet; WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } test_pad_state;
+#pragma pack(pop)
+
+static DWORD test_pad(void *state)
+{
+    static DWORD t0;
+    test_pad_state *s = (test_pad_state *)state;
+    DWORD now = GetTickCount();
+    if (!t0)
+        t0 = now;
+    memset(s, 0, sizeof *s);
+    s->packet = now / 16;
+    char v[8];
+    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '3') {
+        /* Menus from pad 2: Back (help) at 3 s, B at 9 s; Start (pause) at 15 s, B at 21 s,
+           Start at 27 s, dpad down at 30 s, A at 33 s; each press 0.5 s. */
+        static const struct { DWORD at; WORD b; } seq[] = {{3000, 0x0020}, {9000, 0x2000}, {15000, 0x0010},
+            {21000, 0x2000}, {27000, 0x0010}, {30000, 0x0002}, {33000, 0x1000}};
+        DWORD t = now - t0;
+        for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++)
+            if (t >= seq[i].at && t < seq[i].at + 500) s->buttons = seq[i].b;
+        return ERROR_SUCCESS;
+    }
+    if (GetEnvironmentVariableA("JERICHO_TESTPAD", v, sizeof v) > 0 && v[0] == '2') {
+        /* Every button in turn, 3 s each (pressed 1 s, then released): A B X Y LB RB LT RT
+           dpad up/down/left/right, back, start, stick clicks; then 6 s of walking forward. */
+        static const WORD buttons[] = {0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0, 0,
+                                       0x0001, 0x0002, 0x0004, 0x0008, 0x0020, 0x0010, 0x0040, 0x0080};
+        DWORD t = (now - t0) / 1000, n = sizeof buttons / sizeof buttons[0], step = (t / 3) % (n + 2);
+        int pressed = t % 3 == 0;
+        if (step < n && pressed) {
+            s->buttons = buttons[step];
+            if (step == 6) s->lt = 255;
+            if (step == 7) s->rt = 255;
+        } else if (step >= n) {
+            s->ly = 30000;
+        }
+        return ERROR_SUCCESS;
+    }
+    DWORD ph = ((now - t0) / 4000) % 5;
+    if (ph == 0) s->ly = 30000;
+    else if (ph == 1) s->rt = 255;
+    else if (ph == 2) s->rx = 20000;
+    else if (ph == 3) s->buttons = 0x1000;   /* A */
+    return ERROR_SUCCESS;
+}
+
+static DWORD read_pad(int phys, void *state)
+{
+    if (phys < 0)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    if (phys == 9)
+        return test_pad(state);
+    return real_XInputGetState((DWORD)phys, state);
+}
+
+/* Split screen in one game (split.c): pads_merge while a menu or a scene is up, where the
+   game reads only its pad 0: both players' pads act as pad 0 then, pad 1 rests. */
+static volatile LONG pads_merge;
+static int pads_env;   /* JERICHO_PADS given: the map is the test's, not automatic */
+/* Buttons held when the merge changes (the press that opened or closed the menu): kept from
+   the game until released, or it would see them as new presses on the other pad. Bit 16/17:
+   left/right trigger. */
+static volatile LONG latch[2] = {-1, -1};   /* -1: take what is held at the next read */
+
+static DWORD held_bits(const void *state)
+{
+    const BYTE *b = (const BYTE *)state;
+    WORD buttons = *(const WORD *)(b + 4);
+    return buttons | (b[6] > 30 ? 0x10000 : 0) | (b[7] > 30 ? 0x20000 : 0);
+}
+
+static void apply_latch(int v, void *state)
+{
+    BYTE *b = (BYTE *)state;
+    DWORD held = held_bits(state);
+    LONG l = latch[v];
+    if (l == -1) l = (LONG)held;
+    l &= (LONG)held;   /* released: free again */
+    latch[v] = l;
+    *(WORD *)(b + 4) &= (WORD)~l;
+    if (l & 0x10000) b[6] = 0;
+    if (l & 0x20000) b[7] = 0;
+}
+
+static DWORD pad_merged(void *state);
+
 static DWORD WINAPI pad_GetState(DWORD i, void *state)
 {
-    if (i >= 4 || pad_map[i] < 0)
+    if (i >= 4)
         return ERROR_DEVICE_NOT_CONNECTED;
-    return real_XInputGetState((DWORD)pad_map[i], state);
+    if (pads_merge && (i == 0 || i == 1)) {
+        test_pad_state *s = (test_pad_state *)state;
+        if (i == 1) {
+            DWORD r = read_pad(pad_map[1], state);
+            if (r == ERROR_SUCCESS) { DWORD pk = s->packet; memset(s, 0, sizeof *s); s->packet = pk; }
+            return r;
+        }
+        DWORD r0 = pad_merged(state);
+        if (r0 == ERROR_SUCCESS) apply_latch(0, state);
+        return r0;
+    }
+    DWORD r = read_pad(pad_map[i], state);
+    if (r == ERROR_SUCCESS && i < 2 && latch[i] != 0) apply_latch((int)i, state);
+    return r;
+}
+
+static DWORD pad_merged(void *state)
+{
+    {
+        test_pad_state *s = (test_pad_state *)state;
+        test_pad_state a, b;
+        DWORD ra = read_pad(pad_map[0], &a), rb = read_pad(pad_map[1], &b);
+        if (ra != ERROR_SUCCESS && rb != ERROR_SUCCESS)
+            return ra;
+        if (ra != ERROR_SUCCESS) { *s = b; return ERROR_SUCCESS; }
+        if (rb != ERROR_SUCCESS) { *s = a; return ERROR_SUCCESS; }
+        *s = a;
+        s->packet = a.packet + b.packet;
+        s->buttons = a.buttons | b.buttons;
+        if (b.lt > s->lt) s->lt = b.lt;
+        if (b.rt > s->rt) s->rt = b.rt;
+        if (abs(b.lx) + abs(b.ly) > abs(a.lx) + abs(a.ly)) { s->lx = b.lx; s->ly = b.ly; }
+        if (abs(b.rx) + abs(b.ry) > abs(a.rx) + abs(a.ry)) { s->rx = b.rx; s->ry = b.ry; }
+        return ERROR_SUCCESS;
+    }
+}
+
+static DWORD WINAPI pad_SetState(DWORD i, void *vib);
+
+/* Split screen: which physical pads the two players use. Two or more connected: player 1 the
+   first, player 2 the second. One: it is player 2's (player 1 on keyboard and mouse). None:
+   as connected later. Off: as the game reads them. */
+void display_hooks_pads_split(int on, int merge)
+{
+    if ((on && merge) != pads_merge) {
+        latch[0] = latch[1] = -1;
+        InterlockedExchange(&pads_merge, on && merge);
+    }
+    if (pads_env || !real_XInputGetState)
+        return;
+    int m[4] = {0, 1, 2, 3};
+    if (on) {
+        int found[4], n = 0;
+        test_pad_state st;
+        for (int p = 0; p < 4; p++)
+            if (real_XInputGetState((DWORD)p, &st) == ERROR_SUCCESS)
+                found[n++] = p;
+        m[2] = m[3] = -1;
+        if (n >= 2) { m[0] = found[0]; m[1] = found[1]; }
+        else if (n == 1) { m[0] = -1; m[1] = found[0]; }
+        else { m[0] = 0; m[1] = 1; }
+    }
+    if (memcmp(m, pad_map, sizeof m) != 0) {
+        memcpy(pad_map, m, sizeof m);
+        coop_log("pads: player 1 %d, player 2 %d%s", m[0], m[1], on ? "" : " (split off)");
+    }
 }
 
 static DWORD WINAPI pad_SetState(DWORD i, void *vib)
 {
-    if (i >= 4 || pad_map[i] < 0)
+    if (i >= 4 || pad_map[i] < 0 || pad_map[i] == 9)
         return ERROR_DEVICE_NOT_CONNECTED;
     return real_XInputSetState((DWORD)pad_map[i], vib);
 }
@@ -503,8 +662,9 @@ void display_hooks_install(void)
     kbm_off = GetEnvironmentVariableA("JERICHO_KBM", v, sizeof v) == 1 && v[0] == '0';
     if (kbm_off)
         coop_log("keyboard and mouse off (split screen, second window)");
-    if (GetEnvironmentVariableA("JERICHO_PADS", v, sizeof v) > 0)
-        install_pad_router(v);
+    /* The pad router is always there (pass-through until split screen or a test sets it). */
+    pads_env = GetEnvironmentVariableA("JERICHO_PADS", v, sizeof v) > 0;
+    install_pad_router(pads_env ? v : "0,1,2,3");
     if (run_in_background)
         coop_log("background mode on");
     if (!real_CreateWindowExA)

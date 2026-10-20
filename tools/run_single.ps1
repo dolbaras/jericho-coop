@@ -12,7 +12,8 @@ param(
     [double] $RecordFps = 0,           # 0: capture.c default (8)
     [string] $Exe = "Jericho.exe",     # SMOD installs: anselintegrationtestapp.exe (the game, renamed)
     [switch] $DefaultLog,              # no JERICHO_COOP_LOG: the mod logs to <save dir>\coop.log as for players
-    [switch] $Player                   # as a player starts it: no boot line, the Lua from <game>\coop, no cfg
+    [switch] $Player,                  # as a player starts it: no boot line, the Lua from <game>\coop, no cfg
+    [int] $Antialiasing = -1           # -Antialiasing:<n> for the game (-1: off on the iGPU, else the game's own)
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -30,7 +31,7 @@ if (-not $Player) {
     $env:JERICHO_COOP_CFG = "{$Cfg}"
 }
 $winW, $winH, $winPos = Get-FullWindow $screen
-$aa = if ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
+$aa = if ($Antialiasing -ge 0) { "-Antialiasing:$Antialiasing " } elseif ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:30 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
         "-OutDebugFile:`"$(Join-Path $run 'game.log')`""

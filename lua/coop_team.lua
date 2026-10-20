@@ -41,8 +41,8 @@ end
 
 function T.isLocallyOwned(name)
   local o = Coop.ownerOf(name)
-  if Coop.isHost() then return o == nil or o == 0 end
-  return o == Coop.myId()
+  if Coop.isHost() then return o == nil or Coop.isMine(o) end
+  return Coop.isMine(o)
 end
 
 function T.install()
@@ -137,7 +137,7 @@ function T.onMessage(peer, f)
     local e = Game.GetEntity(f[2] or "")
     if not e then return true end
     if Coop.isHost() and not T.isLocallyOwned(e.Name) then
-      Net.CoopSend(Coop.ownerOf(e.Name), 1, "revive|" .. e.Name)   -- forward to the owner
+      Net.CoopSend(Coop.peerOf(Coop.ownerOf(e.Name)), 1, "revive|" .. e.Name)   -- forward to the owner
     elseif e.UsrControl == 0 then
       T.reviveLocal(e)
       T.down = false

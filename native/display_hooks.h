@@ -14,3 +14,7 @@ void display_hooks_set_background(int on);
 /* 1 while virtual key vk is held and the game window is really in front, else 0. Never
  * reads the keyboard for other windows. */
 int display_hooks_key_down(int vk);
+
+/* Split screen in one game: pick the two players' pads (on), and let both act as pad 0
+   (merge) while a menu or a scene is up. */
+void display_hooks_pads_split(int on, int merge);

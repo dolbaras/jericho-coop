@@ -72,9 +72,11 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   cheat/debug menus stay off in a session, and its menu texts follow the game language.
 - Other players' flashlights: a spot light from their weapon, aimed with their view
   (`Coop.puppetLights`).
-- Split screen (experimental): `Co-op split screen.bat` starts two copies of the game side
-  by side (or one above the other), each with its own gamepad; the second one joins the
-  first one's lobby by itself.
+- Split screen in one game (`coop_split.lua`, `native/split.c`): a second player on the PC
+  with a gamepad, a seat of its own in the session. The engine kept Scrapland's split screen
+  data (four users, a camera and HUD per user, pad 2 driving user 1's body); it renders one
+  camera per frame, so the camera slot alternates every frame and split.c puts each frame
+  into its half before the HUDs are drawn (`work/splitscreen-research.md`).
 - Installer: finds the game (its folder, registry, GOG, Steam libraries or asks), keeps the
   files it replaces in `coop-backup`, updates over an older version and uninstalls.
 
@@ -123,7 +125,7 @@ Lua files to `<game dir>\coop\`. Then start the game normally: the main menu has
 "Co-op" entry. `-Anims` also builds `Pack1.packed` from the game's own archives (needs
 Python 3): retargeted scene animations, used only by the experimental own-character
 cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\`
-(players' installer: `tools/installer.ps1`; split screen launcher: `tools/splitscreen.ps1`).
+(players' installer: `tools/installer.ps1`).
 
 ## Tests
 

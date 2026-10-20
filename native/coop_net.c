@@ -45,6 +45,7 @@
 #include "coop_net.h"
 #include "display_hooks.h"
 #include "boot_inject.h"
+#include "split.h"
 
 /* ---- Jericho.exe Lua 5.1.1 C API (cdecl) ---- */
 typedef struct lua_State lua_State;
@@ -667,6 +668,19 @@ static int l_boot(lua_State *L)
     return 1;
 }
 
+/* Net.CoopSplit(mode) -> camera slot of this frame: local split screen (split.c). */
+static int l_split(lua_State *L)
+{
+    /* arg 2 (split screen session): 1 while a menu or scene is up (pads merged), 0 back in play,
+       -1 split screen over (pads as the game reads them). */
+    if (lua_gettop(L) >= 2) {
+        int p = lua_tointeger(L, 2);
+        display_hooks_pads_split(p >= 0, p == 1);
+    }
+    lua_pushnumber(L, split_set(lua_tointeger(L, 1)));
+    return 1;
+}
+
 static int l_key(lua_State *L)
 {
     lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
@@ -700,6 +714,7 @@ static const struct {
     {"SendChatString", "CoopDiscover", l_discover},
     {"SendCtrlString", "CoopFile", l_file},
     {"PingInetSvrs", "CoopBoot", l_boot},
+    {"SendMasterString", "CoopSplit", l_split},
 };
 
 int coop_net_install(void)

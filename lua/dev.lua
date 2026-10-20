@@ -314,6 +314,7 @@ if cfg.menutest and Coop.level == "levels/menu" then
       elseif cfg.menutest == "lobby" then
         CoopMenu.HostSetup(); CoopMenu.NextLevel(); CoopMenu.CreateSession()
         if cfg.menuready then CoopMenu.ToggleReady() end
+        for _ = 1, cfg.menup2 or 0 do CoopMenu.NextP2() end
         -- menufake=n: n more seats shown (layout of a full lobby), long nicknames, SMOD on all.
         for k = 1, cfg.menufake or 0 do
           local chars = {"Black", "Church", "Cole"}
@@ -385,6 +386,11 @@ if cfg.menutest and Coop.level == "levels/menu" then
     if cfg.menutest == "flowjoin" and Coop.frame > MENU_WAIT and cfg.myId and CoopMenu.screen == "lobby" then
       local me = CoopMenu.seatOf(CoopMenu.myPeer())
       if me and not me.ready and Coop.frame % 20 == 0 then CoopMenu.ToggleReady() end
+      -- menup2=n: this machine's second player (split screen), n steps through the list.
+      if me and cfg.menup2 and not Coop.devP2Set and Coop.frame % 20 == 10 then
+        Coop.devP2Set = true
+        for _ = 1, cfg.menup2 do CoopMenu.NextP2() end
+      end
     end
     if cfg.menutest == "flow" and Coop.frame > MENU_WAIT and #CoopMenu.seats >= (cfg.waitpeers or 1) + 1 and
        CoopMenu.allReady() and CoopMenu.screen == "lobby" then
@@ -1057,5 +1063,243 @@ if cfg.lighttest and Coop.level ~= "levels/menu" then
     l.LightIntens00 = 1.5
     Coop.log(string.format("lighttest: %d Ang=%d,%d,%d at %s (player %s, towards %.0f,%.0f) view=%.0f,%.0f",
       k, a[1], a[2], a[3], Coop.v3(pos), Coop.v3(usr.Pos), d.x / len, d.z / len, usr.ViewAng.x, usr.ViewAng.y))
+  end
+end
+
+-- 'splitprobe' (single game, in a level): what is left of the engine's own split screen
+-- (work/splitscreen-research.md). Phases of 60 ticks from tick cfg.splitprobe:
+--   1 SplitScreen=1; 2 + R_SplitScreen=1, camera index 0; 3 a second FCam "CoopCam1" on Black
+--   in user slot 1, camera index 1; 4 camera index switched every frame; 5 Black UsrControl=1
+--   (is it Game.UsrEntity(1)?); 6 all back.
+if cfg.splitprobe and Coop.level ~= "levels/menu" then
+  local prevSp = Coop.dev
+  function Coop.dev()
+    if prevSp then prevSp() end
+    local t = Coop.frame - cfg.splitprobe
+    if t < 0 or t % 60 ~= 0 then return end
+    local ph = t / 60 + 1
+    local black = Game.GetEntity(cfg.splitwho or "Black")
+    if ph == 1 then
+      Game.Set("SplitScreen", 1)
+    elseif ph == 2 then
+      Game.Set("R_SplitScreen", 1); Game.Set("R_SplitScreenCamera", 0)
+    elseif ph == 3 then
+      local c = Game.GetEntity("CoopCam1") or Game.CreateEntity("CoopCam1", "FCam")
+      c.CamRot, c.CamAng, c.CamDist, c.Fov = 5, -20, 0, 90
+      if black then c.MainTarget = black.Name; c.Target = black.Name end
+      Game.SetCam(1, "CoopCam1")
+      Game.Set("R_SplitScreenCamera", 1)
+    elseif ph == 4 then
+      Coop.devFrame = function()
+        Coop.devAlt = 1 - (Coop.devAlt or 0)
+        Game.Set("R_SplitScreenCamera", Coop.devAlt)
+      end
+    elseif ph == 5 then
+      Coop.devFrame = nil
+      Game.Set("R_SplitScreenCamera", 0)
+      if black then black.UsrControl = 1 end
+    elseif ph == 6 then
+      local u1 = Game.UsrEntity(1)
+      Coop.log("splitprobe: UsrEntity(1) = " .. tostring(u1 and u1.Name) .. ", GetCam(1) = " .. tostring(Game.GetCam(1)))
+      if black then black.UsrControl = -1 end
+      Game.Set("SplitScreen", 0); Game.Set("R_SplitScreen", 0)
+    end
+    if ph <= 6 then
+      Coop.log(string.format("splitprobe: phase %d SplitScreen=%s R_SplitScreen=%s cam=%s GetCam0=%s GetCam1=%s",
+        ph, tostring(Game.Get("SplitScreen")), tostring(Game.Get("R_SplitScreen")), tostring(Game.Get("R_SplitScreenCamera")),
+        tostring(Game.GetCam(0)), tostring(Game.GetCam(1))))
+    end
+  end
+end
+
+-- 'user1test' (single game, JERICHO_PADS=-1,9: the test pad as the game's pad 1): does the
+-- engine itself drive a second user's body from pad 2? From tick cfg.user1test Black gets
+-- UsrControl 1 and player 1 gets player 0's Joy1 bindings as Joy2; then her state is logged.
+if cfg.user1test and Coop.level ~= "levels/menu" then
+  local prevU1 = Coop.dev
+  function Coop.dev()
+    if prevU1 then prevU1() end
+    local t = Coop.frame - cfg.user1test
+    local b = Game.GetEntity(cfg.splitwho or "Black")
+    if t < 0 or not b then return end
+    if t == 0 then
+      local n = 0
+      for _, c in ipairs(Menu.Configurables or {}) do
+        for _, act in ipairs({c[2], c[4]}) do
+          local before1 = Input.GetDefinedList(1, c[1], act, 0, 0)
+          for item in string.gmatch(Input.GetDefinedList(0, c[1], act, 0, 0) or "", "[^,]+") do
+            local dev, key = string.match(item, "^%s*(%w+):(.+)$")
+            if dev == "Joy1" then Input.AssingEntry("Joy2", key, 1, c[1], act); n = n + 1 end
+          end
+          Coop.log(string.format("user1test: %s.%s p0=[%s] p1 before=[%s] after=[%s]", c[1], act,
+            tostring(Input.GetDefinedList(0, c[1], act, 0, 0)), tostring(before1), tostring(Input.GetDefinedList(1, c[1], act, 0, 0))))
+        end
+      end
+      if b.oAI then b.oAI.bEnable = false end
+      b.UsrControl = 1
+      Coop.log("user1test: " .. n .. " Joy2 bindings for player 1; UsrEntity(1) = " .. tostring(Game.UsrEntity(1) and Game.UsrEntity(1).Name))
+    elseif t % 15 == 0 and t <= 600 then
+      Coop.log(string.format("user1test: t=%d pos=%s walk=%s str=%s shot=%s act=%s yaw=%.0f usr1=%s",
+        t, Coop.v3(b.Pos), tostring(b.InCtrl_Walk), tostring(b.InCtrl_Str), tostring(b.owc and b.owc.Shot),
+        tostring(b.Action), b.Ang.y, tostring(Game.UsrEntity(1) and Game.UsrEntity(1).Name)))
+    end
+  end
+end
+
+-- 'aspectprobe' (single game, in a level): which parameter gives a view twice as wide as
+-- high (for a half-height split view). Phases of 60 ticks from tick cfg.aspectprobe.
+if cfg.aspectprobe and Coop.level ~= "levels/menu" then
+  local PH = {
+    {"PhysicalAspectRatio", 3.5556}, {"PhysicalAspectRatio", 1.7778},
+    {"CameraViewScaleY", 0.5}, {"CameraViewScaleY", 1},
+    {"CameraViewScaleX", 2}, {"CameraViewScaleX", 1},
+    {"CameraDefViewAspect", 2.6667}, {"CameraDefViewAspect", 1.3333},
+  }
+  local prevAp = Coop.dev
+  function Coop.dev()
+    if prevAp then prevAp() end
+    local t = Coop.frame - cfg.aspectprobe
+    if t < 0 or t % 60 ~= 0 then return end
+    local p = PH[t / 60 + 1]
+    if not p then return end
+    local before = Game.Get(p[1])
+    Game.Set(p[1], p[2])
+    Coop.log(string.format("aspectprobe: %d %s %s -> %s", t / 60 + 1, p[1], tostring(before), tostring(Game.Get(p[1]))))
+  end
+end
+
+-- 'splittest' (single game, JERICHO_PADS=-1,9 or two real pads): local split screen in one
+-- game. From tick cfg.splittest Black is user 1 (pad 2) with her own camera, the engine's
+-- split HUD and camera slot are on, and the slot switches every frame (native split.c
+-- squeezes each frame into its half). cfg.splitflip: the frame shows the other slot.
+if cfg.splittest and Coop.level ~= "levels/menu" then
+  local prevSt = Coop.dev
+  function Coop.dev()
+    if prevSt then prevSt() end
+    if Coop.frame ~= cfg.splittest then return end
+    local b = Game.GetEntity(cfg.splitwho or "Black")
+    if not b then return end
+    if b.oAI then b.oAI.bEnable = false end
+    local usr = Game.UsrEntity(0)
+    Coop.log(string.format("splittest: before: %s FPSEntity=%s, %s FPSEntity=%s UseFPS=%s/%s", tostring(usr and usr.Name),
+      tostring(usr and usr.FPSEntity), b.Name, tostring(b.FPSEntity), tostring(usr and usr.InCtrl_UseFPS), tostring(b.InCtrl_UseFPS)))
+    if cfg.splitfp ~= false and MakeFP and Act.GetClass("FP_" .. b.Name) and not Game.GetEntity("1FP_" .. b.Name) then
+      MakeFP.MakeFPObject("FP_" .. b.Name, 1)
+    end
+    b.UsrControl = 1
+    Coop.log(string.format("splittest: after: %s FPSEntity=%s (1FP exists %s)", b.Name, tostring(b.FPSEntity),
+      tostring(Game.GetEntity("1FP_" .. b.Name) ~= nil)))
+    local c = Game.GetEntity("CoopCam1") or Game.CreateEntity("CoopCam1", "FCam")
+    c.CamRot, c.CamAng, c.CamDist, c.Fov = 5, -20, 0, 90
+    c.MainTarget, c.Target = b.Name, b.Name
+    Game.SetCam(1, "CoopCam1")
+    -- User 1's HUD: the engine's own widgets in scorer 1 (as Menu.ShowScorer builds scorer 0).
+    if cfg.splithud ~= false then
+      Scorer.Clear(1)
+      local m = Scorer.NewItem(1, "Msg", "Msg"); m.Pos = V2D(320, 40)
+      Scorer.NewItem(1, "Damage", "Damage")
+      Scorer.NewItem(1, "Ammo", "Ammo")
+      Scorer.NewItem(1, "Selector", "Selector")
+      local ts = Scorer.NewItem(1, "TeamStatus", "TeamStatus"); ts.Pos = V2D(48, 36)
+      Scorer.NewItem(1, "Aim", "Aim")
+    end
+    Game.Set("SplitScreen", 1)
+    Game.Set("R_SplitScreen", 1)
+    if cfg.splitscale then Game.Set("CameraViewScaleY", cfg.splitscale) end
+    -- Effects that carry over from the previous frame (another camera's in split screen).
+    local FX = {"RT_PixelMotionBlurPower", "RT_MotionBlurValue", "RT_BlurValue", "RT_CloseBlurValue",
+      "RT_MonitorViewValue", "MotionBlurFactorBegin", "MotionBlurFactorEnd", "CloseBlurFactorBegin",
+      "RT_HDRExposureTime", "RT_HDRMinLuminance", "RT_HDRMaxLuminance", "RT_PixelMotionBlur", "RT_MotionBlur"}
+    local vals = {}
+    for _, k in ipairs(FX) do vals[#vals + 1] = k .. "=" .. tostring(Game.Get(k)) end
+    Coop.log("splittest: fx " .. table.concat(vals, " "))
+    for k, v in pairs(cfg.splitfx or {}) do Game.Set(k, v) end
+    Coop.devFrame = function()
+      local slot = Net.CoopSplit(1)
+      if cfg.splitflip then slot = 1 - slot end
+      Game.Set("R_SplitScreenCamera", slot)
+      Coop.devSplitN = (Coop.devSplitN or 0) + 1
+      if Coop.devSplitN <= 16 then Coop.log("splittest: slot " .. slot) end
+    end
+    Coop.log("splittest: on, UsrEntity(1) = " .. tostring(Game.UsrEntity(1) and Game.UsrEntity(1).Name))
+  end
+end
+
+-- 'projtest' (in a level): CoopHud.project against Scorer.Get2DPos (main camera, full
+-- screen) for the squad's heads, every 30 ticks from tick cfg.projtest, 6 times.
+if cfg.projtest and Coop.level ~= "levels/menu" then
+  local prevPt = Coop.dev
+  function Coop.dev()
+    if prevPt then prevPt() end
+    local t = Coop.frame - cfg.projtest
+    if t < 0 or t > 150 or t % 30 ~= 0 then return end
+    local cam = Game.GetEntity(Game.GetCam(0))
+    local usr = Game.UsrEntity(0)
+    if cam then
+      local f1 = V3D(0, 0, 1):rot(cam.camAng)
+      Coop.log(string.format("projtest: cam %s pos=%s ang=%s fov=%s fwd(0,0,1)=%.2f,%.2f,%.2f usr view=%s pos=%s",
+        cam.Name, Coop.v3(cam.camPos), tostring(cam.camAng and (cam.camAng.x .. "," .. cam.camAng.y .. "," .. cam.camAng.z)),
+        tostring(cam.Fov), f1.x, f1.y, f1.z, usr and (usr.ViewAng.x .. "," .. usr.ViewAng.y) or "-", usr and Coop.v3(usr.Pos) or "-"))
+    end
+    for _, name in ipairs(Coop.SQUAD) do
+      local e = Game.GetEntity(name)
+      if e and name ~= Coop.localChar() then
+        local head = e.Pos + V3D(0, 195, 0)
+        local gx, gy = Scorer.Get2DPos(head)
+        local out = {}
+        for _, fw in ipairs({1, -1}) do
+          for _, fh in ipairs({true, false}) do
+            CoopHud.FWD, CoopHud.FOV_IS_H = fw, fh
+            local x, y = CoopHud.project(Game.GetCam(0), head)
+            out[#out + 1] = string.format("%s%s=%s,%s", fw > 0 and "+" or "-", fh and "h" or "v",
+              tostring(x and math.floor(x)), tostring(y and math.floor(y)))
+          end
+        end
+        Coop.log(string.format("projtest: %s game=%s,%s %s", name, tostring(gx and math.floor(gx)),
+          tostring(gy and math.floor(gy)), table.concat(out, " ")))
+      end
+    end
+  end
+end
+
+-- 'ammoprobe' (split screen test): move scorer 0's and 1's Ammo widgets (it.Pos / it.Y) at
+-- tick cfg.ammoprobe to see whether the power icons follow.
+if cfg.ammoprobe and Coop.level ~= "levels/menu" then
+  local prevAm = Coop.dev
+  function Coop.dev()
+    if prevAm then prevAm() end
+    local t = Coop.frame - cfg.ammoprobe
+    if t ~= 0 and t ~= 60 then return end
+    if t == 0 and cfg.ammoparam then
+      for k, v in pairs(cfg.ammoparam) do
+        Coop.log("ammoprobe: " .. k .. " was " .. tostring(Game.Get(k)))
+        Game.Set(k, v)
+      end
+    end
+    for id = 0, 1 do
+      local it = Scorer.GetItem(id, "Ammo")
+      if it then
+        Coop.log(string.format("ammoprobe: scorer %d Ammo X=%s Y=%s Pos=%s", id, tostring(it.X), tostring(it.Y),
+          tostring(it.Pos and (it.Pos.x .. "," .. it.Pos.y))))
+        if t == 0 and cfg.ammomove then it.Y = (it.Y or 0) - (cfg.ammody or 120) end
+      end
+    end
+  end
+end
+
+-- 'headprobe' (in a level): each squad body's head bone (CoopHud.headPos) against its origin.
+if cfg.headprobe and Coop.level ~= "levels/menu" then
+  local prevHp = Coop.dev
+  function Coop.dev()
+    if prevHp then prevHp() end
+    if Coop.frame ~= cfg.headprobe then return end
+    for _, name in ipairs(Coop.SQUAD) do
+      local e = Game.GetEntity(name)
+      if e then
+        local h = CoopHud.headPos(e)
+        Coop.log(string.format("headprobe: %s origin y %.0f plate y %.0f (+%.0f) action %s", name, e.Pos.y, h.y, h.y - e.Pos.y,
+          tostring(e.Action)))
+      end
+    end
   end
 end

@@ -76,20 +76,21 @@ the players who have it with [SMOD].
   without SMOD).
 SMOD's own texts follow the game language.
 
-Split screen (experimental)
-Two copies of the game side by side on one PC, one session between them. Double-click
-"Co-op split screen.bat" in the game folder.
-- Window 1 (left): keyboard + mouse and gamepad 1. It hosts: Co-op -> Host game, as usual.
-- Window 2 (right): gamepad 2 only. It joins window 1's lobby by itself and is ready; its
-  player picks the character there. Sound comes from window 1.
-- Needs a PC that can run the game twice at once; closing one window closes both.
-- Options: coop-splitscreen.ps1 -TopBottom (one above the other), -Pads2 <n> (which gamepad
-  window 2 uses, 0-3).
+Split screen
+A second player on the same PC, in the same game: the screen is split top and bottom, each
+player with their own view and HUD. In the lobby pick "Player 2 (gamepad)" and their
+character; it works in a hosted game and when you join one (up to 4 players in a session).
+- Gamepads: with two connected, player 1 uses the first (and keyboard + mouse), player 2 the
+  second; with one connected, it is player 2's and player 1 plays with keyboard + mouse.
+- In menus and cutscenes the screen is whole again and both gamepads work there.
+- Each half shows the whole picture (black bars at the sides).
+- It uses the game's own split screen leftovers (from the engine's Scrapland days): each frame
+  draws one player's view in turn, so each view runs at half the frame rate.
 
 Reports
 https://github.com/dolbaras/jericho-coop/issues — what happened, on which level, host or client.
 Attach the log: Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log (coop.prev.log is the
-previous run; split screen window 2: coop-window2.log).
+previous run).
 
 
 РУССКИЙ
@@ -166,20 +167,20 @@ SMOD
 - Фонарь каждого игрока виден на экранах остальных как луч от его оружия (со SMOD и без).
 Надписи SMOD показываются на языке игры.
 
-Сплитскрин (экспериментально)
-Две копии игры рядом на одном ПК, одна сессия между ними. Запустите «Co-op split screen.bat»
-в папке игры.
-- Окно 1 (слева): клавиатура + мышь и геймпад 1. Оно создаёт игру: «Совместная игра» ->
-  «Создать игру», как обычно.
-- Окно 2 (справа): только геймпад 2. Оно само подключается к лобби окна 1 и отмечает «Готов»;
-  его игрок выбирает персонажа там. Звук идёт из окна 1.
-- Нужен ПК, который тянет игру дважды одновременно; закрытие одного окна закрывает оба.
-- Параметры: coop-splitscreen.ps1 -TopBottom (окна друг над другом), -Pads2 <n> (какой геймпад
-  у окна 2, 0-3).
+Сплитскрин
+Второй игрок на том же ПК, в той же игре: экран делится на верх и низ, у каждого игрока свой
+вид и свой HUD. В лобби выберите «Игрок 2 (геймпад)» и его персонажа; работает и в своей
+игре, и при подключении к чужой (в сессии до 4 игроков).
+- Геймпады: если подключены два, у игрока 1 первый (и клавиатура с мышью), у игрока 2 второй;
+  если подключён один, он у игрока 2, а игрок 1 играет клавиатурой и мышью.
+- В меню и катсценах экран снова целый, и там работают оба геймпада.
+- В каждой половине видна вся картинка (чёрные полосы по бокам).
+- Сделано на остатках сплитскрина самого движка (со времён Scrapland): кадры по очереди рисуют
+  вид каждого игрока, поэтому у каждого вида половина частоты кадров.
 
 Сообщить об ошибке
 Пишите в https://github.com/dolbaras/jericho-coop/issues : что делали, на каком уровне,
 хост вы или клиент. Приложите лог: Документы\Codemasters\Clive Barker's Jericho\Coop\coop.log
-(лог прошлого запуска — coop.prev.log; второе окно сплитскрина — coop-window2.log).
+(лог прошлого запуска — coop.prev.log).
 
 License: MIT (LICENSE.txt). ENet 1.3.18 (MIT, ENET-LICENSE.txt). No game files are included.

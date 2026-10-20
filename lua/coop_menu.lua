@@ -58,6 +58,7 @@ CoopMenu.TEXT = {
     ai_very = "take 30% damage",
     cutscenes = "Cutscenes", pov_off = "original camera", pov_on = "own eyes (experimental)",
     rules = "Rules", rules_smod = "host's SMOD", rules_game = "as in the game",
+    p2 = "Player 2 (gamepad)", p2_none = "none",
     rules_notall = "game's (SMOD not for all)", ai_smod = "SMOD (%d%% damage)",
   },
   ru = {
@@ -80,6 +81,7 @@ CoopMenu.TEXT = {
     ai_very = "30% урона",
     cutscenes = "Катсцены", pov_off = "камера оригинала", pov_on = "своими глазами (эксп.)",
     rules = "Правила", rules_smod = "SMOD хоста", rules_game = "как в игре",
+    p2 = "Игрок 2 (геймпад)", p2_none = "нет",
     rules_notall = "игры (SMOD не у всех)", ai_smod = "SMOD (%d%% урона)",
   },
 }
@@ -432,6 +434,8 @@ function CoopMenu.Lobby()
     {"", "CoopMenu.NextChar"},
     {CoopMenu.myNick(), "!EditText"},
     {"", "CoopMenu.ToggleTags"},
+    -- A second player on this PC with gamepad 2 (split screen, coop_split.lua).
+    {"", "CoopMenu.NextP2"},
     {"", "CoopMenu.ToggleReady"},
   }
   if Coop.isHost() then
@@ -448,6 +452,9 @@ function CoopMenu.Lobby()
   it.onLeft = "CoopMenu.PrevChar"
   it.onRight = "CoopMenu.NextChar"
   item("Itm2").MaxInput = 16
+  local p2 = item("Itm4")
+  p2.onLeft = "CoopMenu.PrevP2"
+  p2.onRight = "CoopMenu.NextP2"
   CoopMenu.nickSent = CoopMenu.myNick()
   -- Read-only lines: chapter and the player list.
   for i = 0, CoopMenu.MAX_PLAYERS do
@@ -463,7 +470,7 @@ end
 
 -- Lobby rows: one step apart from LOBBY_TOP, set again on every refresh (one entry was seen
 -- 14 units off its row, over its neighbour, without anything of ours moving it).
-CoopMenu.LOBBY_TOP, CoopMenu.LOBBY_STEP = 252, 30
+CoopMenu.LOBBY_TOP, CoopMenu.LOBBY_STEP = 246, 28
 function CoopMenu.layoutRows()
   local i = 1
   while item("Itm" .. i) do
@@ -537,7 +544,8 @@ function CoopMenu.refreshLobby()
         -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
         local char = CoopMenu.charName(s.char)
         local ross = s.peer == 0 and string.find(string.lower(level or ""), "^alk_") and CoopMenu.charName("Ross") .. " -> " or ""
-        local smod = (s.peer == 0 and Coop.isHost() and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer]) and " [SMOD]" or ""
+        local pp = Coop.peerOf(s.peer)
+        local smod = (pp == 0 and Coop.isHost() and CoopMenu.hostSmod() or CoopMenu.smodPeers[pp]) and " [SMOD]" or ""
         local tail = smod .. (s.ready and "  - " .. T("is_ready") or "")
         -- A long nickname: drop "(you)", then Ross, then shorten the name, until it fits.
         CoopMenu.setLine(i, CoopMenu.fit({
@@ -554,9 +562,11 @@ function CoopMenu.refreshLobby()
   local me = CoopMenu.seatOf(CoopMenu.myPeer())
   setText(item("Itm1"), "< " .. T("character") .. ": " .. (me and CoopMenu.charName(me.char) or "-") .. " >")
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
-  setText(item("Itm4"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
-  if Coop.isHost() and item("Itm6") then
-    setText(item("Itm6"), CoopMenu.allReady() and T("start") or T("start_wait"))
+  local p2 = CoopMenu.seatOf((CoopMenu.myPeer() or 0) + Coop.P2)
+  setText(item("Itm4"), "< " .. T("p2") .. ": " .. (p2 and CoopMenu.charName(p2.char) or T("p2_none")) .. " >")
+  setText(item("Itm5"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
+  if Coop.isHost() and item("Itm7") then
+    setText(item("Itm7"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
 end
@@ -626,6 +636,47 @@ end
 
 function CoopMenu.NextChar() CoopMenu.cycleChar(1) end
 function CoopMenu.PrevChar() CoopMenu.cycleChar(-1) end
+
+-- The second player of a machine (split screen): a seat of its own, owner id peer + P2,
+-- always ready with its machine. "-" removes it.
+function CoopMenu.setP2(peer, char)
+  local id = peer + Coop.P2
+  for i, s in ipairs(CoopMenu.seats) do
+    if s.peer == id then table.remove(CoopMenu.seats, i) break end
+  end
+  local main = CoopMenu.seatOf(peer)
+  if char and char ~= "-" and main and not CoopMenu.taken(char, id) and #CoopMenu.seats < CoopMenu.MAX_PLAYERS then
+    CoopMenu.seats[#CoopMenu.seats + 1] = {peer = id, char = char, ready = true,
+                                           nick = Coop.cleanNick(string.sub(main.nick or "", 1, 13) .. " 2")}
+  end
+  CoopMenu.broadcastLobby()
+end
+
+function CoopMenu.cycleP2(step)
+  local me = CoopMenu.myPeer()
+  if me == nil then return end
+  local cur = CoopMenu.seatOf(me + Coop.P2)
+  -- none, then the free characters in the lobby's order
+  local list = {"-"}
+  for _, c in ipairs(CoopMenu.CHAR_ORDER) do
+    if (cur and cur.char == c) or not CoopMenu.taken(c, me + Coop.P2) then list[#list + 1] = c end
+  end
+  local idx = 1
+  for i, c in ipairs(list) do
+    if c == (cur and cur.char or "-") then idx = i end
+  end
+  if #list == 1 or (not cur and #CoopMenu.seats >= CoopMenu.MAX_PLAYERS) then return end
+  local nxt = list[(idx - 1 + step) % #list + 1]
+  if Coop.isHost() then
+    CoopMenu.setP2(me, nxt)
+  else
+    Net.CoopSend(0, 1, "p2|" .. nxt)
+  end
+  CoopMenu.refreshLobby()
+end
+
+function CoopMenu.NextP2() CoopMenu.cycleP2(1) end
+function CoopMenu.PrevP2() CoopMenu.cycleP2(-1) end
 
 function CoopMenu.myNick()
   local n = Coop.cleanNick(cfg.nick)
@@ -705,7 +756,8 @@ end
 -- Every seated player has SMOD (the host's own SMOD for seat 0).
 function CoopMenu.allSmod()
   for _, s in ipairs(CoopMenu.seats) do
-    if not (s.peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer]) then return false end
+    local peer = Coop.peerOf(s.peer)   -- a second player on a PC (split screen) has its SMOD
+    if not (peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[peer]) then return false end
   end
   return #CoopMenu.seats > 0
 end
@@ -853,6 +905,9 @@ function CoopMenu.onLeave(peer)
     for i, s in ipairs(CoopMenu.seats) do
       if s.peer == peer then table.remove(CoopMenu.seats, i) break end
     end
+    for i, s in ipairs(CoopMenu.seats) do
+      if s.peer == peer + Coop.P2 then table.remove(CoopMenu.seats, i) break end
+    end
     CoopMenu.smodPeers[peer] = nil
     CoopMenu.broadcastLobby()
   elseif peer == 0 then
@@ -878,6 +933,9 @@ function CoopMenu.onMessage(peer, f)
       s.nick = Coop.cleanNick(f[2])
       CoopMenu.broadcastLobby()
     end
+    return true
+  elseif kind == "p2" and Coop.isHost() then
+    CoopMenu.setP2(peer, f[2])
     return true
   elseif kind == "ready" and Coop.isHost() then
     local s = CoopMenu.seatOf(peer)

@@ -168,8 +168,8 @@ function Do-Install($g) {
     $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" })
     Set-Content -Path (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
     $smod = Test-Path (Join-Path $g "bin\anselintegrationtestapp.exe")
-    $msg = (L "Jericho Co-op $version is installed in`n$g`n`nStart the game: the main menu has a 'Co-op' entry.`nSplit screen: 'Co-op split screen.bat' in the game folder.`nTo remove: 'Uninstall Co-op.bat' in the game folder." `
-              "Jericho Co-op $version установлен в`n$g`n`nЗапустите игру: в главном меню появится «Совместная игра».`nСплитскрин: «Co-op split screen.bat» в папке игры.`nУдалить: «Uninstall Co-op.bat» в папке игры.")
+    $msg = (L "Jericho Co-op $version is installed in`n$g`n`nStart the game: the main menu has a 'Co-op' entry.`nTo remove: 'Uninstall Co-op.bat' in the game folder." `
+              "Jericho Co-op $version установлен в`n$g`n`nЗапустите игру: в главном меню появится «Совместная игра».`nУдалить: «Uninstall Co-op.bat» в папке игры.")
     if ($smod) { $msg += (L "`n`nSMOD found: supported." "`n`nНайден SMOD: поддерживается.") }
     if ($anims -eq "nopython" -or $anims -eq "failed") {
         $msg += (L "`n`nThe experimental cutscene view 'own eyes' needs Python 3 to build its animations$(if ($anims -eq 'failed') {' (the build failed)'}): without it the scene's character is not shown in that view. To add it, install Python 3 (python.org) and run the installer again." `

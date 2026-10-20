@@ -1,7 +1,7 @@
 ﻿# Build the release archive dist\jericho-coop-<version>.zip:
 #   Install Co-op.bat + coop-installer.ps1   the installer (backs up what it replaces, uninstalls)
 #   files\                                   what goes into the game folder (bin\dinput8.dll,
-#                                            coop\*.lua, the split screen launcher)
+#                                            coop\*.lua, the cutscene animation builder)
 #   README-COOP.txt, LICENSE.txt, ENET-LICENSE.txt
 # Run native\build.sh first. The test helpers (dev.lua, probe.lua) are left out.
 # Usage: package.ps1 -Version 0.1.1
@@ -20,10 +20,6 @@ Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encodin
 # The animation builder the installer runs for the experimental "own eyes" cutscene view.
 New-Item -ItemType Directory -Force (Join-Path $files "coop\anims") | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot "bfpk.py"), (Join-Path $PSScriptRoot "m3d.py") (Join-Path $files "coop\anims")
-# Split screen launcher (experimental): double-click the .bat in the game folder.
-Copy-Item (Join-Path $root "tools\splitscreen.ps1") (Join-Path $files "coop-splitscreen.ps1")
-Set-Content -Path (Join-Path $files "Co-op split screen.bat") -Encoding ASCII `
-    -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-splitscreen.ps1" %*'
 # Installer
 Copy-Item (Join-Path $root "tools\installer.ps1") (Join-Path $stage "coop-installer.ps1")
 Set-Content -Path (Join-Path $stage "Install Co-op.bat") -Encoding ASCII `

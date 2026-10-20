@@ -168,7 +168,7 @@ function E.installHost()
     if To and Coop.isRemoteOwned(To.Name) and not Coop.applyingRemoteHit then
       local owner = Coop.ownerOf(To.Name)
       E.stats.pdmgSent = E.stats.pdmgSent + 1
-      Net.CoopSend(owner, 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
+      Net.CoopSend(Coop.peerOf(owner), 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
       return false
     end
     -- AI squadmates take less damage if the host chose so in the lobby.
@@ -785,7 +785,7 @@ function E.installClient()
     if Coop.fromHost or not From or not To then
       return origDamage(From, To, Damage, BodyMultiplier)
     end
-    if From.Name == Coop.localChar() and isEnemy(To) then
+    if Coop.isLocalPlayer(From.Name) and isEnemy(To) then
       -- Resolve the body-part multiplier locally (it needs this machine's hit), then
       -- report the final damage to the host instead of applying it.
       local dmg = Damage
@@ -803,7 +803,7 @@ function E.installClient()
       if BodyImpact and BodyImpact.OnShot then pcall(BodyImpact.OnShot, To.Name) end
       return false
     end
-    if From:IsType("WalkChar") and (From.TgType == "red" or From.Name ~= Coop.localChar()) then
+    if From:IsType("WalkChar") and (From.TgType == "red" or not Coop.isLocalPlayer(From.Name)) then
       -- Enemy damage comes from the host (pdmg); puppets fire for show only.
       E.stats.dropped = E.stats.dropped + 1
       return false
@@ -902,6 +902,7 @@ function E.onMessage(peer, f)
     E.stats.deaths = E.stats.deaths + 1
   elseif kind == "pdmg" then
     local usr = Game.UsrEntity(0)
+    if usr and usr.Name ~= f[2] and Coop.isLocalPlayer(f[2]) then usr = Game.GetEntity(f[2]) end
     if usr and usr.Name == f[2] then
       local from = Game.GetEntity(f[4]) or usr
       fromHost(E.origDamage, from, usr, tonumber(f[3]), nil)
