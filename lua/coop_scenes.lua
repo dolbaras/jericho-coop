@@ -541,11 +541,18 @@ function S.blockedNear(from, to)
 end
 
 S.BODY_PROBES_LEAN = {0, 45, 90}
+-- Close to the eye a body hides much more of the view than its width on the line of sight:
+-- the corridor widens there (scene audit 0.2.1: a back filling a third of the picture for 15 s
+-- in BritishComandoSpeech).
+S.NEAR_RANGE, S.NEAR_EXTRA = 160, 35
 function S.bodyInWay(from, to)
   local list = Scene.Actors and S.pov and Scene.Actors[S.pov.class]
   local ray = to - from
   local rl = len(ray)
   if rl < 1 then return nil end
+  -- (rows of seats: the neighbours sit close beside the eye, POV_TUNE bodyBlock)
+  local tune = S.pov and S.POV_TUNE[S.pov.class]
+  local extra = (tune and tune.bodyBlock == false) and 0 or S.NEAR_EXTRA
   for _, info in pairs(list or {}) do
     if info[2] ~= S.pov.actor then
       local hp = S.actorHead(info)
@@ -556,7 +563,8 @@ function S.bodyInWay(from, to)
           local t = (v.x * ray.x + v.y * ray.y + v.z * ray.z) / (rl * rl)
           if t > 0.02 and t < 0.9 then
             local c = from + V3D(ray.x * t, ray.y * t, ray.z * t)
-            if len(q - c) < S.BODY_IN_WAY then return info[2] end
+            local near = math.max(0, S.NEAR_RANGE - t * rl) / S.NEAR_RANGE
+            if len(q - c) < S.BODY_IN_WAY + near * extra then return info[2] end
           end
         end
       end
@@ -754,7 +762,11 @@ function S.updatePOV(dt)
   -- A point of the set the scene camera looks at from elsewhere can lie behind a wall for
   -- this viewer: then the people of the scene this viewer can see, the one nearest the scene
   -- camera's view first (not the scene camera at once: most of the scene seen from the set).
-  if S.focusActor == "world" then
+  -- A group's middle as well: its people can stand in view on both sides of a pillar
+  -- (scene audit 0.2.1: TheEndD showed the scene camera for 3 minutes).
+  -- A speaker behind a wall for this viewer as well (scene audit 0.2.1: TheRescue, 78 s of
+  -- the scene camera): the people this viewer does see.
+  if S.focusActor == "world" or S.focusActor == "group" or S.focusActor == "speaker" or S.focusActor == "actor" then
     local alt = S.visibleActorFor(S.eye, target, p, dir)
     if alt then target, S.focusActor = alt, "alt" end
   end

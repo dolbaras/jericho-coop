@@ -46,6 +46,13 @@ SS.TEXT = {
     s_bridge = "The squad crosses the bridge",
     s_cure = "Church revives Rawlings",
     s_merge = "The main group reached the chapel: the patrol rejoins it",
+    s_square = "The squad fights its way across the square",
+    s_bridgeopen = "The squad is on the plates: the bridge comes down",
+    s_fbkill = "Church strikes the First Born",
+    s_wave2 = "The second wave hits the squad",
+    s_gatedoor = "The squad is through the door to the gate",
+    s_flame = "Flamethrowers and grenadiers at the gate",
+    s_gatetop = "Church reaches the gate top",
   },
   ru = {
     G1A = "Разведка Альфы (Джонс): после прощания Альфа уходит на разведку; держитесь вместе.",
@@ -79,6 +86,13 @@ SS.TEXT = {
     s_bridge = "Отряд идёт по мосту",
     s_cure = "Чёрч поднимает Роулингса",
     s_merge = "Основная группа дошла до часовни: патруль возвращается к ней",
+    s_square = "Отряд пробивается через площадь",
+    s_bridgeopen = "Отряд встал на плиты: мост опускается",
+    s_fbkill = "Чёрч наносит удар Перворождённому",
+    s_wave2 = "На отряд идёт вторая волна",
+    s_gatedoor = "Отряд прошёл дверь к воротам",
+    s_flame = "У ворот огнемётчики и гренадеры",
+    s_gatetop = "Чёрч поднялся на ворота",
   },
 }
 
@@ -122,12 +136,30 @@ SS.LINES = {
     {after = 3, call = "MapInit.AfterRawlingKilled"},
     {when = "CoopStorySolo.G4soulBack", after = 4, call = "CoopStorySolo.G4cure", say = "s_cure", last = true},
   }},
-  G6 = {level = "WWII_Brandenburg", char = "Cole", steps = {}},
-  G11 = {level = "Rom_Palace_01", char = "Black", steps = {
-    {after = 20, call = "MapCallbacks.o249_0", args = {"Church", "o249"}, say = "s_abyss", last = true},
+  -- The squad's way to the gate (vanilla area triggers in their order), then Church climbs:
+  -- the sacrifice scene (the trigger on the gate top, which needs no player Church).
+  G6 = {level = "WWII_Brandenburg", char = "Cole", steps = {
+    {after = 30, call = "MapCallbacks.AreaTrigger192_0", args = {"AreaTrigger192", 0}, say = "s_square"},
+    {after = 70, call = "MapCallbacks.AreaTrigger_1", args = {"AreaTrigger", 0}},
+    {after = 1, call = "MapCallbacks.AreaTrigger161_0", args = {"AreaTrigger161", 0}, say = "s_wave2"},
+    {after = 80, call = "MapCallbacks.AreaTrigger215_0", args = {"AreaTrigger215", 0}},
+    {after = 1, call = "MapCallbacks.AreaTrigger363_0", args = {"AreaTrigger363", 0}},
+    {after = 1, call = "PhysicsObj.OpenDoor", args = {"o53"}, say = "s_gatedoor"},
+    {after = 50, call = "MapCallbacks.AreaTrigger158_0", args = {"AreaTrigger158", 0}, say = "s_flame"},
+    {after = 70, call = "MapCallbacks.AreaTrigger217_0", args = {"AreaTrigger217", 0}, say = "s_climb"},
+    {after = 45, call = "MapCallbacks.triggerUseNaziSacrifice_0", args = {"Church", "triggerUseNaziSacrifice", "Use", ""}, say = "s_gatetop", last = true},
   }},
+  -- After the wave on Church's side, the main line opens the bridge (vanilla: the others on
+  -- the three plates, Church on his).
+  G11 = {level = "Rom_Palace_01", char = "Black", steps = {
+    {after = 20, call = "MapCallbacks.o249_0", args = {"Church", "o249"}, say = "s_abyss"},
+    {when = "CoopStorySolo.G11cleared", after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
+  }},
+  -- The kill is Church's (blood rune, first person): once this player broke free, the main
+  -- line ends it.
   G15 = {level = "Sum_End", char = "Black", steps = {
-    {after = 30, call = "EvilFirstBorn.SchMakeAllUnavailable", say = "s_bind", last = true},
+    {after = 30, call = "EvilFirstBorn.SchMakeAllUnavailable", say = "s_bind"},
+    {when = "CoopStorySolo.G15free", after = 60, call = "EvilFirstBorn.KillFirstBornScene", say = "s_fbkill", last = true},
   }},
   G7 = {level = "Cru_River", char = "Jones", patrol = true, steps = {
     {after = 25, call = "MapScenes.CrossOverBridge", say = "s_bridge"},
@@ -161,18 +193,24 @@ function SS.atSpawn(line)
 end
 
 SS.seen = SS.seen or {}
+SS.wrappers = SS.wrappers or {}
+-- Marks a story function as run. Checked every frame: the split code may put its own
+-- version of the same function in place later (G1A: StartSayGoodbye), then it is wrapped
+-- again.
 function SS.hookEvents(line)
   for _, st in ipairs(line.steps) do
-    if st.on and not SS.seen[st.on .. "#hook"] then
-      SS.seen[st.on .. "#hook"] = true
+    if st.on then
       local tname, fname = string.match(st.on, "^([%w_]+)%.([%w_]+)$")
       local tbl = _G[tname]
-      local orig = tbl and tbl[fname]
-      if type(orig) == "function" then
-        tbl[fname] = function(...)
-          SS.seen[st.on] = true
-          return orig(...)
+      local cur = tbl and tbl[fname]
+      if type(cur) == "function" and cur ~= SS.wrappers[st.on] then
+        local key = st.on
+        local w = function(...)
+          SS.seen[key] = true
+          return cur(...)
         end
+        SS.wrappers[key] = w
+        tbl[fname] = w
       end
     end
   end
@@ -201,8 +239,21 @@ function SS.update()
   end
   local st = line.steps[SS.step]
   if not st then return end
+  if st.on then SS.hookEvents(line) end
   if Scene and Scene.IsPlaying then SS.stepT = Game.GetTime() return end   -- the clock waits for scenes
-  if st.on and not SS.seen[st.on] then SS.stepT = Game.GetTime() return end
+  if st.on and not SS.seen[st.on] then
+    SS.stepT = Game.GetTime()
+    -- Tests (dev, storykick = seconds): nobody walks to the trigger, the story runs it.
+    SS.onSince = SS.onSince or Game.GetTime()
+    if cfg.dev and cfg.storykick and Game.GetTime() - SS.onSince > cfg.storykick then
+      local fn = SS.resolve(st.on)
+      SS.onSince = Game.GetTime() + 9999
+      Coop.log("story solo: test kick " .. st.on .. (fn and "" or " (not found)"))
+      if fn then pcall(fn) end
+      SS.seen[st.on] = true
+    end
+    return
+  end
   if st.when then
     local f = SS.resolve(st.when)
     if not (f and f()) then SS.stepT = Game.GetTime() return end
@@ -219,6 +270,26 @@ function SS.update()
   end
   if st.say then Scorer.SetMsgText(string.format(SS.text("main"), SS.text(st.say)), Game.GetTime() + 6) end
   if st.last then SS.finishAt = Game.GetTime() + 60 end
+end
+
+-- G11: the wave on Church's side is down; the plates and Church's own open the bridge.
+function SS.G11cleared()
+  return CoopSplits and CoopSplits.G11 and CoopSplits.G11.cleared and true or false
+end
+
+function SS.G11bridge()
+  for _, n in ipairs({"LosetaPuenteA", "LosetaPuenteB", "LosetaPuenteC"}) do
+    local e = Game.GetEntity(n)
+    if e and e.uData then e.uData.Pulsed = true end
+  end
+  MapCallbacks.PressChurch_0(Game.GetEntity("LosetaPuenteA"))
+end
+
+-- G15: this player broke free of the rune once.
+function SS.G15free()
+  local me = Coop.localChar()
+  if CoopSplits and CoopSplits.G15 and me and CoopSplits.G15.freed[me] then SS.g15free = true end
+  return SS.g15free or false
 end
 
 -- G4: the soul is back; Church comes over and revives Rawlings (in co-op, a player does).
@@ -271,7 +342,7 @@ function SS.updatePatrol()
   if not stage or Coop.frame < 60 then return end
   if Scene and Scene.IsPlaying then return end
   SS.patrolT = SS.patrolT or Game.GetTime()
-  if Game.GetTime() - SS.patrolT < SS.PATROL_SECS then return end
+  if Game.GetTime() - SS.patrolT < (cfg.dev and cfg.patrolsecs or SS.PATROL_SECS) then return end
   SS.patrolT = Game.GetTime() + 9999   -- once per level
   local main = SS.PATROL_MAIN[stage]
   if not main then return end

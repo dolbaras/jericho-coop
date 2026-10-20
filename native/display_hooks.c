@@ -435,7 +435,8 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
     memset(&id, 0, sizeof id);
     ident(d3d, use, 0, &id);
     HRESULT hr = real_CreateDevice(d3d, use, type, focus, flags, pp, out);
-    coop_log("CreateDevice asked=%u used=%u (%s) hr=0x%08lx", adapter, use, id.Description, (unsigned long)hr);
+    coop_log("CreateDevice asked=%u used=%u (%s) flags=0x%08lx hr=0x%08lx", adapter, use, id.Description,
+             (unsigned long)flags, (unsigned long)hr);
     if (FAILED(hr) && use != adapter) {
         hr = real_CreateDevice(d3d, adapter, type, focus, flags, pp, out);
         coop_log("CreateDevice fallback to %u hr=0x%08lx", adapter, (unsigned long)hr);

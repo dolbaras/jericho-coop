@@ -201,6 +201,7 @@ static int in_hud;         /* after the composite went back into the back buffer
 static int icons_mode = 4;
 static int hud_halves;     /* half viewports seen in this HUD pass (2 = both users' HUDs are done) */
 static int bottom_draws;   /* draws since user 1's half viewport was set */
+static int whole_draws;    /* icon-like draws on the whole screen after user 1's half */
 static D3DVIEWPORT9 cur_vp;
 
 static void trace_draw(IDirect3DDevice9 *dev, const char *what, UINT count, const void *v, UINT stride)
@@ -336,8 +337,9 @@ static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hu
         return do_draw(dev, g);
     DWORD sc = FALSE;
     RECT old = {0, 0, (LONG)bbw, (LONG)bbh};
-    IDirect3DDevice9_GetRenderState(dev, D3DRS_SCISSORTESTENABLE, &sc);
-    IDirect3DDevice9_GetScissorRect(dev, &old);
+    /* (a pure device answers no Get*: then the engine's scissor state is left as drawn) */
+    int restore = SUCCEEDED(IDirect3DDevice9_GetRenderState(dev, D3DRS_SCISSORTESTENABLE, &sc)) &&
+                  SUCCEEDED(IDirect3DDevice9_GetScissorRect(dev, &old));
     IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, TRUE);
     float sx = pic->Width / 640.0f, sy = pic->Height / 480.0f;
     LONG left = (LONG)pic->X, right = (LONG)(pic->X + pic->Width), top = (LONG)pic->Y, bot = (LONG)(pic->Y + pic->Height);
@@ -360,8 +362,12 @@ static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hu
     real_SetViewport(dev, &v);
     draw_scissored(dev, g, R + dr, top, (LONG)bbw, T);
     draw_scissored(dev, g, R + dr, B, (LONG)bbw, bot);
-    IDirect3DDevice9_SetScissorRect(dev, &old);
-    IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, sc);
+    if (restore) {
+        IDirect3DDevice9_SetScissorRect(dev, &old);
+        IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, sc);
+    } else {
+        IDirect3DDevice9_SetRenderState(dev, D3DRS_SCISSORTESTENABLE, FALSE);
+    }
     return hr;
 }
 
@@ -396,8 +402,10 @@ static int hud_target(IDirect3DDevice9 *dev, const hud_draw *g, D3DVIEWPORT9 *ou
             *out = fit_vp(&top);
             return 1;
         }
-        if (cur_vp.Y == 0 && cur_vp.Height == bbh && cur_vp.Width == bbw) {
-            icons_tex = tex;   /* user 1's, after both passes on the whole screen */
+        /* user 1's, the first icon-like draw after both passes on the whole screen (later short
+           draws there are subtitles or SMOD pop-ups: they stay where they are) */
+        if (cur_vp.Y == 0 && cur_vp.Height == bbh && cur_vp.Width == bbw && whole_draws++ == 0) {
+            icons_tex = tex;
             *out = fit_vp(&bottom);
             return 1;
         }
@@ -481,6 +489,7 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
     {
         hud_halves = 2;   /* the bottom half: user 1's HUD; the next whole-screen draws follow it */
         bottom_draws = 0;
+        whole_draws = 0;
     }
     if (mode && vp && vp_logged < 12) {
         IDirect3DSurface9 *rt = NULL, *bb = NULL;

@@ -191,6 +191,7 @@ function Sp.start(char, owner)
   Sp.buildHud()
   Sp.applyFx(true)
   Sp.on, Sp.held = true, false
+  cfg.splitWasOn = true   -- the next level load resets the engine's split state
   Sp.fxStart()
   Sp.installScreenFx()
   Sp.applyEngine(true)
@@ -248,7 +249,15 @@ function Sp.frame()
   -- (Sp.p2Astral: from player 2's "Astral" set until their return gives "Walk" back; a menu
   -- or a scene meanwhile changes neither)
   local b = Sp.body()
-  if Sp.p2Astral and (Sp.waiting or not b or b.Life <= 0) then Sp.p2Astral = nil end
+  if Sp.p2Astral and (Sp.waiting or not b or b.Life <= 0) then
+    Sp.p2Astral = nil
+    -- Player 2's projection ended without its return (Jones down, out of the body): the
+    -- "Walk" it would give back, or player 1 stays frozen in the "Astral" set.
+    if Sp.realGetActionSet() == "Astral" then
+      Sp.realSetActionSet("Walk")
+      Coop.log("split: player 2's projection cut short, controls back to \"Walk\"")
+    end
+  end
   local astral = Sp.p2Astral or false
   if astral and not Sp.camSwap and Game.GetCam(1) == "AstralCam" then
     Sp.p1Cam = Game.GetCam(0)
@@ -652,7 +661,7 @@ function Sp.buildRemap()
       if set == "Astral" then
         Sp.p2Astral = true
         return f(set)
-      elseif set == "Walk" and (Sp.p2Astral or (I.GetActionSet and I.GetActionSet() == "Astral")) then
+      elseif set == "Walk" and (Sp.p2Astral or Sp.realGetActionSet() == "Astral") then
         Sp.p2Astral = nil
         return f(set)
       end
@@ -680,6 +689,12 @@ function Sp.buildRemap()
   end)
   return list
 end
+
+-- The engine's own action set functions (inside player 2's calls Input's are remapped).
+Sp.REAL_GET_SET = Sp.REAL_GET_SET or Input.GetActionSet
+Sp.REAL_SET_SET = Sp.REAL_SET_SET or Input.SetActionSet
+function Sp.realGetActionSet() return Sp.REAL_GET_SET and Sp.REAL_GET_SET() end
+function Sp.realSetActionSet(set) if Sp.REAL_SET_SET then Sp.REAL_SET_SET(set) end end
 
 local function remapOn(list) for _, e in ipairs(list) do e[1][e[2]] = e[4] end end
 local function remapOff(list) for _, e in ipairs(list) do e[1][e[2]] = e[3] end end
@@ -713,7 +728,7 @@ function Sp.asUser0(fn, ...)
   local r = {pcall(fn, ...)}
   remapOn(list)
   Sp.inUser1, Sp.remap = true, list
-  if not r[1] then Coop.log("split: player 1 error inside player 2's call: " .. tostring(r[2])) return end
+  if not r[1] then Sp.logError("player 1's part of " .. tostring(Sp.callLabel or "power"), r[2]) return end
   return unpack(r, 2)
 end
 
@@ -730,6 +745,9 @@ function Sp.later(func)
       local f = Sp.resolve(func)
       if not f then return end
       if not Sp.on then return f(...) end   -- split screen over meanwhile
+      -- for player 1's body (player 2 left it or swapped meanwhile): as the game does
+      if select("#", ...) > 0 and Sp.isP1Subject((...)) then return f(...) end
+      Sp.callLabel = func
       return Sp.asUser1(f, ...)
     end
   end
@@ -816,10 +834,11 @@ function Sp.wrapFn(parent, key, make)
   return true
 end
 
-local function asP2(orig, label, death)
+-- label: the function's name (error log keys); quiet: not logged per call in dev mode.
+local function asP2(orig, label, death, quiet)
   return function(a, ...)
     if Sp.on and not Sp.inUser1 and Sp.isP2Subject(a, death) then
-      if cfg.dev and label then Coop.log("split: player 2 " .. label) end
+      if cfg.dev and label and not quiet then Coop.log("split: player 2 " .. label) end
       Sp.callLabel = label or "power"
       return Sp.asUser1(orig, a, ...)
     end
@@ -864,8 +883,8 @@ function Sp.installPowers()
         if type(f) == "function" and type(k) == "string" and not Sp.P2_SKIP[k] and
            not string.find(k, "^Make") and not string.find(k, "^Init") then
           -- (the Astral HUD widget asks its funcOn* every frame: not logged)
-          local label = cfg.dev and not string.find(k, "^funcOn") and (t .. "." .. k)
-          if Sp.wrapFn(tbl, k, function(orig) return asP2(orig, label, k == "OnDeath") end) then
+          local label, quiet = t .. "." .. k, string.find(k, "^funcOn") ~= nil
+          if Sp.wrapFn(tbl, k, function(orig) return asP2(orig, label, k == "OnDeath", quiet) end) then
             n = n + 1
           end
         end
@@ -880,7 +899,7 @@ function Sp.installPowers()
         local fname = ac[field]
         if type(fname) == "string" and fname ~= "" then
           local parent, key = Sp.parentOf(fname)
-          if Sp.wrapFn(parent, key, function(orig) return asP2(orig, cfg.dev and (field .. " " .. fname)) end) then
+          if Sp.wrapFn(parent, key, function(orig) return asP2(orig, field .. " " .. fname) end) then
             n = n + 1
           end
         end
@@ -904,7 +923,7 @@ function Sp.installPowers()
       end
     end
   end
-  if Weapons and Sp.wrapFn(Weapons, "FP_MeleeHitEvent", function(orig) return asP2(orig) end) then n = n + 1 end
+  if Weapons and Sp.wrapFn(Weapons, "FP_MeleeHitEvent", function(orig) return asP2(orig, "Weapons.FP_MeleeHitEvent") end) then n = n + 1 end
   -- An explosion shakes user 0's camera (by its distance): player 2's too.
   if Weapons then
     Sp.wrapFn(Weapons, "QuakeFX", function(orig)
@@ -924,7 +943,7 @@ function Sp.installPowers()
         local ok, fname = pcall(function() return w[field] end)
         if ok and type(fname) == "string" and fname ~= "" then
           local parent, key = Sp.parentOf(fname)
-          if Sp.wrapFn(parent, key, function(orig) return asP2(orig) end) then n = n + 1 end
+          if Sp.wrapFn(parent, key, function(orig) return asP2(orig, fname) end) then n = n + 1 end
         end
       end
     end
@@ -943,8 +962,12 @@ function Sp.parentOf(path)
   return parent, parts[#parts]
 end
 
-local okReset, errReset = pcall(Sp.resetEngine)
-if not okReset then Coop.log("split reset error: " .. tostring(errReset)) end
+-- Only after a split screen (single player keeps whatever the game or a tweak set).
+if cfg.splitWasOn or cfg.splitSaved then
+  cfg.splitWasOn = nil
+  local okReset, errReset = pcall(Sp.resetEngine)
+  if not okReset then Coop.log("split reset error: " .. tostring(errReset)) end
+end
 
 ------------------------------------------------------------------------------
 -- What each view shows of the other player, and screen effects per view

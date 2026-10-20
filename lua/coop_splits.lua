@@ -125,6 +125,8 @@ function Sp.offer(id)
   local s = Sp.SPLITS[id]
   local me = Coop.localChar()
   if not s or not me or not s.stays[me] then return end
+  -- A story line alone (coop_storysolo.lua) is this character's line: nothing to choose.
+  if cfg.storyline then return end
   -- The character going on is free: offer it; otherwise there is nothing to choose.
   if Coop.ownerOf(s.goes) ~= nil and Coop.ownerOf(s.goes) ~= Coop.myId() then return end
   Sp.choice = {id = id, target = s.goes, untilT = Net.CoopTime() + Sp.CHOICE_TIME}

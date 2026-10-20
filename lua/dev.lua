@@ -79,6 +79,50 @@ end
 
 if cfg.bot == "wander" then Coop.bot = Coop.botWander end
 
+-- 'guard': stand, fire at the nearest enemy, never die (story line tests: the waves and
+-- steps of a line run with nobody at the controls).
+function Coop.botGuard()
+  if Coop.level == "levels/menu" then return end
+  local usr = Game.UsrEntity(0)
+  if not usr or Coop.frame < 40 then return end
+  usr.Invulnerable = 1
+  if usr.Life < 50 then usr.Life = 100 end
+  -- G3: the hacker's place is at the console.
+  local g3 = CoopSplits and CoopSplits.G3
+  if g3 and g3.hacking and MapInit.ColePos and not Coop.guardAtConsole then
+    Coop.guardAtConsole = true
+    usr.Pos = MapInit.ColePos
+    Coop.log("guard: at the console")
+  end
+  local p, best, bestD = usr.Pos, nil, nil
+  local e = Game.GetFirst()
+  while e ~= nil do
+    if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then
+      local d = e.Pos - p
+      local dist = math.sqrt(d.x * d.x + d.z * d.z)
+      if dist < 2500 and (not bestD or dist < bestD) then best, bestD = e, dist end
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  if not best then
+    if Coop.guardFiring then usr.IgnoreUsrControl, usr.owc.Shot, Coop.guardFiring = 0, 0, nil end
+    return
+  end
+  Coop.guardFiring = true
+  usr.IgnoreUsrControl = 1
+  local d = best.Pos - p
+  local yaw = math.deg(math.atan2(-d.x, -d.z))
+  usr.Ang = V3D(0, yaw, 0)
+  usr.ViewAng = V3D(0, yaw, 0)
+  usr.InCtrl_Walk = 0
+  usr.owc.Shot = (Coop.frame % 30 < 20) and 1 or 0
+  if Coop.frame % 120 == 0 then
+    Coop.log(string.format("guard fires at %s %.0f units, life %.0f", best.Name, bestD, best.Life))
+  end
+end
+
+if cfg.bot == "guard" then Coop.bot = Coop.botGuard end
+
 -- 'fight' (host): activate the enemy groups nearest to the player after a short delay so
 -- a test run has combat.
 if cfg.exp == "fight" and Coop.isHost() and Coop.level ~= "levels/menu" then
@@ -1353,5 +1397,47 @@ if cfg.barriertest and Coop.level ~= "levels/menu" then
     local f = t == 0 and Delgado.ActivateBarrier or Delgado.DeactivateBarrier
     if e and e.UsrControl == 1 then CoopSplit.asUser1(f) else f() end
     Coop.log("barriertest: " .. (t == 0 and "on" or "off"))
+  end
+end
+
+-- 'hudprobe' (split screen): a text item in player 2's scorer, logged with player 2's own HUD
+-- items every 100 ticks (does the engine hide scorer 1 during player 1's astral projection?).
+if cfg.hudprobe and Coop.level ~= "levels/menu" then
+  local prevHp = Coop.dev
+  function Coop.dev()
+    if prevHp then prevHp() end
+    if Coop.frame < 200 then return end
+    local t = Scorer.GetItem(1, "Probe")
+    if not t then
+      t = Scorer.NewItem(1, "Probe", "Text", 1)
+      t.Font = Menu.SmallFont
+      t.Pos = V2D(320, 300)
+      t.Color = V4D(255, 64, 64, 255)
+    end
+    t.Text = "P2 PROBE " .. tostring(Input.GetActionSet())
+    if Coop.frame % 100 == 0 then
+      local s = {}
+      for _, n in ipairs({"Ammo", "Selector", "Aim", "TeamStatus", "Msg", "Probe"}) do
+        local it = Scorer.GetItem(1, n)
+        s[#s + 1] = n .. "=" .. (it and tostring(it.Visible) or "-")
+      end
+      Coop.log("hudprobe: set=" .. tostring(Input.GetActionSet()) .. " " .. table.concat(s, " "))
+    end
+  end
+end
+
+-- 'fpslog': frames per real second, logged every 10 s (split HUD cost: with and without
+-- JERICHO_SPLITHUD=0, the game's frame cap off).
+if cfg.fpslog and Coop.level ~= "levels/menu" then
+  local prevFps = Coop.dev
+  function Coop.dev()
+    if prevFps then prevFps() end
+    local now = Net.CoopTime()
+    Coop.fpsN = (Coop.fpsN or 0) + 1
+    Coop.fpsT0 = Coop.fpsT0 or now
+    if now - Coop.fpsT0 >= 10 then
+      Coop.log(string.format("fpslog: %.1f fps", Coop.fpsN / (now - Coop.fpsT0)))
+      Coop.fpsN, Coop.fpsT0 = 0, now
+    end
   end
 end
