@@ -47,10 +47,14 @@ How it works
   player pressed Esc.
 - Cutscene view (session setting): "original camera" (default) or "own eyes (experimental)":
   each player watches a first-person scene from their own character, with the scene's
-  character shown as a full model. This view is a work in progress: the scene sets were
-  made for one camera, so expect odd angles, see-through walls and people looking past you.
-  Its animations are built by the installer from your game files and need Python 3
-  (python.org); without Python the view works, but the scene's character is not shown.
+  character shown as a full model. The view is directed: you look at whoever speaks, answer
+  the one who spoke when your character talks, and follow what the scene shows otherwise;
+  where your character's eyes cannot see the scene (a wall, someone in your face, the
+  helicopter going down) the original camera takes over for that moment. The scene's
+  character walks where the game only moved its camera. Still experimental: the sets were
+  made for one camera. Its animations are built by the installer from your game files and
+  need Python 3 (python.org); without Python the view works, but the scene's character is
+  not shown.
 - QTEs are seen and played only by the player of the scene's character (or pass by themselves
   if the host turned on automatic QTEs).
 - Character-only actions: the players are offered to take that character; if nobody does
@@ -148,10 +152,13 @@ previous run).
   нажали все игроки.
 - Вид катсцен (настройка сессии): «камера оригинала» (по умолчанию) или «своими глазами
   (эксп.)»: каждый игрок смотрит сцену от первого лица из глаз своего персонажа, а персонаж
-  сцены показан полной моделью. Режим в разработке: декорации сцен сделаны под одну камеру,
-  поэтому возможны странные ракурсы, видимые насквозь стены и взгляды мимо вас. Анимации для
-  него установщик собирает из файлов вашей игры, нужен Python 3 (python.org); без Python режим
-  работает, но персонаж сцены не виден.
+  сцены показан полной моделью. Вид поставлен как режиссура: вы смотрите на того, кто говорит,
+  отвечаете взглядом тому, кто говорил, когда говорит ваш персонаж, а в остальное время следите
+  за тем, что показывает сцена; где глазами персонажа сцену не увидеть (стена, кто-то вплотную,
+  падение вертолёта), на этот момент включается камера оригинала. Персонаж сцены идёт шагом
+  там, где игра двигала только его камеру. Режим всё ещё экспериментальный: декорации сделаны
+  под одну камеру. Анимации для него установщик собирает из файлов вашей игры, нужен Python 3
+  (python.org); без Python режим работает, но персонаж сцены не виден.
 - QTE видит и проходит только тот, кто играет за персонажа сцены (или они проходят сами,
   если хост включил автоматические QTE).
 - Действия, которые может сделать только определённый персонаж: игрокам предлагают взять

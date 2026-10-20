@@ -226,6 +226,29 @@ The owner's rules apply: test on the 2nd monitor, muted, and nothing is publishe
 
 ---
 
-## 5. What was built (0.1.2)
+## 5. What was built (0.1.2, polished in 0.2)
 
 Approach (a) after all, in one game: `native/split.c` (alternate camera slot per frame, each frame squeezed into its half before the HUD pass, the late power-icon draws moved to their half) and `lua/coop_split.lua` (user 1's body, camera, scorer 1, first-person model with `id = 1`, pads, squad switching, powers run as user 1, down/revive, story moves). The two-window approach (b) was dropped. See `docs/scrapland-engine-audit.md` for the engine details found later.
+
+0.2 polish:
+- **HUD per player, in shape.** Each user's HUD pass draws over its picture only (the half's
+  viewport shrunk to the picture between the black side bars), and every HUD draw is
+  repeated per region with a scissor rectangle: the middle of the HUD over the picture, its
+  corners (weapons, powers, squad, SMOD's health) moved out onto the bars at the screen's
+  edges. Fades and full-screen overlays are recognised (a 2-triangle quad over most of the
+  width) and drawn plainly. The late power-icon draws are recognised by their texture.
+- **Per view state.** Before each frame Lua sets what that view should show: its player's
+  first-person arms (`0FP_*`/`1FP_*` `bObjectVisible`), the other player's body, and the
+  screen effect parameters of that player's powers (`Game.Set`/`Get` of ~50 effect
+  parameters are kept per user and swapped in per frame; engine clocks advance per view).
+  Screen-wide particle effects (Delgado's fire barrier) cannot be shown per view and are off.
+- **Player 2's code as user 1.** ~370 functions of the character, thread, weapon, astral and
+  FP tables are wrapped: when their first argument is player 2's body, FP model or ghost
+  bullet they run with user 0's API remapped to user 1 (UsrEntity, GetCam/SetCam with
+  `MainCam` <-> `CoopCam1`, every Scorer call, `0FP_` names and FX arguments, scheduled
+  callbacks, rumble); from inside, a call for player 1's body runs unmapped.
+- **Astral projection** of player 2: the engine moves only slot 0's camera by input, so the
+  astral camera and player 1's camera swap slots meanwhile (each half still shows its
+  player's view) and both pads act as pad 0.
+- **The D3D hooks are installed on every launch** (0.1.2 hooked the device only when a test
+  variable was set, so a player's launch showed player 2's camera full screen).

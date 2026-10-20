@@ -3,7 +3,7 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: test release (0.1.2, see Releases): download the zip, extract it anywhere and run
+Status: test release (0.2, see Releases): download the zip, extract it anywhere and run
 `Install Co-op.bat` (it finds the game, backs up what it replaces and can uninstall); details
 in `README-COOP.txt` inside (English and Russian). QA level: automated tests with
 two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
@@ -31,13 +31,13 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 - Cole's and Black's slow motion slows the world for everyone; human players keep their
   normal speed, as the power's owner does in the original.
 - First-person cutscenes: every player sees the original scene camera, through the eyes of
-  the scene's character, with a short caption naming that character. Watching from each
-  player's own character was tried (head camera, full-body copy of the first-person
-  character with its retargeted scene motion) and checked scene by scene from two seats:
-  without collision in the scene sets and with speakers turned to the scene's owner, it
-  never framed a scene as well as the original, so it stays an experiment: the session
-  setting "Cutscenes: own eyes (experimental)" (`povall`; its animations are built by the
-  installer from the player's game files with Python 3).
+  the scene's character, with a short caption naming that character. The session setting
+  "Cutscenes: own eyes (experimental)" (`povall`) shows each player the scene from their own
+  character instead: a head camera directed by the scene's dialogue (look at the speaker,
+  answer the last speaker, else what the scene camera frames), the original camera where
+  the head cannot see the scene (walls, faces, a flying set), and a full-body copy of the
+  first-person character, its scene motion retargeted (Python 3 at install time), steadied
+  against the camera shake and given a walk cycle where the camera only glided.
 - An AI character that does a first-person traversal (climb, descent, door) ends up where
   the scene ends, as the player's character does in the original.
 - QTEs: only the player holding the scene's character sees and plays them; the branch they
