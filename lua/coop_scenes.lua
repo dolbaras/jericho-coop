@@ -506,6 +506,7 @@ S.EYE_MAX = 2000
 -- the nearest clear direction first) as a person would lean forward to look.
 S.LEAN_NEAR = 90
 S.LEAN_STEPS = {25, 50, 75, 100}
+S.LEAN_HOLD = 4           -- seconds a lean stays after the view clears
 S.LEAN_TAU = 0.5
 S.ZERO = V3D(0, 0, 0)
 
@@ -578,6 +579,11 @@ function S.findLean(eye, target)
   if S.leanNext > 0 then return S.leanWant or S.ZERO end
   S.leanNext = 8   -- frames between searches
   if not S.blockedNear(eye, target) then
+    -- A lean is kept a while after it was last needed: people shifting in and out of the
+    -- line of sight swayed the view to and fro every second or two (scene audit 0.2.1: 18).
+    if S.leanWant and S.leanWant ~= S.ZERO and Game.GetTime() < (S.leanHoldUntil or 0) then
+      return S.leanWant
+    end
     S.leanWant = S.ZERO
     return S.ZERO
   end
@@ -602,6 +608,7 @@ function S.findLean(eye, target)
       local at = eye + off
       if not Game.TestLine(eye, at, "") and not S.blockedNear(at, target) then
         S.leanWant = off
+        S.leanHoldUntil = Game.GetTime() + S.LEAN_HOLD
         return off
       end
     end

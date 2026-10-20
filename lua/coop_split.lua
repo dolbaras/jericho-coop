@@ -369,10 +369,43 @@ function Sp.driveDuringAstral()
   b.InCtrl_Str = st("StrafeRight") - st("StrafeLeft")
   b.InCtrl_Sprint = st("Sprint") > 0.5 and 1 or 0
   if b.owc then b.owc.Shot = st("MainShot") > 0.5 and 1 or 0 end
+  Sp.astralHud(b)
+end
+
+-- The engine draws no Aim/Ammo/Selector/TeamStatus item while the action set is "Astral",
+-- in player 2's scorer too (hudprobe 0.2.1: the mod's own text items still show). Player 2
+-- keeps a crosshair and the loaded ammo meanwhile.
+function Sp.astralHud(b)
+  local aim = Scorer.GetItem(1, "AstralAim")
+  local ammo = Scorer.GetItem(1, "AstralAmmo")
+  if not b then
+    if aim then aim.Text = "" end
+    if ammo then ammo.Text = "" end
+    return
+  end
+  if not aim then
+    aim = Scorer.NewItem(1, "AstralAim", "Text", 1)
+    aim.Font = Menu.SmallFont
+    aim.Effect = "Shadow"
+    aim.Color = V4D(230, 230, 230, 220)
+  end
+  Coop.setCentered(aim, "+")
+  aim.Y = 232
+  if not ammo then
+    ammo = Scorer.NewItem(1, "AstralAmmo", "Text", 1)
+    ammo.Font = Menu.SmallFont
+    ammo.Effect = "Shadow"
+    ammo.Pos = V2D(586, 440)
+  end
+  local n
+  pcall(function() n = b.oWeapCtrl.oActual.AmmoLoaded end)
+  ammo.Text = n and tostring(math.floor(n)) or ""
+  ammo.Color = Menu.ItemColor
 end
 
 function Sp.stopDrive()
   if not Sp.driving then return end
+  pcall(Sp.astralHud, nil)
   Sp.driving, Sp.driveT = nil, nil
   local b = Sp.body()
   if b then

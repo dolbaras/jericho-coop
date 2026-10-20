@@ -1,4 +1,4 @@
-# The co-op story lines alone (lua/coop_storysolo.lua): a menu of the lines, each started in a
+﻿# The co-op story lines alone (lua/coop_storysolo.lua): a menu of the lines, each started in a
 # solo session of its own (this game folder, the co-op mod in coop\, SMOD if installed).
 # Usage: put this script in the game folder and run "Story Lines.bat" there.
 param([string] $Line = "")
@@ -44,4 +44,5 @@ $env:JERICHO_COOP_CFG = "{auto=true,role='host',port=28100,level='$($x.level)',c
 $env:JERICHO_COOP_SAVEDIR = $saves
 $env:JERICHO_COOP_LOG = Join-Path $saves "coop.log"
 Write-Host (L "Starting: " "Запуск: ") (L $x.en $x.ru)
-Start-Process -FilePath $exe -WorkingDirectory $game -ArgumentList "-InitLuaLine:`"assert(loadstring(Net['CoopBoot']()))()`""
+# (no opening videos: the line's level loads straight away)
+Start-Process -FilePath $exe -WorkingDirectory $game -ArgumentList "-PlayVideos:0 -InitLuaLine:`"assert(loadstring(Net['CoopBoot']()))()`""

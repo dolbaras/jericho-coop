@@ -94,8 +94,9 @@ character; it works in a hosted game and when you join one (up to 4 players in a
   of a power (blur, colours, noise) only in the half of the player who uses it. Delgado's fire
   barrier flames are not shown in split screen (they would cover both halves); the barrier
   itself works.
-- All powers work for both players. Jones's astral projection: while one player projects, the
-  other player's character waits (the game has one set of controls for it).
+- All powers work for both players. Jones's astral projection: while player 1 projects, player
+  2 plays on (with a simple crosshair and ammo count: the game hides its own HUD then); while
+  player 2 projects, player 1's character waits (the game has one set of controls for it).
 - It uses the game's own split screen leftovers (from the engine's Scrapland days): each frame
   draws one player's view in turn, so each view runs at half the frame rate.
 
@@ -196,8 +197,10 @@ SMOD
 - Каждый видит свои руки и второго игрока целиком, а экранные эффекты способностей (размытие,
   цвет, шум) — только в половине того, кто ими пользуется. Пламя огненного барьера Дельгадо в
   сплитскрине не показывается (оно закрыло бы обе половины), сам барьер работает.
-- Все способности работают у обоих игроков. Астральная проекция Джонс: пока один игрок в
-  проекции, персонаж второго ждёт (управление для неё в игре одно на всех).
+- Все способности работают у обоих игроков. Астральная проекция Джонс: пока в проекции первый
+  игрок, второй играет дальше (с простым прицелом и счётчиком патронов: свой HUD игра в это
+  время прячет); пока в проекции второй, персонаж первого ждёт (управление для неё в игре одно
+  на всех).
 - Сделано на остатках сплитскрина самого движка (со времён Scrapland): кадры по очереди рисуют
   вид каждого игрока, поэтому у каждого вида половина частоты кадров.
 

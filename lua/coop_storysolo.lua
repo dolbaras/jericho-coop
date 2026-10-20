@@ -98,6 +98,21 @@ SS.TEXT = {
   },
 }
 
+-- The line's own messages, in a block of their own under the top of the screen (the game's
+-- message line is shared with the split's hints: two texts ran over each other in G4).
+SS.SAY_Y = 140
+function SS.say(text, secs)
+  Coop.textBlock("StorySolo", text, {y = SS.SAY_Y, color = Color(210, 225, 255, 255)})
+  SS.sayUntil = Game.GetTime() + (secs or 8)
+end
+
+function SS.sayUpdate()
+  if SS.sayUntil and Game.GetTime() >= SS.sayUntil then
+    SS.sayUntil = nil
+    Coop.textBlockHide("StorySolo")
+  end
+end
+
 function SS.text(key)
   local lang = Coop.lang()
   local s = (SS.TEXT[lang] or SS.TEXT.en)[key] or SS.TEXT.en[key] or key
@@ -114,7 +129,7 @@ SS.LINES = {
     {after = 70, call = "MapCallbacks.TriggerAperturaPuerta_0", args = {"Church", "TriggerAperturaPuerta"}, say = "s_door", last = true},
   }},
   G10 = {level = "Rom_Caldarium", char = "Black", steps = {
-    {after = 25, call = "MapCallbacks.AreaTrigger_Fire_0", args = {"AreaTrigger_Fire", 0}, say = "s_fire"},
+    {after = 25, call = "CoopStorySolo.G10fire", say = "s_fire"},
     {after = 15, call = "MapCallbacks.AreaTriggerOutFire_0", args = {"AreaTriggerOutFire", 0}},
     {after = 70, call = "CoopStorySolo.G10door1", say = "s_door1"},
     {after = 70, call = "MapCallbacks.AreaTrigger308_0", args = {"AreaTrigger308", 0}, say = "s_lever"},
@@ -124,7 +139,7 @@ SS.LINES = {
     {after = 90, call = "MapCallbacks.AreaTrigger_3", args = {"AreaTrigger_3", 0}, say = "s_omega"},
     {after = 80, call = "MapCallbacks.AreaTrigger49_0", args = {"AreaTrigger49", 0}},
     {after = 70, call = "MapCallbacks.AreaTrigger133_0", args = {"AreaTrigger133", 0}, say = "s_omeganear"},
-    {after = 40, call = "MapCallbacks.AreaTrigger119_1", args = {"AreaTrigger119", 0}, say = "s_omegain", last = true},
+    {after = 40, call = "CoopStorySolo.G1Cthrough", say = "s_omegain", last = true},
   }},
   -- (from the cave's exit: the level's opening crawl is Ross's own scene, no squad body then)
   G1A = {level = "Alk_Tomb", char = "Jones", spawn = 1, steps = {
@@ -152,7 +167,7 @@ SS.LINES = {
     {after = 1, call = "PhysicsObj.OpenDoor", args = {"o53"}, say = "s_gatedoor"},
     {after = 50, call = "MapCallbacks.AreaTrigger158_0", args = {"AreaTrigger158", 0}, say = "s_flame"},
     {after = 70, call = "MapCallbacks.AreaTrigger217_0", args = {"AreaTrigger217", 0}, say = "s_climb"},
-    {after = 45, call = "MapCallbacks.triggerUseNaziSacrifice_0", args = {"Church", "triggerUseNaziSacrifice", "Use", ""}, say = "s_gatetop", last = true},
+    {after = 45, call = "CoopStorySolo.G6sacrifice", say = "s_gatetop", last = true},
   }},
   -- After the wave on Church's side, the main line opens the bridge (vanilla: the others on
   -- the three plates, Church on his).
@@ -160,7 +175,7 @@ SS.LINES = {
   -- abyss opens, Church takes it (the use callback of TriggerTheAbyss).
   G11 = {level = "Rom_Palace_01", char = "Black", spawn = 1, steps = {
     {when = "CoopStorySolo.G11abyssReady", testkick = "CoopStorySolo.G11testLegion", after = 15,
-     call = "MapCallbacks.o249_0", args = {"Church", "TriggerTheAbyss", "Use", ""}, say = "s_abyss"},
+     call = "CoopStorySolo.G11cross", say = "s_abyss"},
     {when = "CoopStorySolo.G11cleared", testkick = "CoopStorySolo.G11testWave", after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
   }},
   -- The kill is Church's (blood rune, first person): once this player broke free, the main
@@ -176,6 +191,14 @@ SS.LINES = {
 
 function SS.line()
   return cfg.storyline and SS.LINES[cfg.storyline]
+end
+
+-- The area trigger entity of a map callback ("MapCallbacks.AreaTrigger119_1" ->
+-- "AreaTrigger119"), switched off.
+function SS.triggerOff(call)
+  local name = type(call) == "string" and string.match(call, "^MapCallbacks%.(AreaTrigger.-)_%d+$")
+  local t = name and Game.GetEntity(name)
+  if t then pcall(function() t.bActive = false end) end
 end
 
 function SS.resolve(path)
@@ -227,6 +250,7 @@ end
 function SS.update()
   local line = SS.line()
   if not line or Coop.level == "levels/menu" then return end
+  SS.sayUpdate()
   if line.patrol and cfg.storyPatrol then return SS.updatePatrol() end
   if Coop.level ~= "levels/" .. string.lower(line.level) then return end
   if not SS.started then
@@ -237,14 +261,18 @@ function SS.update()
     SS.started = true
     SS.step, SS.stepT = 1, Game.GetTime()
     SS.hookEvents(line)
-    Scorer.SetMsgText(SS.text(cfg.storyline), Game.GetTime() + 12)
+    -- The level's area triggers that are the main line's steps run from here only: the AI
+    -- squad walking about must not run them early (G1C: Omega's AI walked into two of them
+    -- in the first 20 s and both waves came at once).
+    for _, s2 in ipairs(line.steps) do SS.triggerOff(s2.call) end
+    SS.say(SS.text(cfg.storyline), 12)
     Coop.log("story solo: " .. cfg.storyline .. " in " .. line.level .. " as " .. tostring(Coop.localChar()))
     if line.patrol then SS.installPatrol() end
   end
   if SS.started ~= true then return end
   if SS.finishAt and Game.GetTime() >= SS.finishAt then
     SS.finishAt = nil
-    Scorer.SetMsgText(SS.text("done"), Game.GetTime() + 15)
+    SS.say(SS.text("done"), 15)
     Coop.log("story solo: " .. cfg.storyline .. " done")
   end
   local st = line.steps[SS.step]
@@ -288,16 +316,53 @@ function SS.update()
     if fn then
       local ok, err = pcall(fn, unpack(st.args or {}))
       if not ok then Coop.log("story solo: step error " .. tostring(err)) end
-      -- An area trigger the story ran: someone walking into it later must not run it again.
-      local tname = st.args and st.args[1]
-      if type(tname) == "string" and string.find(tname, "^AreaTrigger") then
-        local t = Game.GetEntity(tname)
-        if t then pcall(function() t.bActive = false end) end
-      end
+      SS.triggerOff(st.call)
     end
   end
-  if st.say then Scorer.SetMsgText(string.format(SS.text("main"), SS.text(st.say)), Game.GetTime() + 6) end
+  if st.say then SS.say(string.format(SS.text("main"), SS.text(st.say)), 8) end
   if st.last then SS.finishAt = Game.GetTime() + 60 end
+end
+
+-- G6: Church on the gate top: the sacrifice (the use object's callback; the object itself off,
+-- or co-op's claims had the AI use it once more and the scenes played twice).
+function SS.G6sacrifice()
+  local t = Game.GetEntity("triggerUseChurch")
+  if t then pcall(function() t.bArrowCanUse = false; t.bActive = false end) end
+  SS.aiDoes("Church")
+  MapCallbacks.triggerUseNaziSacrifice_0("Church", "triggerUseChurch", "Use", "")
+end
+
+-- G1C: Omega breaks through to the pocket (MapCallbacks.AreaTrigger119_1, each part on its
+-- own: the explosive it wakes may be gone already, and the rest must still run).
+function SS.G1Cthrough()
+  Game.AddScheduledFunc(Game.GetTime() + 1, "", "PhysicsObj.OpenDoor", "primera_puerta_black")
+  local x = Game.GetEntity("ExplosivoDePega")
+  if x then x.bActive = true end
+  pcall(NPC.ActivateEnemyGroup, "primer_explosivo")
+  pcall(NPC.ActivateEnemyGroup, "primeros_cultistas_explosivos")
+  pcall(MapInit.EnableAlpha)
+  pcall(ObjFX.ActivateFX, "Debris_primera_puerta_black", 15)
+  Game.AddScheduledFunc(Game.GetTime() + 1, "", "MapSoundFuncs.ScarySound")
+  -- the split's own end of the pocket (it follows the trigger's callback)
+  if CoopSplits and CoopSplits.G1C then
+    CoopSplits.G1C.done = true
+    pcall(CoopSplits.radio, "Jones", "Rejoin_Team")
+  end
+  SS.triggerOff("MapCallbacks.AreaTrigger119_1")
+end
+
+-- G10: Delgado walks into the fire. The vanilla trigger takes whoever entered it: called by
+-- the story it took the player, burned them (Life 0) and froze the controls ("Inactive").
+-- Delgado walks it unharmed here (in co-op his player keeps the barrier up).
+function SS.G10fire()
+  AreaTriggers.FireAreaDamage = 15
+  pcall(Team.ReviveAll)
+  pcall(AreaTriggers.SetTeamsThere, V3D(-30732, -170, -4934))
+  Game.DeleteScheduledFuncs("SchFireArea")
+  pcall(Team.HoldPosMain)
+  pcall(Team.HoldPosSide)
+  local t = Game.GetEntity("AreaTrigger_Fire")
+  if t then pcall(function() t.bActive = false end) end
 end
 
 -- G10: Delgado's first door, the vanilla use callback without its first-person use animation
@@ -314,6 +379,8 @@ function SS.G10door1()
   local e = Game.GetEntity("Enemy163")
   if e then e.FireRemainTime = 100 end
   Game.AddScheduledFunc(Game.GetTime() + Game.Rand(35, 45), "SchFireArea2", "MapInit.SchFireArea2")
+  -- the hall's second wave (coop_splits.lua runs it after the door's own callback)
+  if CoopSplits and CoopSplits.G10wave then pcall(CoopSplits.G10wave, 2) end
 end
 
 -- G11: the wave on Church's side is down; the plates and Church's own open the bridge.
@@ -321,9 +388,24 @@ function SS.G11cleared()
   return CoopSplits and CoopSplits.G11 and CoopSplits.G11.cleared and true or false
 end
 
+-- (the legion's last group down: vanilla makes the ledge usable)
 function SS.G11abyssReady()
   local t = Game.GetEntity("TriggerTheAbyss")
-  return t ~= nil and t.bActive == true
+  return t ~= nil and t.bActive == true and t.bArrowCanUse == true
+end
+
+-- An AI character's action played as a scene: its QTE passes by itself (coop_scenes.lua does
+-- so for what co-op's claims had the AI do).
+function SS.aiDoes(char)
+  if CoopClaim and CoopClaim.aiDid then CoopClaim.aiDid[char] = true end
+end
+
+-- Church crosses the abyss (the ledge's use callback; the ledge itself off).
+function SS.G11cross()
+  SS.aiDoes("Church")
+  local t = Game.GetEntity("TriggerTheAbyss")
+  if t then pcall(function() t.bArrowCanUse = false end) end
+  MapCallbacks.o249_0("Church", "TriggerTheAbyss", "Use", "")
 end
 
 -- (tests: the legion at the bridge down)
@@ -423,7 +505,7 @@ function SS.updatePatrol()
     -- The merge: back to one group in the chapel (the rescue scene).
     cfg.inst, cfg.instAuth, cfg.instIds, cfg.storyPatrol = nil, nil, nil, nil
     cfg.role = cfg.netRole or "host"
-    Scorer.SetMsgText(SS.text("s_merge"), Game.GetTime() + 6)
+    SS.say(SS.text("s_merge"), 6)
     Coop.rearm()
     SaveGame.LoadLevel("Cru_Chapel")
   elseif CoopPatrol and CoopPatrol.sideMainLevel then

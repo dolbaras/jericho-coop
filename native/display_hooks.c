@@ -499,12 +499,14 @@ static DWORD test_pad_as(void *state, const char *var)
         return ERROR_SUCCESS;
     }
     if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '7') {
-        /* Weapons: Y (switch) at 1 s, the right trigger held 3-4.5 s and tapped at 6.5 s; LB
-           (alternative fire / programming) held 8-9 s; every 10 s. */
-        DWORD t = (now - t0) % 10000;
+        /* Weapons, every 12 s: Y (power switch) at 1 s, the right trigger (main weapon) held
+           3-4.5 s and tapped at 6.5 s; LB (the power) held 8-9 s; the left trigger (secondary
+           weapon: Cole's mine launcher) held 10-11 s. */
+        DWORD t = (now - t0) % 12000;
         if (t >= 1000 && t < 1300) s->buttons = 0x8000;
         if ((t >= 3000 && t < 4500) || (t >= 6500 && t < 6800)) s->rt = 255;
         if (t >= 8000 && t < 9000) s->buttons = 0x0100;
+        if (t >= 10000 && t < 11000) s->lt = 255;
         return ERROR_SUCCESS;
     }
     if (GetEnvironmentVariableA(var, v, sizeof v) > 0 && v[0] == '6') {

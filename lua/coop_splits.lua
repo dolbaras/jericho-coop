@@ -830,8 +830,33 @@ function Sp.G3update(dt)
   end
   if g.t >= g.TIME then
     g.hacking = false
+    g.restoredAt = Game.GetTime()
     Coop.log("split G3: restoration complete")
     MapInit.DeactivateEnemies()
+  end
+end
+
+-- After the restoration (host): vanilla goes on when the ambush's generator reports all its
+-- enemies dead (emboscada_0 -> EnemiesDeath -> the quake, the last talk, the way out). That
+-- report did not come in the story line test with no ambusher left: once none is alive, the
+-- level goes on.
+function Sp.G3afterRestore()
+  local g = Sp.G3
+  if not g.restoredAt or g.ended or Coop.frame % 30 ~= 0 then return end
+  local left
+  local l = Game.GetEntityList and Game.GetEntityList("emboscada")
+  if l then pcall(function() left = l:GetEntitiesLeft() end) end
+  local alive = 0
+  local e = Game.GetFirst()
+  while e ~= nil do
+    if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 and e.bActive then alive = alive + 1 end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  local since = Game.GetTime() - g.restoredAt
+  if (alive == 0 and since > 5) or (left == 0 and since > 20) then
+    g.ended = true
+    Coop.log("split G3: ambush down (list left " .. tostring(left) .. "), the level goes on")
+    MapInit.EnemiesDeath()
   end
 end
 
@@ -843,8 +868,10 @@ end
 function Sp.installG3(isHost)
   if not MapInit.StartManipulation or Sp.hooked["G3"] then
     if isHost and Sp.G3.hacking then Sp.G3update(Coop.TICK) end
+    if isHost then Sp.G3afterRestore() end
     return
   end
+  Sp.after("MapInit.EnemiesDeath", function() Sp.G3.ended = true end)
   Sp.hooked["G3"] = true
   local origStart, origAmbush = MapInit.StartManipulation, MapInit.Ambush
   local origQuake, origFinal = MapInit.QuakeOff, MapInit.FinalTalk
@@ -1298,6 +1325,9 @@ function Sp.installG1A(isHost)
     local orig = MapInit.StartSayGoodbye
     MapInit.StartSayGoodbye = function(...)
       if not (Coop.inSession() and Sp.humansIn(Sp.G1A.alpha) > 0) then return orig(...) end
+      -- once (a second call would bring every wave twice)
+      if Sp.G1A.saidGoodbye then return end
+      Sp.G1A.saidGoodbye = true
       Sp.G1Agoodbye()
     end
   end
