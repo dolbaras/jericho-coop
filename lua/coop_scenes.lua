@@ -152,7 +152,7 @@ end
 function S.stop(ending)
   S.stopStandIn(ending)
   S.smooth, S.focus, S.eye, S.look, S.headCache, S.fwdDir = nil, nil, nil, nil, nil, nil
-  S.speaking, S.lastSpeaker = nil, nil
+  S.speaking, S.lastSpeaker, S.lastCamPos = nil, nil, nil
   S.lean, S.leanWant, S.leanNext = nil, nil, nil
   S.fallback, S.blockedFor, S.clearFor, S.blockFrames = nil, nil, nil, nil
   -- The eye follows the scene camera's node (EntityLink): unlink before the scene model is
@@ -581,6 +581,16 @@ S.VIEW_MIN = 160          -- the target this close to the eye fills the view
 S.BODY_IN_WAY = 28        -- a head or chest this close to the line of sight blocks it
 S.BODY_PROBES = {0, 45}   -- below the head node: the head, the chest
 
+-- An action shot: the scene camera itself flies (the helicopter going down in Landing, a
+-- fall): the scene's own camera work shows it; a head inside the tumbling set does not.
+S.ACTION_SPEED = 700       -- units per second of the scene camera
+function S.actionShot(p, dt)
+  local last = S.lastCamPos
+  S.lastCamPos = p
+  if not last or not dt or dt <= 0 then return false end
+  return len(p - last) / dt > S.ACTION_SPEED and "action" or false
+end
+
 function S.viewBlocked(p, eye, target)
   -- Nose against what the scene shows (a door, a wall the scene camera sees from afar);
   -- a face at conversation distance is fine.
@@ -677,7 +687,7 @@ function S.updatePOV(dt)
   if S.blockFrames >= S.BLOCK_EVERY then
     local step = S.blockFrames * (dt or 0.033)
     S.blockFrames = 0
-    local why = Coop.cfg.povfallback ~= false and S.viewBlocked(p, pos, target)
+    local why = Coop.cfg.povfallback ~= false and (S.actionShot(p, step) or S.viewBlocked(p, pos, target))
     if why then
       S.clearFor, S.blockedFor = 0, (S.blockedFor or 0) + step
       if S.blockedFor >= S.BLOCK_IN then S.setFallback(true, why) end
