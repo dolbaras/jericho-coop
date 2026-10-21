@@ -863,6 +863,19 @@ function Sp.G3afterRestore()
   end
 end
 
+function Sp.G3quakeFallback()
+  if Sp.G3.quaked then return end
+  Coop.log("split G3: the ambush talk never ended, the quake comes anyway")
+  MapInit.QuakeOff()
+end
+
+function Sp.G3doorFallback()
+  if Sp.G3.doorOpen then return end
+  Coop.log("split G3: the final talk never ended, the way out opens anyway")
+  pcall(TeamTalk.EndOfIncidentalChat, true)
+  MapInit.OpenLastDoor()
+end
+
 function Sp.G3show(pct, near)
   local key = near and "hack" or "hack_away"
   Scorer.SetMsgText(string.format(Sp.text(key), pct), Game.GetTime() + 3)
@@ -874,7 +887,14 @@ function Sp.installG3(isHost)
     if isHost then Sp.G3afterRestore() end
     return
   end
-  Sp.after("MapInit.EnemiesDeath", function() Sp.G3.ended = true end)
+  -- The vanilla talks end in the next step (their callback); they were written for the
+  -- stand-in Cole: should one never end, the next step comes anyway.
+  Sp.after("MapInit.EnemiesDeath", function()
+    Sp.G3.ended = true
+    Coop.log("split G3: the ambush is down")
+    if isHost then Game.AddScheduledFunc(Game.GetTime() + 40, "CoopSplitG3", "CoopSplits.G3quakeFallback") end
+  end)
+  Sp.after("MapInit.OpenLastDoor", function() Sp.G3.doorOpen = true Coop.log("split G3: the way out is open") end)
   Sp.hooked["G3"] = true
   local origStart, origAmbush = MapInit.StartManipulation, MapInit.Ambush
   local origQuake, origFinal = MapInit.QuakeOff, MapInit.FinalTalk
@@ -897,6 +917,9 @@ function Sp.installG3(isHost)
   end
   MapInit.QuakeOff = function(...)
     if TeamTalk.FacialAlias.Cole then return origQuake(...) end
+    if Sp.G3.quaked then return end
+    Sp.G3.quaked = true
+    Coop.log("split G3: the quake")
     Game.Set("DoingStopChat", 1)
     pcall(MapSoundFuncs.Temblor)
     pcall(MapSoundFuncs.Temblor2)
@@ -910,8 +933,10 @@ function Sp.installG3(isHost)
   end
   MapInit.FinalTalk = function(Speech, ...)
     if TeamTalk.FacialAlias.Cole then return origFinal(Speech, ...) end
+    Coop.log("split G3: the final talk")
     Game.GetEntity("Cole").bActive = true
     TeamTalk.InitIncidentalChat(Speech, MapInit.OpenLastDoor, true)
+    if isHost then Game.AddScheduledFunc(Game.GetTime() + 40, "CoopSplitG3", "CoopSplits.G3doorFallback") end
   end
 end
 

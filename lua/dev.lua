@@ -1457,3 +1457,38 @@ if cfg.fpslog and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'p2aim' = '<entity>' (split screen): player 2's body faces that entity and fires in bursts
+-- from tick 300; its life is logged every 100 ticks (does player 2 hurt a boss?).
+if cfg.p2aim and Coop.level ~= "levels/menu" then
+  local prevAim = Coop.dev
+  function Coop.dev()
+    if prevAim then prevAim() end
+    if Coop.frame < 300 then return end
+    -- (aimwho = 'p1': the same with player 1's body, the baseline)
+    local b
+    if cfg.aimwho == "p1" then b = Game.UsrEntity(0)
+    elseif CoopSplit and CoopSplit.on and CoopSplit.body then b = CoopSplit.body() end
+    local t = Game.GetEntity(cfg.p2aim)
+    if not b or not t then
+      if Coop.frame % 300 == 0 then Coop.log("p2aim: no " .. (b and cfg.p2aim or "player 2 body")) end
+      return
+    end
+    local d = t.Pos - b.Pos
+    local yaw = math.deg(math.atan2(-d.x, -d.z))
+    local flat = math.sqrt(d.x * d.x + d.z * d.z)
+    local pitch = -math.deg(math.atan2(d.y + 80, flat))
+    b.IgnoreUsrControl = 1
+    b.Ang = V3D(0, yaw, 0)
+    b.ViewAng = V3D(pitch, yaw, 0)
+    if flat > 400 then
+      b.Pos = t.Pos + V3D(d.x / flat * -250, 0, d.z / flat * -250)
+      pcall(Game.SetOnFloor, b.Name)
+    end
+    if b.owc then b.owc.Shot = (Coop.frame % 40 < 25) and 1 or 0 end
+    if Coop.frame % 100 == 0 then
+      Coop.log(string.format("p2aim: %s life %.0f (active %s, ai %s, invulnerable %s), %s at %.0f units", t.Name, t.Life or -1,
+        tostring(t.bActive), tostring(t.oAI and t.oAI.bEnable), tostring(t.Invulnerable), b.Name, flat))
+    end
+  end
+end
