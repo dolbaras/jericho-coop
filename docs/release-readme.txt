@@ -41,12 +41,12 @@ Play
   host's IP -> Connect. Ports UDP 28100 (game) and UDP 28199 (finding games on the local
   network); allow the game in Windows Firewall. Over the internet the host forwards UDP 28100
   on the router, or play over a virtual LAN (Radmin VPN, ZeroTier...) and connect to its IP.
-- Steam (experimental): no ports or IPs. Steam must be running on every PC. Co-op -> Join
-  through Steam lists your Steam friends' games; or the host invites you from the lobby
-  ("Invite friends (Steam)") and you accept in Steam while the game is on that Join through
-  Steam screen. Steam shows the players as playing "Spacewar" (Valve's free sample app the
-  mod runs as, see STEAM-NOTICE.txt). Tested with a real Steam client and between two PCs, but
-  not yet between two real Steam accounts: if it fails, use the local network way.
+- Steam: no ports or IPs. Steam must be running on every PC and the players must be Steam
+  friends. Co-op -> Join through Steam lists your friends' games; or the host picks you in the
+  lobby's "Invite friends (Steam)" list and you accept the invite in Steam while your game is
+  on that Join through Steam screen. Steam shows the players as playing "Spacewar" (Valve's
+  free sample app the mod runs as, see STEAM-NOTICE.txt). If Steam does not connect, the local
+  network way still works.
 
 How it works
 - Act 1: the host plays Ross (as in the original), then Delgado after his death.
@@ -166,13 +166,12 @@ game draws, in memory, and writes nothing until F11.
   в локальной сети); разрешите игре доступ в брандмауэре Windows. Через интернет: хосту нужно
   пробросить UDP 28100 на роутере, либо играйте через виртуальную локальную сеть (Radmin VPN,
   ZeroTier и т.п.) и подключайтесь по её IP.
-- Steam (экспериментально): без портов и IP. Steam должен быть запущен на каждом ПК.
-  «Совместная игра» -> «Присоединиться через Steam» показывает игры ваших друзей в Steam; либо
-  хост приглашает из лобби («Пригласить друзей (Steam)»), а вы принимаете приглашение в Steam,
-  пока в игре открыт экран «Присоединиться через Steam». Steam показывает игроков как играющих
-  в «Spacewar» (бесплатное демо-приложение Valve, под которым работает мод, см.
-  STEAM-NOTICE.txt). Проверено с настоящим клиентом Steam и между двумя ПК, но ещё не между
-  двумя настоящими аккаунтами Steam: если не получится, подключайтесь через локальную сеть.
+- Steam: без портов и IP. Steam должен быть запущен на каждом ПК, а игроки — быть друзьями в
+  Steam. «Совместная игра» -> «Присоединиться через Steam» показывает игры ваших друзей; либо
+  хост выбирает вас в списке «Пригласить друзей (Steam)» в лобби, а вы принимаете приглашение
+  в Steam, пока в игре открыт экран «Присоединиться через Steam». Steam показывает игроков как
+  играющих в «Spacewar» (бесплатное демо-приложение Valve, под которым работает мод, см.
+  STEAM-NOTICE.txt). Если через Steam не подключается, локальная сеть по-прежнему работает.
 
 Как устроено
 - Акт 1: хост играет за Росса (как в оригинале), после его гибели — за Дельгадо.
