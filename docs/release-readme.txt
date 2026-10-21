@@ -31,12 +31,19 @@ Play
 - Host: Co-op -> Host game -> pick a chapter (or Continue) -> Create session. In the lobby
   everyone picks a character and a nickname and presses Ready; the host presses Start.
   Session settings (host): difficulty, enemy toughness, who does character-only actions,
-  automatic QTEs, how much damage the AI squadmates take, and the cutscene view (below).
-- Others: Co-op -> Join game -> pick a game from the local network list or type the host's
-  IP -> Connect.
-- Network: UDP 28100 (game) and UDP 28199 (finding games on the local network). Allow the game
-  in Windows Firewall. Over the internet the host forwards UDP 28100 on the router, or play over
-  a virtual LAN (Radmin VPN, ZeroTier...) and connect to its IP.
+  QTEs, how much damage the AI squadmates take, and the cutscene view (below).
+- The host picks the network when creating the game ("Network" row): local network or Steam.
+  Each has its own way in:
+- Local network: Co-op -> Join (local network) -> pick a game from the list or type the
+  host's IP -> Connect. Ports UDP 28100 (game) and UDP 28199 (finding games on the local
+  network); allow the game in Windows Firewall. Over the internet the host forwards UDP 28100
+  on the router, or play over a virtual LAN (Radmin VPN, ZeroTier...) and connect to its IP.
+- Steam (experimental): no ports or IPs. Steam must be running on every PC. Co-op -> Join
+  through Steam lists your Steam friends' games; or the host invites you from the lobby
+  ("Invite friends (Steam)") and you accept in Steam while the game is on that Join through
+  Steam screen. Steam shows the players as playing "Spacewar" (Valve's free sample app the
+  mod runs as, see STEAM-NOTICE.txt). Tested with a real Steam client and between two PCs, but
+  not yet between two real Steam accounts: if it fails, use the local network way.
 
 How it works
 - Act 1: the host plays Ross (as in the original), then Delgado after his death.
@@ -55,12 +62,16 @@ How it works
   made for one camera. Its animations are built by the installer from your game files and
   need Python 3 (python.org); without Python the view works, but the scene's character is
   not shown.
-- QTEs are seen and played only by the player of the scene's character (or pass by themselves
-  if the host turned on automatic QTEs).
+- QTEs (session setting): "as in the game" - seen and played only by the player of the scene's
+  character; "automatic" - they pass by themselves; "all players, one success" - everyone gets
+  the QTE and it passes when at least one player succeeds.
 - Character-only actions: the players are offered to take that character; if nobody does
   within 30 s, the AI does it (lobby setting).
 - With more players than living squad members (or when the story takes a character away), a
   player becomes a "spirit": flies near the squad, marks enemies and can take a free body.
+- Every player's powers act in the host's world (telekinesis, runes, fire, ghost bullets,
+  Ababanili...), and doors, destroyed objects and the other players' and enemies' movement are
+  the same on every screen.
 - Co-op saves are kept apart from single-player ones: Documents\Codemasters\Clive Barker's
   Jericho\Coop. The single-player profile is not touched during a session.
 
@@ -139,12 +150,21 @@ previous run).
 - Хост: «Совместная игра» -> «Создать игру» -> выбрать главу (или «Продолжить») ->
   «Создать сессию». В лобби каждый выбирает персонажа и ник и нажимает «Готов», хост — «Начать».
   «Настройки сессии» (хост): сложность, живучесть врагов, кто делает действия персонажей,
-  автоматические QTE, сколько урона получают союзники ИИ и вид катсцен (ниже).
-- Остальные: «Совместная игра» -> «Присоединиться» -> выбрать игру из списка «Игры в
-  локальной сети» или ввести IP хоста -> «Подключиться».
-- Сеть: порты UDP 28100 (игра) и UDP 28199 (поиск игр в локальной сети). Разрешите игре доступ
-  в брандмауэре Windows. Через интернет: хосту нужно пробросить UDP 28100 на роутере, либо
-  играйте через виртуальную локальную сеть (Radmin VPN, ZeroTier и т.п.) и подключайтесь по её IP.
+  QTE, сколько урона получают союзники ИИ и вид катсцен (ниже).
+- Сеть хост выбирает при создании игры (строка «Сеть»): локальная сеть или Steam. У каждой
+  свой вход:
+- Локальная сеть: «Совместная игра» -> «Присоединиться (локальная сеть)» -> выбрать игру из
+  списка или ввести IP хоста -> «Подключиться». Порты UDP 28100 (игра) и UDP 28199 (поиск игр
+  в локальной сети); разрешите игре доступ в брандмауэре Windows. Через интернет: хосту нужно
+  пробросить UDP 28100 на роутере, либо играйте через виртуальную локальную сеть (Radmin VPN,
+  ZeroTier и т.п.) и подключайтесь по её IP.
+- Steam (экспериментально): без портов и IP. Steam должен быть запущен на каждом ПК.
+  «Совместная игра» -> «Присоединиться через Steam» показывает игры ваших друзей в Steam; либо
+  хост приглашает из лобби («Пригласить друзей (Steam)»), а вы принимаете приглашение в Steam,
+  пока в игре открыт экран «Присоединиться через Steam». Steam показывает игроков как играющих
+  в «Spacewar» (бесплатное демо-приложение Valve, под которым работает мод, см.
+  STEAM-NOTICE.txt). Проверено с настоящим клиентом Steam и между двумя ПК, но ещё не между
+  двумя настоящими аккаунтами Steam: если не получится, подключайтесь через локальную сеть.
 
 Как устроено
 - Акт 1: хост играет за Росса (как в оригинале), после его гибели — за Дельгадо.
@@ -162,12 +182,16 @@ previous run).
   там, где игра двигала только его камеру. Режим всё ещё экспериментальный: декорации сделаны
   под одну камеру. Анимации для него установщик собирает из файлов вашей игры, нужен Python 3
   (python.org); без Python режим работает, но персонаж сцены не виден.
-- QTE видит и проходит только тот, кто играет за персонажа сцены (или они проходят сами,
-  если хост включил автоматические QTE).
+- QTE (настройка сессии): «как в игре» — видит и проходит только тот, кто играет за персонажа
+  сцены; «автоматически» — проходят сами; «все, хватит одного успеха» — QTE получают все
+  игроки, и оно пройдено, если справился хотя бы один.
 - Действия, которые может сделать только определённый персонаж: игрокам предлагают взять
   этого персонажа, если никто не взял за 30 с — делает ИИ (настраивается в лобби).
 - Если игроков больше, чем живых бойцов (или персонаж ушёл по сюжету), игрок становится
   «духом»: летает рядом с отрядом, отмечает врагов и может занять свободное тело.
+- Способности каждого игрока действуют в мире хоста (телекинез, руны, огонь, призрачные пули,
+  Абабанили…), а двери, разрушенные предметы и движение других игроков и врагов на всех
+  экранах одинаковые.
 - Совместное сохранение отдельно от одиночного: Документы\Codemasters\Clive Barker's
   Jericho\Coop. Одиночный профиль во время сессии не трогается.
 
@@ -213,4 +237,7 @@ SMOD
 хост вы или клиент. Приложите лог: Документы\Codemasters\Clive Barker's Jericho\Coop\coop.log
 (лог прошлого запуска — coop.prev.log).
 
-License: MIT (LICENSE.txt). ENet 1.3.18 (MIT, ENET-LICENSE.txt). No game files are included.
+License: MIT (LICENSE.txt). ENet 1.3.18 (MIT, ENET-LICENSE.txt). coop\steam_api.dll: Valve's
+Steamworks API (STEAM-NOTICE.txt). No game files are included.
+Credits: the Steam option, shared QTEs, smoother movement, door/object and power sync come
+from MAK-PIVO's fork (https://github.com/MAK-PIVO/jericho-coop, MIT), adapted and tested here.

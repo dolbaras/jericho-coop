@@ -42,7 +42,7 @@ CoopMenu.TEXT = {
   en = {
     coop = "Co-op", title_root = "CO-OP", host = "Host game", join = "Join (local network)",
     join_steam = "Join through Steam", net = "Network", net_lan = "local network", net_steam = "Steam",
-    title_steam = "JOIN THROUGH STEAM", steam_hint = "Steam friends who created a game through Steam",
+    title_steam = "JOIN THROUGH STEAM", steam_hint = "Steam friends' games",
     steam_none = "(no friends' games)", steam_off = "Steam unavailable:", invite = "Invite friends (Steam)",
     steam_norun = "Steam is not running", steam_nodll = "steam_api.dll is missing",
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
@@ -71,7 +71,7 @@ CoopMenu.TEXT = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
     join = "Присоединиться (локальная сеть)", title_host = "СОЗДАТЬ ИГРУ", chapter = "Глава",
     join_steam = "Присоединиться через Steam", net = "Сеть", net_lan = "локальная сеть", net_steam = "Steam",
-    title_steam = "ЧЕРЕЗ STEAM", steam_hint = "Друзья в Steam, создавшие игру через Steam",
+    title_steam = "ЧЕРЕЗ STEAM", steam_hint = "Игры друзей в Steam",
     steam_none = "(игр друзей нет)", steam_off = "Steam недоступен:", invite = "Пригласить друзей (Steam)",
     steam_norun = "Steam не запущен", steam_nodll = "нет steam_api.dll",
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
