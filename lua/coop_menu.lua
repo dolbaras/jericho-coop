@@ -136,11 +136,15 @@ CoopMenu.T = T
 -- Set an item's text and re-centre it (the engine centres when CentralText is set).
 -- CentralText centres the text on the item's current X: put X back on the centre line
 -- first, or every change of the text moves it further left.
+-- CentralText = 1 recentres from the item's current place: X and also Y, half a line up
+-- each time (fork MAK-PIVO, measured 200 -> 185.5 -> 171 -> 156.5): Y is put back too.
 local function setText(it, text)
   if it and it.Text ~= text then
+    local y = it.Y
     it.Text = text
     it.X = 320
     it.CentralText = 1
+    it.Y = y
   end
 end
 

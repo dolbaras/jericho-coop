@@ -103,6 +103,9 @@ function T.syncPuppetLife(e, st)
   elseif st.life > 0 and e.Life <= 0 and Team.IsPlayerDead(e.Name) then
     -- The owner was revived on its machine.
     fromHost(T.origRevive, e)
+  elseif st.life > 0 and e.Life > 0 and math.abs(e.Life - st.life) >= 1 then
+    -- Alive: the owner's life, so Rawlings' heal and his curse's life feed see who is hurt.
+    e.Life = st.life
   end
 end
 
@@ -169,9 +172,33 @@ end
 ------------------------------------------------------------------------------
 
 function T.compensate(x)
-  for name, peer in pairs(Coop.owners) do
+  T.updateCompensation()
+end
+
+-- Every tick (from the fork MAK-PIVO/jericho-coop): human-held bodies against the world's
+-- real speed (Game.GetTimeSpeed). The game often brings time back by itself (Game.SetTimeFade
+-- after the melee shock, 0.25 -> 1 in 0.2 s, weapons.lua FP_HitMeleeTimeShock), never calling
+-- SetTimeSpeed(1): a one-off 1/x left the host's player running at 4x after a melee hit.
+--   * a shared power (Cole's loop, Black's bullet; T.time < 1): every human body keeps
+--     normal speed, as the power's owner does in vanilla;
+--   * any other slowdown (melee shock, scenes) is this machine's own: its player slows
+--     with the world as in vanilla, other players' puppets keep their speed;
+--   * normal time: every body we touched goes back to 1.
+T.compensated = T.compensated or {}
+function T.updateCompensation()
+  local ok, s = pcall(Game.GetTimeSpeed)
+  s = ok and tonumber(s) or 1
+  local shared = (T.time or 1) < 1
+  for name in pairs(Coop.owners or {}) do
     local e = Game.GetEntity(name)
-    if e then e.TimeSpeed = (x > 0 and x < 1) and 1 / x or 1 end
+    if e then
+      local want = 1
+      if s > 0 and s < 0.999 and (shared or not Coop.isLocalPlayer(name)) then want = 1 / s end
+      if want ~= 1 or T.compensated[name] then
+        if math.abs((tonumber(e.TimeSpeed) or 1) - want) > 0.001 then e.TimeSpeed = want end
+        T.compensated[name] = want ~= 1 or nil
+      end
+    end
   end
 end
 
@@ -211,14 +238,52 @@ function T.installTime()
       return
     end
     -- Anything else (melee shock, saves, scenes) stays local; on the host it slows the
-    -- simulation, so players are compensated there too.
+    -- simulation; other players' puppets keep their speed (T.updateCompensation).
     T.origSetTime(x)
-    if Coop.isHost() then T.compensate(x) end
+  end
+end
+
+------------------------------------------------------------------------------
+-- Downed and waiting for Rawlings (owner's rule): the camera follows the nearest living
+-- partner. A player waits only when every living body is held by a human, so the partner
+-- is another player. Only MainCam's targets change (the old mod's spectator camera); they
+-- come back once this player is up again or in another body.
+------------------------------------------------------------------------------
+function T.partner(usr)
+  local best, bestD
+  for name in pairs(Coop.owners or {}) do
+    local e = name ~= usr.Name and Game.GetEntity(name)
+    if e and e.Life > 0 then
+      local d = (e.Pos - usr.Pos):mod()
+      if not bestD or d < bestD then best, bestD = e, d end
+    end
+  end
+  return best
+end
+
+function T.watchPartner()
+  local usr = Game.UsrEntity(0)
+  local cam = Game.GetCam(0) == "MainCam" and Game.GetEntity("MainCam")
+  if T.down and usr and usr.Life <= 0 and cam then
+    local p = T.partner(usr)
+    if p and cam.MainTarget ~= p.Name then
+      T.watchSaved = T.watchSaved or {main = cam.MainTarget, target = cam.Target}
+      cam.MainTarget, cam.Target = p.Name, p.Name
+      Coop.log("downed: camera follows " .. p.Name)
+    end
+  elseif T.watchSaved and not (T.down and usr and usr.Life <= 0) then
+    local back = Game.GetEntity("MainCam")
+    if back then back.MainTarget, back.Target = T.watchSaved.main, T.watchSaved.target end
+    T.watchSaved = nil
+    T.down = false
+    Coop.log("downed: camera back on " .. tostring(usr and usr.Name))
   end
 end
 
 function T.update()
   T.install()
   T.installTime()
+  T.updateCompensation()
+  T.watchPartner()
   if Coop.frame % 20 == 0 then T.checkWipe() end
 end

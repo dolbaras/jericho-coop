@@ -1953,7 +1953,18 @@ if (cfg.gbtest or cfg.abbytest) and Coop.level ~= "levels/menu" then
   function Coop.dev()
     if prevPow then prevPow() end
     local u = Game.UsrEntity(0)
-    if cfg.gbtest and Coop.isClient() and u and Coop.frame == 300 then
+    -- With the 'strafe' bot (standing in front of the host) the bullet goes later, away
+    -- from the host, so the host's view follows it.
+    local gbAt = cfg.bot == "strafe" and 600 or 300
+    if cfg.gbtest and Coop.isClient() and u and Coop.frame == gbAt then
+      for name, peer in pairs(Coop.owners) do
+        local h = cfg.bot == "strafe" and peer == 0 and Game.GetEntity(name)
+        if h then
+          local d = u.Pos - h.Pos
+          local yaw = math.deg(math.atan2(-d.x, -d.z))
+          u.Ang, u.ViewAng = V3D(0, yaw, 0), V3D(0, yaw, 0)
+        end
+      end
       local ok, o = pcall(ThreadsBlack.CreateGhostBullet, u)
       Coop.log("gbtest: bullet " .. tostring(ok and o and o.Name or o))
     end
@@ -2024,6 +2035,180 @@ if (cfg.tktest or cfg.runetest) and Coop.level ~= "levels/menu" then
       local n = 0
       for _, name in pairs(ThreadsChurch.BloodRuneTable) do if Game.GetEntity(name) then n = n + 1 end end
       if n > 0 then Coop.log("runetest: host has " .. n .. " blood rune(s)") end
+    end
+  end
+end
+
+-- 'rawtest' (client Rawlings, 'fight' on the host; coop_powers.lua Rawlings): the client
+-- curses the first active enemy (tick 400+), calms the host's body (500) and heals it (650,
+-- the host drops to 30 life at 550), then drops its own life a little (700) so that the
+-- host's hits on the cursed enemy (800-860) feed it. Both log life, calm and curses.
+if cfg.rawtest and Coop.level ~= "levels/menu" then
+  local prevRaw = Coop.dev
+  local function hostBody()
+    for name, peer in pairs(Coop.owners) do
+      if peer == 0 then return Game.GetEntity(name) end
+    end
+  end
+  local function cursed()
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.uData and e.uData.IsCursed then return e end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+  end
+  function Coop.dev()
+    if prevRaw then prevRaw() end
+    local u = Game.UsrEntity(0)
+    if not u then return end
+    local f = Coop.frame
+    if Coop.isClient() then
+      if f >= 400 and not Coop.rawCursed and f % 20 == 0 then
+        local e = Game.GetFirst()
+        while e ~= nil do
+          if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then
+            local ok, err = pcall(WeaponsRawlings.Curse, u, e)
+            Coop.log("rawtest: curse " .. e.Name .. " " .. tostring(ok and "ok" or err))
+            Coop.rawCursed = true
+            break
+          end
+          e = Game.GetEntity(e.NextInSlot)
+        end
+      end
+      local h = hostBody()
+      if f == 500 and h then
+        local ok, err = pcall(WeaponsRawlings.Calm, u, h)
+        Coop.log("rawtest: calm " .. h.Name .. " " .. tostring(ok and "ok" or err))
+      end
+      if f == 650 and h then
+        local before = h.Life
+        local ok, err = pcall(WeaponsRawlings.Cure, u, h)
+        Coop.log("rawtest: heal " .. h.Name .. " puppet life " .. tostring(before) .. " " .. tostring(ok and "ok" or err))
+      end
+      if f == 700 then u.Life = math.floor(u.oActCtrl.oActClass.Life * 0.8) end
+    else
+      -- Hurt from tick 550 until a heal lifts the life (the client's heal comes later).
+      if f >= 550 and not Coop.rawHealed then
+        if Coop.rawLast and u.Life > Coop.rawLast + 10 then
+          Coop.rawHealed = true
+          Coop.log("rawtest: healed " .. Coop.rawLast .. " -> " .. u.Life)
+        else
+          u.Life = 30
+        end
+        Coop.rawLast = u.Life
+      end
+      local e = cursed()
+      if e and f >= 800 and f <= 860 and f % 30 == 0 then
+        local ok, err = pcall(Weapons.DoDamage, u, e, 30)
+        Coop.log("rawtest: host hits cursed " .. e.Name .. " " .. tostring(ok and "ok" or err))
+      end
+    end
+    if f >= 400 and f % 50 == 0 then
+      local e = cursed()
+      Coop.log(string.format("rawtest: me=%s life=%s calm=%s cursed=%s", u.Name, tostring(u.Life),
+        tostring(u.uData and u.uData.ChamanicCalm), tostring(e and e.Name)))
+    end
+  end
+end
+
+-- 'bosstest' = {'Nanna', 'Bip NANNA Spine2'} (both; the host's 'storycall' brings the boss
+-- in): the host makes the boss vulnerable at tick 650; the client hits it on that bone at 800
+-- and on another bone at 950, as a shot or blast on that part would (coop_enemies.lua
+-- E.hitPart). The host logs the boss's life: only the weak part may take it down.
+if cfg.bosstest and Coop.level ~= "levels/menu" then
+  local prevBoss = Coop.dev
+  local bossName, bone = cfg.bosstest[1], cfg.bosstest[2]
+  local function hitOn(b, wantBone)
+    local u = Game.UsrEntity(0)
+    local map = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("PxBodyPhysics") and e.bIsRagdollPart then
+        local owner = Game.GetRagdollPartOwner(e.Name)
+        if owner and owner.Name == b.Name then map[#map + 1] = e end
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    for _, part in ipairs(map) do
+      local pb = part.oRagDollDamagePart.Name
+      if (wantBone and pb == wantBone) or (not wantBone and pb ~= bone) then
+        b.uData.DamagedParts = {[part.Name] = {Damage = 50, Damager = u.Name}}
+        local ok, err = pcall(Weapons.DoDamage, u, b, 50)
+        Coop.log("bosstest: hit " .. b.Name .. " on " .. pb .. " (" .. #map .. " parts) " .. tostring(ok and "ok" or err))
+        return
+      end
+    end
+    Coop.log("bosstest: no part " .. tostring(wantBone) .. " on " .. b.Name .. " (" .. #map .. " parts)")
+  end
+  function Coop.dev()
+    if prevBoss then prevBoss() end
+    local b = Game.GetEntity(bossName)
+    local f = Coop.frame
+    if Coop.isHost() then
+      if b and f == 650 then b.Invulnerable = 0 end
+      if f >= 600 and f % 50 == 0 then
+        Coop.log("bosstest: " .. bossName .. " life=" .. tostring(b and b.Life) .. " inv=" .. tostring(b and b.Invulnerable))
+      end
+    elseif b and (f == 800 or f == 950) then
+      hitOn(b, f == 800 and bone or nil)
+    end
+  end
+end
+
+-- 'downtest' (both): the client goes down at tick 400 and, with every free body refused
+-- (Team.SwitchSoldier fails while it is down), waits for Rawlings; its camera should follow
+-- the host's body (coop_team.lua T.watchPartner). The host revives it at tick 1000.
+if cfg.downtest and Coop.level ~= "levels/menu" then
+  local prevDown = Coop.dev
+  function Coop.dev()
+    if prevDown then prevDown() end
+    local u = Game.UsrEntity(0)
+    if not u then return end
+    if Coop.isClient() then
+      if Coop.frame == 400 then
+        if not Coop.downSwitchWrapped then
+          Coop.downSwitchWrapped = true
+          local sw = Team.SwitchSoldier
+          Team.SwitchSoldier = function(a, b, ...)
+            local me = Game.UsrEntity(0)
+            if me and me.Life <= 0 then return false end
+            return sw(a, b, ...)
+          end
+        end
+        u.Invulnerable = 0
+        u.Life = 0
+        Coop.log("downtest: " .. u.Name .. " down")
+      end
+      if Coop.frame % 50 == 0 and Coop.frame >= 400 then
+        local cam = Game.GetEntity("MainCam")
+        Coop.log("downtest: life=" .. tostring(u.Life) .. " cam=" .. tostring(Game.GetCam(0)) .. " target=" .. tostring(cam and cam.MainTarget))
+      end
+    elseif Coop.frame == 1000 then
+      for name, peer in pairs(Coop.owners) do
+        local e = peer ~= 0 and Game.GetEntity(name)
+        if e then Coop.log("downtest: revive " .. name .. " " .. tostring(Team.RevivePlayer(e))) end
+      end
+    end
+  end
+end
+
+-- 'watch' (host): every frame the host's body turns to the first client's puppet, so a
+-- recording (run_pair -Record) shows what the client does from the host's side.
+if cfg.watch and Coop.level ~= "levels/menu" then
+  local prevWatch = Coop.dev
+  function Coop.dev()
+    if prevWatch then prevWatch() end
+    local u = Game.UsrEntity(0)
+    if not (u and Coop.isHost()) then return end
+    for name, peer in pairs(Coop.owners) do
+      local e = peer ~= 0 and Game.GetEntity(name)
+      if e then
+        local d = e.Pos - u.Pos
+        local yaw = math.deg(math.atan2(-d.x, -d.z))
+        u.Ang = V3D(0, yaw, 0)
+        u.ViewAng = V3D(5, yaw, 0)
+        return
+      end
     end
   end
 end

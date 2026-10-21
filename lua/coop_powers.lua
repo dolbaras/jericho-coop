@@ -257,6 +257,79 @@ function P.installWorldPowers()
   end)
 end
 
+------------------------------------------------------------------------------
+-- Rawlings (2026-10-21, scripts/weapons/weaponsrawlings.lua). His powers act on others:
+-- Vlad's curse marks an enemy (any squad hit on it then feeds life to a teammate,
+-- Weapons.DistributeLife inside the host's damage), Chamanic calm eases a teammate's powers,
+-- the heal hands and the ghost heal restore a teammate's life. They ran on the caster's
+-- machine only: a client's curse marked its own copy of the enemy, so the host's damage
+-- fed nobody, and a heal or a life feed raised the Life of a puppet, which the owner's
+-- state put back at once. Now the caster reports the power, the machine that controls the
+-- target applies it (its owner; the host for enemies and AI bodies) and every machine shows
+-- the aura. The first-person hand effects stay with the caster (no hands on a puppet).
+--   pw|rc|<Rawlings>|<enemy>         Vlad's curse
+--   pw|rm|<Rawlings>|<teammate>      Chamanic calm
+--   pw|rh|<Rawlings>|<teammate>      heal (a downed body comes back through revive|)
+--   rl|<enemy>|<teammate>|<amount>   host -> clients: a hit on a cursed enemy fed a teammate
+------------------------------------------------------------------------------
+P.CURSE_AURA = "EFFECT_RAGDOLL\183RAWLINGSCURSEAURA"
+
+-- This machine casts for that body: its player, or the host for an AI-held one.
+function P.casts(name)
+  return Coop.isLocalPlayer(name) or (Coop.isHost() and Coop.ownerOf(name) == nil)
+end
+
+function P.installRawlings()
+  wrapPower("WeaponsRawlings", "Curse", function(ent, tgt)
+    if ent and tgt and P.casts(ent.Name) then send("rc", ent.Name, tgt.Name) end
+  end)
+  wrapPower("WeaponsRawlings", "Calm", function(ent, tgt)
+    if ent and tgt and P.casts(ent.Name) then send("rm", ent.Name, tgt.Name) end
+  end)
+  wrapPower("WeaponsRawlings", "Cure", function(me, tgt)
+    if me and tgt and P.casts(me.Name) then send("rh", me.Name, tgt.Name) end
+  end)
+  if Coop.isHost() then
+    -- Keep the teammate DistributeLife picks.
+    if Weapons.ChooseLifeReceipt and Weapons.ChooseLifeReceipt ~= P.chooseW then
+      local orig = Weapons.ChooseLifeReceipt
+      P.chooseW = function(...)
+        local r = orig(...)
+        P.lastReceipt = r
+        return r
+      end
+      Weapons.ChooseLifeReceipt = P.chooseW
+    end
+    wrapPower("Weapons", "DistributeLife", function(source, amount)
+      local r = P.lastReceipt
+      P.lastReceipt = nil
+      if source and r and amount then
+        Net.CoopSend(-1, 1, string.format("rl|%s|%s|%d", source.Name, r.Name, math.ceil(amount * 0.1)))
+      end
+    end)
+  end
+end
+
+function P.curse(t)
+  t.uData.IsCursed = true
+  local fx = "RawlingsCurseAura_" .. t.Name
+  if not FX.IsEffect(P.CURSE_AURA, fx) then FX.BeginEffect(P.CURSE_AURA, fx, t.Name) end
+  if Coop.isHost() then Soldier.DoHitStrong(t) end
+  Game.AddScheduledFunc(Game.GetTime() + (WeaponsRawlings.CurseDuration or 10), "Uncurse", "WeaponsRawlings.Uncurse", t.Name)
+end
+
+-- Client: a teammate fed by a cursed enemy's hit on the host. Its owner adds the life.
+function P.onLifeFeed(f)
+  local source, r, amount = Game.GetEntity(f[2] or ""), Game.GetEntity(f[3] or ""), tonumber(f[4]) or 0
+  if not r then return end
+  if Coop.isLocalPlayer(r.Name) and r.Life > 0 then
+    r.Life = math.min(r.Life + amount, r.oActCtrl.oActClass.Life)
+  end
+  if source then pcall(Rawlings.DoVladCurseShotFX, source.Name) end
+  pcall(Rawlings.DoVladCurseAlliedFX, r.Name)
+  Coop.log("powers: curse fed " .. amount .. " to " .. r.Name .. " life=" .. tostring(r.Life))
+end
+
 -- Fire set by this player (Cole's firestorm shots, Delgado's flames, pyrokinesis...): every
 -- 5 ticks, enemies burning in this player's name are reported once per burn, and the other
 -- machines light their copy for the same time (damage stays with the caster's hits).
@@ -316,6 +389,21 @@ function P.onPower(peer, f, data)
         t.FireRemainTime, t.FireDelayTime, t.FireAtenuationFactor, t.Pyromaniac =
           time, tonumber(f[6]) or 0, tonumber(f[7]) or 0, caster
       end
+    elseif kind == "rc" then
+      local t = Game.GetEntity(f[4] or "")
+      if t and t.Life > 0 then P.curse(t) end
+    elseif kind == "rm" then
+      local t = Game.GetEntity(f[4] or "")
+      if t and P.o_WeaponsRawlingsCalm then P.o_WeaponsRawlingsCalm(c, t) end
+    elseif kind == "rh" then
+      local t = Game.GetEntity(f[4] or "")
+      if t then
+        local max = t.oActCtrl.oActClass.Life
+        if t.Life > 0 and t.Life < max and (Coop.isLocalPlayer(t.Name) or (Coop.isHost() and Coop.ownerOf(t.Name) == nil)) then
+          t.Life = max
+        end
+        Health.DoCure("PowRawlings", t.Name)
+      end
     elseif kind == "jp" then
       local t = Game.GetEntity(f[4] or "")
       if t and (t.FireRemainTime or 0) < Jones.PyroDuration then
@@ -334,6 +422,7 @@ function P.install()
   P.installBullet()
   P.installAbby()
   P.installWorldPowers()
+  P.installRawlings()
 end
 
 function P.update()
@@ -347,5 +436,9 @@ function P.onMessage(peer, f, data)
   if kind == "gb" or kind == "gbe" then P.onBullet(peer, f, data) return true end
   if kind == "abby" then P.onAbby(peer, f, data) return true end
   if kind == "pw" then P.onPower(peer, f, data) return true end
+  if kind == "rl" then
+    if Coop.isClient() then P.onLifeFeed(f) end
+    return true
+  end
   return false
 end

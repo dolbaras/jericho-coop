@@ -86,9 +86,12 @@ end
 Coop.TEXT_WIDTH = 520
 function Coop.setCentered(it, text, x)
   if it.Text ~= text then
+    -- CentralText also moves the item half a line up each time: keep its Y.
+    local y = it.Y
     it.Text = text
     it.X = x or 320
     it.CentralText = 1
+    it.Y = y
   end
 end
 
@@ -901,6 +904,17 @@ function Coop.freeFor(name)
          not (CoopStory and CoopStory.taken and CoopStory.taken(name))
 end
 
+-- A level may keep the squad switched off at its start (sum_ziggurat_meat: the arrival by
+-- teleport, ~12 s). The start switch waits up to START_WAIT ticks for the body this player
+-- held instead of giving it up at once (the client then flew as a spirit for good).
+Coop.START_WAIT = 600
+function Coop.startBodyLater()
+  local name = cfg.char
+  local e = name and name ~= "Ross" and Game.GetEntity(name)
+  local owner = name and Coop.owners[name]
+  return e and e.bActive == false and (owner == nil or owner == Coop.myId()) and Coop.frame < Coop.START_WAIT or false
+end
+
 -- The body to move into when a level starts: the last one held, else the lobby seat, else
 -- the first free squad member (a story split may have taken the body away).
 function Coop.startChar()
@@ -984,6 +998,7 @@ function Coop.updateLocalOwnership()
   -- after that the player switches freely (cfg.char follows the body they hold).
   if not Coop.switchedTo and (Coop.isHost() or cfg.myId) then
     local want = Coop.startChar()
+    if want ~= cfg.char and Coop.startBodyLater() then return end
     Coop.switchedTo = want or mine
     if want and mine ~= want then
       -- A tutorial lock on the seat's character must not keep its player out of it.

@@ -9,7 +9,7 @@
 --   egroup|group                       host -> clients, reliable (NPC.ActivateEnemyGroup)
 --   edie|name|quiet                    host -> clients, reliable (Weapons.OnCharDeath; quiet=1: RemoveNow)
 --   pdmg|victim|amount|attacker        host -> owner of victim, reliable
---   hit|enemy|damage|attacker          client -> host, reliable
+--   hit|enemy|damage|attacker|bone|partdamage   client -> host, reliable (bone: bosses, E.hitPart)
 
 CoopEnemies = {}
 local E = CoopEnemies
@@ -744,10 +744,56 @@ function E.sendCatchup(peer)
 end
 
 -- A client's hit: apply it as a human's hit (no AI team damage roll).
-function E.applyHit(enemyName, damage, attackerName)
+-- Bosses that take damage only on a weak part (Nanna, Utu, the gladiator, the puppet god:
+-- their OnDamage reads uData.DamagedParts, filled by explosions, or the last shot's
+-- oWeapHit.oBodyPiece) list their parts (uData.bListDamagedParts). A client's hit reached the
+-- host as a bare number, with neither, so a client could never hurt them. The client sends
+-- the part's bone and the damage it took; the host fills DamagedParts with it.
+function E.hitPart(To, From, dmg)
+  if not (To.uData and To.uData.bListDamagedParts) then return end
+  local best, bestDmg
+  for name, d in pairs(To.uData.DamagedParts or {}) do
+    if d.Damager == From.Name and (not bestDmg or d.Damage > bestDmg) then best, bestDmg = name, d.Damage end
+  end
+  To.uData.DamagedParts = nil   -- the boss's OnDamage clears them; it does not run here
+  local piece = best and Game.GetEntity(best)
+  if not piece then
+    piece = To.oWeapHit and To.oWeapHit.oBodyPiece
+    bestDmg = dmg
+  end
+  if piece and piece.bIsRagdollPart then
+    return piece.oRagDollDamagePart.Name, bestDmg
+  end
+end
+
+-- Host: the ragdoll part of a body with that bone (looked up once per body).
+E.parts = {}
+function E.partByBone(To, bone)
+  local map = E.parts[To.Name]
+  if not map then
+    map = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("PxBodyPhysics") and e.bIsRagdollPart then
+        local owner = Game.GetRagdollPartOwner(e.Name)
+        if owner and owner.Name == To.Name then map[e.oRagDollDamagePart.Name] = e.Name end
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    E.parts[To.Name] = map
+  end
+  return map[bone]
+end
+
+function E.applyHit(enemyName, damage, attackerName, bone, partDamage)
   local To = Game.GetEntity(enemyName)
   local From = Game.GetEntity(attackerName)
   if not To or not From or To.Life <= 0 then return end
+  if bone and bone ~= "" and To.uData and To.uData.bListDamagedParts then
+    local part = E.partByBone(To, bone)
+    if part then To.uData.DamagedParts = {[part] = {Damage = partDamage or damage, Damager = From.Name}} end
+    E.bossHit = {name = To.Name, bone = bone, part = part, life = To.Life}
+  end
   local factor = To.uData and To.uData.TeamDamageFactor
   if To.uData then To.uData.TeamDamageFactor = nil end
   Coop.applyingRemoteHit = true
@@ -755,6 +801,12 @@ function E.applyHit(enemyName, damage, attackerName)
   Coop.applyingRemoteHit = false
   if To.uData then To.uData.TeamDamageFactor = factor end
   if not ok then Coop.log("applyHit error: " .. tostring(err)) end
+  local bh = E.bossHit
+  if bh then
+    E.bossHit = nil
+    Coop.log(string.format("hit %s by %s on %s (%s) life %s -> %s", bh.name, From.Name, bh.bone, tostring(bh.part),
+      tostring(bh.life), tostring(To.Life)))
+  end
   E.stats.hitsApplied = E.stats.hitsApplied + 1
 end
 
@@ -820,7 +872,8 @@ function E.installClient()
           dmg = m > 1 and Damage * m ^ BodyMultiplier or Damage * m
         end
       end
-      Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s", To.Name, dmg, From.Name))
+      local bone, partDmg = E.hitPart(To, From, dmg)
+      Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s|%s|%.2f", To.Name, dmg, From.Name, bone or "", partDmg or 0))
       E.stats.hitsSent = E.stats.hitsSent + 1
       if BodyImpact and BodyImpact.OnShot then pcall(BodyImpact.OnShot, To.Name) end
       return false
@@ -947,7 +1000,7 @@ function E.onMessage(peer, f)
       E.stats.pdmgApplied = E.stats.pdmgApplied + 1
     end
   elseif kind == "hit" and Coop.isHost() then
-    E.applyHit(f[2], tonumber(f[3]), f[4])
+    E.applyHit(f[2], tonumber(f[3]), f[4], f[5], tonumber(f[6]))
   elseif kind == "scene" and Coop.isClient() then
     E.onScene(f[2], f[3])
   elseif kind == "skipvote" and Coop.isHost() then
