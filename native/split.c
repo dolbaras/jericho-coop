@@ -310,12 +310,27 @@ static vb_shadow *shadow_of(IDirect3DVertexBuffer9 *vb)
     return NULL;
 }
 
+static vb_shadow *shadow_for(IDirect3DVertexBuffer9 *vb, const D3DVERTEXBUFFER_DESC *desc);
+
 static HRESULT WINAPI hook_VBLock(IDirect3DVertexBuffer9 *vb, UINT off, UINT size, void **pp, DWORD flags)
 {
     HRESULT hr = real_VBLock(vb, off, size, pp, flags);
     vb_shadow *s = shadow_of(vb);
     if (!s)
         return hr;
+    /* A buffer released at a level change and a new one made at the same address, of another
+       size: the copy at Unlock read past it with the old size (crash in memcpy at the last
+       level of a 33-level campaign, 0.2.1). The shadow follows the buffer's real size. */
+    D3DVERTEXBUFFER_DESC desc;
+    if (FAILED(IDirect3DVertexBuffer9_GetDesc(vb, &desc))) {
+        s->ptr = NULL;
+        return hr;
+    }
+    if (desc.Size != s->size) {
+        s = shadow_for(vb, &desc);
+        if (!s)
+            return hr;
+    }
     s->ptr = NULL;
     if (flags & D3DLOCK_DISCARD)
         memset(s->valid, 0, (s->size + 63) / 64);
@@ -357,8 +372,13 @@ static vb_shadow *shadow_for(IDirect3DVertexBuffer9 *vb, const D3DVERTEXBUFFER_D
         for (int i = 0; i < 8 && !s; i++)
             if (!shadows[i].vb)
                 s = &shadows[i];
-        if (!s)
-            return NULL;
+        /* All taken (a new HUD buffer every level, the old ones gone without a word): the
+           slots are reused in turn, or after 8 levels nothing was kept any more. */
+        static int next_slot;
+        if (!s) {
+            s = &shadows[next_slot];
+            next_slot = (next_slot + 1) % 8;
+        }
     }
     unsigned char *mem = (unsigned char *)realloc(s->mem, desc->Size);
     if (mem)
@@ -370,6 +390,9 @@ static vb_shadow *shadow_for(IDirect3DVertexBuffer9 *vb, const D3DVERTEXBUFFER_D
         s->vb = NULL;
         return NULL;
     }
+    static int shadow_news;
+    if (s->vb != vb && real_VBLock && shadow_news++ < 60)
+        coop_log("split: HUD vertex buffer kept again (%u bytes, slot %d)", desc->Size, (int)(s - shadows));
     s->size = desc->Size, s->vb = vb, s->ptr = NULL;
     memset(s->valid, 0, (desc->Size + 63) / 64);
     if (!real_VBLock) {
