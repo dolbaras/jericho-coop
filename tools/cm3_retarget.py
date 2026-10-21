@@ -36,7 +36,7 @@ DEFAULT_OUT = os.path.join(JERICHO, 'work', 'anim_rt')
 FULL_MODEL_OF = {'rossnude': 'ross'}
 OUT_PREFIX = 'coopbody_'
 # An entry naming this builder's version in the pack; the installer rebuilds a pack without it.
-PACK_MARK = 'coop/coopbody_pack_v3.txt'
+PACK_MARK = 'coop/coopbody_pack_v4.txt'
 # Full bodies whose props are all hidden: Ross's model holds Jones' rifle, whose textures
 # live only in Jones' folder (untextured on Ross). Textures cannot be added through Pack1:
 # the game hangs loading a level when Pack1 holds model textures (tested 2026-10-19, also
@@ -882,6 +882,42 @@ def texture_fixes(files):
     return out
 
 
+# TrueRoss (Ross's full body: the mod's stand-in for him in act 1, coop_ross.lua) holds Jones'
+# rifle but names its textures in its own folder, which lacks them: the rifle was checkered.
+# Textures cannot go into Pack1 (above), a model can: a copy whose rifle textures are named
+# where they are, Jones' folder. SM3 strings are length-prefixed and its chunk size fields are
+# 0 (unused), so a path can change length in place.
+COOP_MODELS = {
+    'models/chars/trueross/trueross_coop.sm3': ('models/chars/trueross/trueross.sm3',
+                                                b'Models/Chars/TrueRoss/OB_Jones_01-02_Fusil',
+                                                b'Models/Chars/Jones/OB_Jones_01-02_Fusil'),
+}
+
+
+def coop_models(files):
+    out = []
+    for name, (src, old, new) in COOP_MODELS.items():
+        if not files.exists(src) or files.exists(name):
+            continue
+        d = files.read(src)
+        buf, p, n = bytearray(), 0, 0
+        for m in re.finditer(re.escape(old) + rb'[^\x00]*\x00', d):
+            st = m.start() - 4
+            (ln,) = struct.unpack_from('<I', d, st)
+            if ln != m.end() - m.start():
+                raise ValueError(f'{src}: no length before the string at {m.start()}')
+            s = m.group().replace(old, new)
+            buf += d[p:st] + struct.pack('<I', len(s)) + s
+            p, n = m.end(), n + 1
+        if not n:
+            continue
+        buf += d[p:]
+        m3d.sm3_nodes(bytes(buf))   # still a readable model
+        out.append((name, bytes(buf)))
+        print(f'model {name}: {n} texture path(s) to {new.decode()}')
+    return out
+
+
 def cmd_batch(a, files):
     out_dir = os.path.join(a.out, 'out')
     items, reports, errors, cache = [], [], [], {}
@@ -897,9 +933,15 @@ def cmd_batch(a, files):
         print(summary(rep))
     with open(os.path.join(a.out, 'batch_report.json'), 'w') as f:
         json.dump({'files': reports, 'errors': errors}, f, indent=1)
+    models = coop_models(files)
+    for name, data in models:   # (loose too, for SMOD's layout: installer.ps1)
+        dst = os.path.join(out_dir, *name.split('/'))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, 'wb') as f:
+            f.write(data)
     if a.pack and items:
         # what built this pack (the installer rebuilds an older one): PACK_MARK
-        n = write_pack(a.pack, items + [(PACK_MARK, PACK_MARK.encode('latin-1'))])
+        n = write_pack(a.pack, items + models + [(PACK_MARK, PACK_MARK.encode('latin-1'))])
         print(f'packed {n} file(s) into {a.pack} ({os.path.getsize(a.pack)} bytes)')
     bad = 0
     for name, data in items:

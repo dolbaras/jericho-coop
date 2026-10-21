@@ -2,14 +2,20 @@
 -- Ross's own model has no textures of its head (the game never shows it: Ross is always seen
 -- through his own eyes, his scenes use TrueRoss, the same model textured): to player 2 in split
 -- screen and to the other machines of a session he was a pair of hands with a pistol in the air
--- (owner's report, 0.2.1). His entity stays unseen; a stand-in with TrueRoss's model takes his
--- place, position and facing every frame, and plays the action his entity plays (the engine
--- picks those as for any character, drawn or not).
+-- (owner's report, 0.2.1). A stand-in with TrueRoss's model takes his place: here, where his
+-- own player looks through his eyes, it follows his entity (seen by this PC's split screen
+-- player 2); on the other machines it is the host's Ross: position, facing, action, weapon and
+-- shots from his network state, while his own entity is switched off (Active 0, as scenes hide
+-- characters). The visibility flag cannot hide him there: the engine draws a squad member it
+-- does not look through whatever bObjectVisible says (recorded, 0.2.1: his untextured body,
+-- with SMOD his full one, inside the stand-in - "two Rosses"). With SMOD, whose own Ross
+-- model is complete, the stand-in stays: TrueRoss looks much better (owner, 0.2.1).
 CoopRoss = CoopRoss or {}
 local R = CoopRoss
 
 R.NAME = "CoopRossBody"
 R.MODEL = "Models/Chars/TrueRoss/TrueRoss.M3D"
+R.MODEL_COOP = "Models/Chars/TrueRoss/TrueRoss_coop.M3D"   -- rifle textured (tools/cm3_retarget.py)
 -- Ross's actions (chars/ross.lua: relax, walk, duck, init/end, view, turn, shot, reload, hit).
 R.ACTS = {}
 for _, n in ipairs({"Relax", "Relax0", "Relax1", "Relax2", "RelaxLeft", "RelaxRight",
@@ -39,7 +45,10 @@ function R.makeClass()
   if not rc then return nil end
   ac = Act.CreateClass(R.NAME)
   pcall(Act.SetCls, "Discardable", 1)
-  Act.SetCls("ModelFilePath", R.MODEL)
+  -- (the installer's copy with the rifle textured, when it built one into Pack1.packed)
+  local coopModel = Net.CoopFile and Net.CoopFile("coop/anims/trueross_coop.ok") == 1
+  Act.SetCls("ModelFilePath", coopModel and R.MODEL_COOP or R.MODEL)
+  Coop.log("ross: stand-in model " .. (coopModel and R.MODEL_COOP or R.MODEL))
   -- His size, and where a weapon sits in his hands (chars/ross.lua).
   local keys = {"ModelSize", "YModelDisp", "WeaponSlots"}
   for i = 0, 15 do
@@ -86,8 +95,10 @@ function R.body()
     e = Game.CreateEntity(R.NAME, "WalkChar", r and r.Pos)
     if e then
       e.ActCtrl = R.NAME
-      -- His weapons in its hands (Ross.OnCreate).
-      if Soldier and Soldier.SetWeapon then pcall(Soldier.SetWeapon, e, 19, 20) end
+      -- His weapons in its hands: the machine gun and shotgun he carries (Ross.OnCreate gives
+      -- him 19 and 20, Jones's two made with his first-person set), as Jones's own 0 and 2:
+      -- the same guns, but seen from outside ones with textures (19 was a checkered rifle).
+      if Soldier and Soldier.SetWeapon then pcall(Soldier.SetWeapon, e, 0, 2) end
       pcall(function() e.bIgnoreCollision = true end)
       pcall(function() e.EnableCollision = 0 end)
       pcall(function() e.Invulnerable = 1 end)
@@ -106,7 +117,8 @@ end
 -- view (split screen). Not while a scene plays (it has its own Ross) or once he is down.
 function R.showable()
   local r = Game.GetEntity("Ross")
-  if not r or r.bActive == false or (r.Life or 0) <= 0 then return false end
+  -- (bActive false: switched off by the story; not when it is off for the stand-in, below)
+  if not r or (r.bActive == false and not R.offRoss) or (r.Life or 0) <= 0 then return false end
   if Scene and Scene.IsPlaying then return false end
   return true
 end
@@ -114,13 +126,26 @@ end
 -- Per frame (coop.lua): follow Ross. view: the user whose view is drawn next (split screen).
 function R.update(view)
   local e = R.body()
-  if not e then return end
+  if not e then
+    R.restore()
+    return
+  end
   local r = Game.GetEntity("Ross")
   local show = R.showable()
+  local mine = Coop.isLocalBody("Ross")
+  -- Another machine's Ross: what his player's machine sent (his own entity is off here).
+  local st = not mine and Coop.remote and Coop.remote["Ross"]
+  local tg = st and Coop.puppetTarget and Coop.puppetTarget("Ross", Net.CoopTime())
   if show then
-    e.Pos = r.Pos
-    e.Ang = V3D(0, r.Ang.y, 0)
-    local act = r.Action
+    if tg then
+      e.Pos = V3D(tg.x, tg.y, tg.z)
+      e.Ang = V3D(0, tg.yaw, 0)
+      e.ViewAng = V3D(tg.pitch or 0, tg.yaw, 0)
+    else
+      e.Pos = r.Pos
+      e.Ang = V3D(0, r.Ang.y, 0)
+    end
+    local act = (st and st.action) or r.Action
     if act and act ~= R.lastAct then
       R.lastAct = act
       if Act.GetClass(R.NAME):GetAct(act) then
@@ -128,11 +153,27 @@ function R.update(view)
         e.ForceDefLoop = act
       end
     end
+    -- His shots and weapon, for show: the stand-in's hits are dropped (coop_enemies.lua).
+    if st then
+      if e.owc then e.owc.Shot = st.shot or 0 end
+      Coop.syncSlot(e, st.slot)
+    end
+  end
+  if mine then
+    R.restore()   -- (his player is here now)
+  elseif r then
+    -- Switched off while the stand-in shows him; back on when it does not (down, or the
+    -- story takes over), unless a scene hides him (the scene gives him back afterwards).
+    if show then
+      if r.Active ~= 0 then r.Active = 0 end
+      R.offRoss = true
+    elseif R.offRoss and not (Scene and Scene.IsPlaying) then
+      R.restore()
+    end
   end
   -- Hidden through Active: the visibility flag the other bodies use does nothing on it
   -- (tested 0.2.1), and Active takes effect a frame later than that flag does, i.e. in the
   -- other view: shown in player 2's view when set in the update before player 1's.
-  local mine = Coop.isLocalBody("Ross")
   if view ~= nil and mine then
     show = show and view == 0   -- this PC's player 2 sees this PC's Ross
   elseif mine then
@@ -143,6 +184,12 @@ function R.update(view)
   if Coop.cfg.rosslog and Coop.frame % 7 == 0 then
     Coop.log(string.format("ross: view %s shown %s action %s", tostring(view), tostring(show), tostring(r and r.Action)))
   end
-  -- His own entity: never drawn but in his own view (where the game keeps it hidden itself).
-  if not mine and r and r.bObjectVisible ~= false then r.bObjectVisible = false end
+end
+
+-- Ross's own entity on again (it was off for the stand-in): stand-in gone, or not shown.
+function R.restore()
+  if not R.offRoss then return end
+  R.offRoss = nil
+  local r = Game.GetEntity("Ross")
+  if r and r.Active == 0 then r.Active = 1 end
 end

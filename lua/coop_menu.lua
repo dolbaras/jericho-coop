@@ -44,6 +44,8 @@ CoopMenu.TEXT = {
     join_steam = "Join through Steam", net = "Network", net_lan = "local network", net_steam = "Steam",
     title_steam = "JOIN THROUGH STEAM", steam_hint = "Steam friends' games",
     steam_none = "(no friends' games)", steam_off = "Steam unavailable:", invite = "Invite friends (Steam)",
+    title_invite = "INVITE FRIENDS", more = "More friends", friends_none = "(no friends online in Steam)",
+    invited = "invite sent",
     steam_norun = "Steam is not running", steam_nodll = "steam_api.dll is missing",
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
     title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host IP, then Connect",
@@ -73,6 +75,8 @@ CoopMenu.TEXT = {
     join_steam = "Присоединиться через Steam", net = "Сеть", net_lan = "локальная сеть", net_steam = "Steam",
     title_steam = "ЧЕРЕЗ STEAM", steam_hint = "Игры друзей в Steam",
     steam_none = "(игр друзей нет)", steam_off = "Steam недоступен:", invite = "Пригласить друзей (Steam)",
+    title_invite = "ПРИГЛАСИТЬ ДРУЗЕЙ", more = "Ещё друзья", friends_none = "(нет друзей в сети Steam)",
+    invited = "приглашение отправлено",
     steam_norun = "Steam не запущен", steam_nodll = "нет steam_api.dll",
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
     join_hint = "IP хоста, затем Подключиться", title_lobby = "ЛОББИ",
@@ -502,10 +506,43 @@ function CoopMenu.ConnectSteam(lobby, name)
   CoopMenu.Lobby()
 end
 
--- Host of a Steam session: Steam's own invite dialog (overlay).
+-- Host of a Steam session: the Steam friends online, invited from here (Steam's overlay
+-- invite dialog does not open in this game: 0.2.1, two accounts). Five a page; the friend
+-- accepts in Steam while their game is on "Join through Steam".
+CoopMenu.INVITE_ROWS = 5
+
 function CoopMenu.SteamInvite()
-  local ok = Net.CoopSteam and Net.CoopSteam("invite")
-  Coop.log("lobby: steam invite dialog " .. tostring(ok))
+  CoopMenu.sub = "invite"
+  CoopMenu.invitePage = 0
+  CoopMenu.inviteList = {}
+  for entry in string.gmatch(Net.CoopSteam and Net.CoopSteam("online") or "", "[^;]+") do
+    local name, id = string.match(entry, "^(.*)|(%d+)$")
+    if id then CoopMenu.inviteList[#CoopMenu.inviteList + 1] = {id = id, nick = name} end
+  end
+  local options = {}
+  for i = 1, CoopMenu.INVITE_ROWS do options[#options + 1] = {"", "CoopMenu.InviteFriend" .. i} end
+  if #CoopMenu.inviteList > CoopMenu.INVITE_ROWS then options[#options + 1] = {T("more"), "CoopMenu.InviteMore"} end
+  options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Lobby"}
+  Menu.VerticalMenu(T("title_invite"), options, "CoopMenu.Lobby", nil, 160, 35)
+  local a, b = item("Itm1"), item("Itm2")
+  CoopMenu.inviteTop = a and a.Y
+  CoopMenu.inviteStep = a and b and b.Y - a.Y
+  Coop.log("lobby: steam invite list, " .. #CoopMenu.inviteList .. " friends online")
+  CoopMenu.refreshLobby()
+end
+
+function CoopMenu.inviteFriend(i)
+  local f = CoopMenu.inviteList and CoopMenu.inviteList[CoopMenu.invitePage * CoopMenu.INVITE_ROWS + i]
+  if not f then return end
+  f.invited = Net.CoopSteam("inviteuser", f.id) == 1
+  CoopMenu.refreshLobby()
+end
+for i = 1, 5 do CoopMenu["InviteFriend" .. i] = function() CoopMenu.inviteFriend(i) end end
+
+function CoopMenu.InviteMore()
+  CoopMenu.invitePage = CoopMenu.invitePage + 1
+  if CoopMenu.invitePage * CoopMenu.INVITE_ROWS >= #(CoopMenu.inviteList or {}) then CoopMenu.invitePage = 0 end
+  CoopMenu.refreshLobby()
 end
 
 function CoopMenu.joinLan(i)
@@ -669,6 +706,20 @@ function CoopMenu.refreshLobby()
       setText(item("Itm7"), T("rules") .. ": " .. T(v))
     end
     CoopMenu.keepRows(CoopMenu.settingsTop, CoopMenu.settingsStep)
+    return
+  end
+  if CoopMenu.sub == "invite" then
+    for i = 1, CoopMenu.INVITE_ROWS do
+      local f = CoopMenu.inviteList[CoopMenu.invitePage * CoopMenu.INVITE_ROWS + i]
+      local text = ""
+      if f then
+        text = Coop.cleanNick(f.nick or "") .. (f.invited and "  - " .. T("invited") or "")
+      elseif i == 1 and #CoopMenu.inviteList == 0 then
+        text = T("friends_none")
+      end
+      setText(item("Itm" .. i), text)
+    end
+    CoopMenu.keepRows(CoopMenu.inviteTop, CoopMenu.inviteStep)
     return
   end
   CoopMenu.layoutRows()

@@ -161,8 +161,9 @@ function E.installHost()
   local origDamage = Weapons.DoDamage
   E.origDamage = origDamage
   Weapons.DoDamage = function(From, To, Damage, BodyMultiplier)
-    -- A remote player's puppet fires for show only; its owner reports real hits.
-    if From and Coop.isRemoteOwned(From.Name) and not Coop.applyingRemoteHit then
+    -- A remote player's puppet fires for show only; its owner reports real hits. So does Ross's
+    -- stand-in (coop_ross.lua) for the host's Ross.
+    if From and (Coop.isRemoteOwned(From.Name) or From.Name == "CoopRossBody") and not Coop.applyingRemoteHit then
       E.stats.dropped = E.stats.dropped + 1
       return false
     end

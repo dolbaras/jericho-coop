@@ -800,6 +800,8 @@ static int l_key(lua_State *L)
  *   "pending"  -> lobby id the player accepted in Steam (invite or "Join game"), "" if none
  *   "text", s  -> 1     the Steam lobby's text (nick|level|players|max)
  *   "invite"   -> 1/0   open the Steam overlay's invite dialog (host)
+ *   "online"   -> "name|id;..." friends online (the co-op menu's own invite list)
+ *   "inviteuser", id -> 1/0   invite that friend to the lobby (host)
  *   "name"     -> the player's Steam name (cp1251), "" without Steam */
 static int l_steam(lua_State *L)
 {
@@ -870,6 +872,17 @@ static int l_steam(lua_State *L)
     } else if (strcmp(cmd, "invite") == 0) {
         EnterCriticalSection(&lock);
         int ok = steam_net_invite();
+        LeaveCriticalSection(&lock);
+        lua_pushnumber(L, ok);
+    } else if (strcmp(cmd, "online") == 0) {
+        EnterCriticalSection(&lock);
+        steam_net_online(out, sizeof out);
+        LeaveCriticalSection(&lock);
+        lua_pushstring(L, out);
+    } else if (strcmp(cmd, "inviteuser") == 0) {
+        steam_id id = arg ? _strtoui64(arg, NULL, 10) : 0;
+        EnterCriticalSection(&lock);
+        int ok = steam_net_invite_user(id);
         LeaveCriticalSection(&lock);
         lua_pushnumber(L, ok);
     } else {

@@ -28,4 +28,7 @@ void steam_net_friends(char *out, size_t size);
 /* A lobby the player accepted through Steam (invite or "Join game"), 0 if none; cleared. */
 steam_id steam_net_take_pending(void);
 int steam_net_invite(void);            /* Steam overlay invite dialog for the lobby */
+/* Friends online: "name|id;name|id" (names in cp1251); an invite to this lobby for one. */
+void steam_net_online(char *out, size_t size);
+int steam_net_invite_user(steam_id who);
 void steam_net_status(char *out, size_t size);

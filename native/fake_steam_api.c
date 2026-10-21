@@ -401,6 +401,12 @@ EXPORT unsigned char __cdecl SteamAPI_ISteamFriends_SetRichPresence(void *s, con
 }
 
 EXPORT void __cdecl SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog(void *s, u64 l) { (void)s; (void)l; }
+EXPORT int __cdecl SteamAPI_ISteamFriends_GetFriendPersonaState(void *s, u64 f) { (void)s; (void)f; return 1; }
+EXPORT unsigned char __cdecl SteamAPI_ISteamMatchmaking_InviteUserToLobby(void *s, u64 l, u64 who)
+{
+    (void)s; (void)l; (void)who;
+    return 1;
+}
 
 EXPORT void __cdecl SteamAPI_SteamNetworkingIdentity_SetSteamID64(void *id, u64 v) { memcpy((char *)id + 8, &v, 8); }
 EXPORT u64 __cdecl SteamAPI_SteamNetworkingIdentity_GetSteamID64(const void *id)

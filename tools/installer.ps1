@@ -77,13 +77,14 @@ function Pick-Game {
 }
 
 function Read-Manifest($g) {
-    $m = @{ files = @(); backups = @() ; version = "" }
+    $m = @{ files = @(); backups = @(); built = @(); version = "" }
     $f = Join-Path $g "coop\install.txt"
     if (Test-Path $f) {
         foreach ($line in Get-Content $f) {
             if ($line -match '^version=(.*)$') { $m.version = $Matches[1] }
             elseif ($line -match '^file=(.*)$') { $m.files += $Matches[1] }
             elseif ($line -match '^backup=(.*)$') { $m.backups += $Matches[1] }
+            elseif ($line -match '^built=(.*)$') { $m.built += $Matches[1] }
         }
     }
     $m
@@ -92,7 +93,7 @@ function Read-Manifest($g) {
 function Do-Uninstall($g) {
     $m = Read-Manifest $g
     if ($m.files.Count -eq 0) { Show-Msg (L "The co-op mod is not installed in`n$g" "Кооп-мод не установлен в`n$g") "Warning"; return }
-    foreach ($rel in $m.files) { Remove-Item (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue }
+    foreach ($rel in $m.files + $m.built) { Remove-Item (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue }
     foreach ($rel in $m.backups) {
         $b = Join-Path $g "coop-backup\$rel"
         if (Test-Path $b) { Copy-Item $b (Join-Path $g $rel) -Force }
@@ -144,22 +145,36 @@ function Build-Anims($g) {
     $pack = Join-Path $g "Pack1.packed"
     # Somebody else's Pack1 (not ours): left alone.
     if ((Test-Path $pack) -and -not (Select-String -Path $pack -Pattern "coopbody_" -SimpleMatch -Quiet)) { return "foreign" }
+    # The game's archives: the game folder, or Packed\ after SMOD unpacked them. That layout
+    # reads loose files and not Pack1 ("file not found TrueRoss_coop.M3D", 0.2.1): there the
+    # built files also go next to the game's own (listed as built= in coop\install.txt).
+    $data = $g
+    if (-not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))) { $data = Join-Path $g "Packed" }
+    $loose = $data -ne $g
     # Built by this version of the builder (its mark inside): kept. An older one is rebuilt
     # (0.2: the scene characters walk instead of gliding), or padded if Python is missing.
-    $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v3" -SimpleMatch -Quiet)
+    $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v4" -SimpleMatch -Quiet) -and
+        (-not $loose -or (Test-Path (Join-Path $g "models\chars\trueross\trueross_coop.sm3")))
     if ($current) { Fix-PackEnd $pack; return "ok" }
     $py = Find-Python
     if (-not $py) {
         if (Test-Path $pack) { Fix-PackEnd $pack; return "ok" }
         return "nopython"
     }
-    # The game's archives: the game folder, or Packed\ after SMOD unpacked them.
-    $data = $g
-    if (-not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))) { $data = Join-Path $g "Packed" }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "jericho-coop-anims"
     Write-Host (L "Building the cutscene animations (a few minutes)..." "Сборка анимаций для катсцен (несколько минут)...")
     & $py.exe @($py.args) -I -B (Join-Path $g "coop\anims\cm3_retarget.py") --game $data --out $tmp batch --pack "$pack.tmp" | Out-Host
     $ok = $LASTEXITCODE -eq 0 -and (Test-Path "$pack.tmp")
+    if ($ok -and $loose) {
+        $outDir = Join-Path $tmp "out"
+        Get-ChildItem $outDir -Recurse -File | ForEach-Object {
+            $rel = $_.FullName.Substring($outDir.Length + 1)
+            $dst = Join-Path $g $rel
+            New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+            Copy-Item $_.FullName $dst -Force
+            $script:builtFiles.Add($rel)
+        }
+    }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if (-not $ok) { Remove-Item "$pack.tmp" -ErrorAction SilentlyContinue; return "failed" }
     Move-Item "$pack.tmp" $pack -Force
@@ -206,9 +221,26 @@ function Do-Install($g) {
     $un = "Uninstall Co-op.bat"
     Set-Content -Path (Join-Path $g $un) -Encoding ASCII -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-installer.ps1" -Uninstall -Game "%~dp0."'
     if ($files -notcontains $un) { $files.Add($un) }
+    $script:builtFiles = New-Object System.Collections.Generic.List[string]
     $anims = Build-Anims $g
     if ($anims -eq "ok" -and $files -notcontains "Pack1.packed") { $files.Add("Pack1.packed") }
-    $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" })
+    # Loose built files (SMOD's layout): this build's, or the earlier ones when the pack was kept.
+    $built = @($script:builtFiles)
+    if ($built.Count -gt 0) {
+        foreach ($rel in $old.built) { if ($built -notcontains $rel) { Remove-Item (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue } }
+    } else { $built = @($old.built | Where-Object { Test-Path (Join-Path $g $_) }) }
+    # Ross's stand-in model with its rifle textured (cm3_retarget.py COOP_MODELS): the mod uses
+    # it when this mark says the game can load it (removed with the coop folder on uninstall).
+    $mark = Join-Path $g "coop\anims\trueross_coop.ok"
+    $pk = Join-Path $g "Pack1.packed"
+    $isLoose = -not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))
+    $haveModel = if ($isLoose) { Test-Path (Join-Path $g "models\chars\trueross\trueross_coop.sm3") }
+                 else { (Test-Path $pk) -and (Select-String -Path $pk -Pattern "trueross_coop.sm3" -SimpleMatch -Quiet) }
+    if ($anims -eq "ok" -and $haveModel) {
+        Set-Content -Path $mark -Value "1" -Encoding ASCII
+    } else { Remove-Item $mark -ErrorAction SilentlyContinue }
+    $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" }) +
+        ($built | ForEach-Object { "built=$_" })
     Set-Content -Path (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
     $smod = Test-Path (Join-Path $g "bin\anselintegrationtestapp.exe")
     $msg = (L "Jericho Co-op $version is installed in`n$g`n`nStart the game: the main menu has a 'Co-op' entry.`nTo remove: 'Uninstall Co-op.bat' in the game folder." `

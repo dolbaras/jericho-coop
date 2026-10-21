@@ -57,6 +57,8 @@ static sbool(SC *s_F_GetFriendGamePlayed)(void *, steam_id, void *info);
 static const char *(SC *s_F_GetFriendPersonaName)(void *, steam_id);
 static sbool(SC *s_F_SetRichPresence)(void *, const char *, const char *);
 static void(SC *s_F_InviteDialog)(void *, steam_id lobby);
+static int(SC *s_F_GetPersonaState)(void *, steam_id);
+static sbool(SC *s_MM_InviteUser)(void *, steam_id lobby, steam_id who);
 static void *(SC *s_NM)(void);
 static int(SC *s_NM_Send)(void *, const void *identity, const void *data, unsigned len, int flags, int channel);
 static int(SC *s_NM_Receive)(void *, int channel, void **out, int max);
@@ -95,6 +97,8 @@ static const struct { void *slot; const char *name; } api[] = {
     {&s_F_GetFriendPersonaName, "SteamAPI_ISteamFriends_GetFriendPersonaName"},
     {&s_F_SetRichPresence, "SteamAPI_ISteamFriends_SetRichPresence"},
     {&s_F_InviteDialog, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog"},
+    {&s_F_GetPersonaState, "SteamAPI_ISteamFriends_GetFriendPersonaState"},
+    {&s_MM_InviteUser, "SteamAPI_ISteamMatchmaking_InviteUserToLobby"},
     {&s_NM, "SteamAPI_SteamNetworkingMessages_SteamAPI_v002"},
     {&s_NM_Send, "SteamAPI_ISteamNetworkingMessages_SendMessageToUser"},
     {&s_NM_Receive, "SteamAPI_ISteamNetworkingMessages_ReceiveMessagesOnChannel"},
@@ -651,6 +655,24 @@ static void on_data(Remote *r, const char *d, int n)
     }
 }
 
+/* The sender's identity in a SteamNetworkingMessage_t: at 16 by the 8-byte packing of the
+   headers; at 12 if the identity is packed to 1 byte (KeeperFX tries both too). The first
+   message that decodes decides. A wrong offset reads sender 0: in the first real two-account
+   test (0.2.1) the host then never saw the client's hello and nothing said why. */
+static int id_offset;   /* 0: not known yet */
+
+static steam_id sender(const char *m)
+{
+    if (id_offset)
+        return s_Id_Get(m + id_offset);
+    steam_id a = s_Id_Get(m + 16), b = s_Id_Get(m + 12);
+    if (a || b) {
+        id_offset = a ? 16 : 12;
+        coop_log("steam: message sender identity at offset %d", id_offset);
+    }
+    return a ? a : b;
+}
+
 static void receive(int channel)
 {
     void *msgs[32];
@@ -660,7 +682,14 @@ static void receive(int channel)
             const char *m = (const char *)msgs[i];
             const char *data = *(const char **)m;
             int size = *(const int *)(m + 4);
-            steam_id from = s_Id_Get(m + 16);
+            steam_id from = sender(m);
+            if (!from) {
+                static int told;
+                if (!told++)
+                    coop_log("steam: a message without a readable sender, dropped");
+                s_Msg_Release(msgs[i]);
+                continue;
+            }
             Remote *r = (role == 2 && from != owner) ? NULL : get_remote(from);
             if (r && size > 0) {
                 r->heard = now_s();
@@ -768,6 +797,37 @@ int steam_net_invite(void)
         return 0;
     s_F_InviteDialog(friends, lobby);
     return 1;
+}
+
+/* Steam's overlay invite dialog does not open in this game (0.2.1, two accounts): the co-op
+   menu lists the friends online itself and invites the one picked. */
+void steam_net_online(char *out, size_t size)
+{
+    size_t used = 0;
+    out[0] = 0;
+    if (!ready)
+        return;
+    int n = s_F_GetFriendCount(friends, 4 /* immediate friends */);
+    for (int i = 0; i < n; i++) {
+        steam_id f = s_F_GetFriendByIndex(friends, i, 4);
+        if (s_F_GetPersonaState(friends, f) == 0)
+            continue;   /* offline */
+        char name[96];
+        to_cp1251(s_F_GetFriendPersonaName(friends, f), name, sizeof name);
+        int k = snprintf(out + used, size - used, "%s%s|%llu", used ? ";" : "", name, f);
+        if (k < 0 || used + (size_t)k >= size)
+            break;
+        used += (size_t)k;
+    }
+}
+
+int steam_net_invite_user(steam_id who)
+{
+    if (!ready || role != 1 || !lobby || !who)
+        return 0;
+    int ok = s_MM_InviteUser(mm, lobby, who) != 0;
+    coop_log("steam: invite to %llu %s", who, ok ? "sent" : "failed");
+    return ok;
 }
 
 void steam_net_status(char *out, size_t size)

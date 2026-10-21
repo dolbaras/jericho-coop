@@ -1659,13 +1659,15 @@ if cfg.rossprobe and Coop.level ~= "levels/menu" then
   end
 end
 
--- 'faceross': player 2 (split screen) turns toward Ross from tick 200 (act 1: his stand-in in view).
+-- 'faceross': player 2 (split screen), or else this machine's player (a network client), turns
+-- toward Ross from tick 200 (act 1: his stand-in in view).
 if cfg.faceross and Coop.level ~= "levels/menu" then
   local prevFace = Coop.dev
   function Coop.dev()
     if prevFace then prevFace() end
     if Coop.frame < 200 then return end
     local b = CoopSplit and CoopSplit.on and CoopSplit.body and CoopSplit.body()
+    if not b and Coop.isClient() then b = Game.UsrEntity(0) end
     local r = Game.GetEntity("Ross")
     if not b or not r then return end
     local d = r.Pos - b.Pos
@@ -1675,8 +1677,99 @@ if cfg.faceross and Coop.level ~= "levels/menu" then
     b.ViewAng = V3D(0, yaw, 0)
     if Coop.frame % 100 == 0 then
       local s = Game.GetEntity("CoopRossBody")
-      Coop.log(string.format("faceross: Ross at %s (%.0f away), stand-in %s active %s", Coop.v3(r.Pos),
-        math.sqrt(d.x * d.x + d.z * d.z), s and Coop.v3(s.Pos) or "-", tostring(s and s.Active)))
+      Coop.log(string.format("faceross: Ross at %s (%.0f away), vis %s, stand-in %s active %s", Coop.v3(r.Pos),
+        math.sqrt(d.x * d.x + d.z * d.z), tostring(r.bObjectVisible), s and Coop.v3(s.Pos) or "-", tostring(s and s.Active)))
+    end
+  end
+end
+
+-- 'rosshide' (a network client, act 1): this player stands 260 units in front of Ross, facing
+-- him; from tick 300 four phases of 240 ticks (below), normal again at 1260; a recording shows
+-- which body is drawn when.
+if cfg.rosshide and Coop.level ~= "levels/menu" then
+  local prevRh = Coop.dev
+  function Coop.dev()
+    if prevRh then prevRh() end
+    local b, r = Game.UsrEntity(0), Game.GetEntity("Ross")
+    if not b or not r or Coop.frame < 200 then return end
+    -- what stands where Ross is (every 300 ticks outside scenes)
+    if Coop.frame % 300 == 150 and not (Scene and Scene.IsPlaying) then
+      local e = Game.GetFirst()
+      while e ~= nil do
+        local ok, d = pcall(function() return (e.Pos - r.Pos):mod() end)
+        if ok and d < 150 then
+          local function g(k) local ok2, v = pcall(function() return e[k] end) return ok2 and tostring(v) or "?" end
+          Coop.log(string.format("rosshide: near %s type %s ctrl %s vis %s active %s act %s d %.0f", e.Name, g("Type"),
+            g("ActCtrl"), g("bObjectVisible"), g("Active"), g("Action"), d))
+        end
+        if e.NextInSlot == "" then break end
+        e = Game.GetEntity(e.NextInSlot)
+      end
+    end
+    -- (again every 300 ticks outside scenes: the squad moves after the intro scenes)
+    if Coop.frame == 200 or (Coop.frame % 300 == 0 and not (Scene and Scene.IsPlaying)) then
+      local y = math.rad(r.Ang.y)
+      b.Pos = r.Pos + V3D(-math.sin(y) * 260, 0, -math.cos(y) * 260)
+      pcall(Game.SetOnFloor, b.Name)
+    end
+    local d = r.Pos - b.Pos
+    local yaw = math.deg(math.atan2(-d.x, -d.z))
+    b.IgnoreUsrControl = 1
+    b.Ang = V3D(0, yaw, 0)
+    b.ViewAng = V3D(8, yaw, 0)
+    -- (rosshide='view': only the view, the mod's own way of showing him)
+    local phase = cfg.rosshide ~= "view" and (Coop.frame >= 1260 and 4 or Coop.frame >= 1020 and 3 or
+      Coop.frame >= 780 and 2 or Coop.frame >= 540 and 1 or Coop.frame >= 300 and 0) or nil
+    local s = Game.GetEntity("CoopRossBody")
+    local function f(k) local ok, v = pcall(function() return r[k] end) return ok and tostring(v) or "?" end
+    -- phases (rosshide=true): the stand-in 80 units to the side, so both bodies can be told
+    -- apart: 0 the mod's way, 1 + Ross's flag written here too, 2 stand-in off, 3 off + written
+    if phase and phase < 4 and s then
+      s.Pos = r.Pos + V3D(80, 0, 0)
+      if phase >= 2 then s.Active = 0 end
+    end
+    if phase == 1 or phase == 3 then r.bObjectVisible = false end
+    if phase ~= Coop.rhPhase then
+      Coop.rhPhase = phase
+      Coop.log("rosshide: phase " .. tostring(phase) .. " vis " .. f("bObjectVisible") .. " active " .. f("Active") ..
+        " stand-in " .. tostring(s and s.Active))
+    end
+  end
+end
+
+-- 'rossbisect' (with rosshide='view', a network client in act 1): CoopRoss.update replaced by
+-- parts of it, one more per phase of 240 ticks from 300: 0 Ross's flag only (stand-in off),
+-- 1 + the stand-in follows him (off), 2 + the stand-in on, 3 + his action copied; the stand-in
+-- 80 units to the side so both can be told apart on a recording.
+if cfg.rossbisect and Coop.level ~= "levels/menu" then
+  local prevRb = Coop.dev
+  function Coop.dev()
+    if prevRb then prevRb() end
+    if not Coop.rbHooked and CoopRoss and CoopRoss.update then
+      Coop.rbHooked = true
+      CoopRoss.update = function()
+        local e = CoopRoss.body()
+        local r = Game.GetEntity("Ross")
+        if not e or not r then return end
+        local q = Coop.frame >= 1260 and 4 or Coop.frame >= 1020 and 3 or Coop.frame >= 780 and 2 or
+          Coop.frame >= 540 and 1 or Coop.frame >= 300 and 0 or -1
+        if q < 0 then return end
+        if q ~= Coop.rbPhase then Coop.rbPhase = q; Coop.log("rossbisect: phase " .. q) end
+        r.bObjectVisible = false
+        if q >= 1 then
+          e.Pos = r.Pos + V3D(80, 0, 0)
+          e.Ang = V3D(0, r.Ang.y, 0)
+        end
+        local a = q >= 2 and 1 or 0
+        if e.Active ~= a then e.Active = a end
+        if q >= 3 then
+          local act = r.Action
+          if act and act ~= Coop.rbAct then
+            Coop.rbAct = act
+            if Act.GetClass(CoopRoss.NAME):GetAct(act) then e.ForceAction = act; e.ForceDefLoop = act end
+          end
+        end
+      end
     end
   end
 end
