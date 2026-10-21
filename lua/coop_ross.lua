@@ -156,7 +156,7 @@ function R.update(view, p2)
       R.lastAct = act
       if Act.GetClass(R.NAME):GetAct(act) then
         e.ForceAction = act
-        e.ForceDefLoop = act
+        e.ForceDefLoop = R.loopFor(act)
       end
     end
     -- His shots and weapon, for show: the stand-in's hits are dropped (coop_enemies.lua).
@@ -203,6 +203,29 @@ function R.update(view, p2)
     Coop.log(string.format("ross: view %s shown %s ai %s action %s", tostring(view), tostring(show), tostring(ai),
       tostring(r and r.Action)))
   end
+end
+
+-- The loop a one-shot action goes back to (looping one, the action itself). A one-shot set as
+-- the loop played over and over: a glance aside or the end of a walk repeated, the rifle jerking
+-- back and forth (owner: "his arms animated strangely", 0.2.1).
+R.LOOP_AFTER = {WalkInit = "Walk", BackInit = "Back", RunInit = "Run", SprintInit = "Sprint",
+  WalkDuckInit = "DuckWalk", RunDuckInit = "DuckRun", SprintDuckInit = "DuckSprint",
+  DuckRelaxInit = "DuckRelax", DuckRelaxEnd = "Relax", ShotInit = "Shot", Shot0 = "Shot",
+  DuckShotInit = "DuckShot", DuckShot0 = "DuckShot", TurnSprint = "Sprint"}
+function R.loopFor(act)
+  local a = Act.GetClass(R.NAME):GetAct(act)
+  if a and a.isLoop == 1 then
+    R.lastLoop = act
+    return act
+  end
+  local loop = R.LOOP_AFTER[act]
+  if not loop then
+    if string.find(act, "^Walk") then loop = "Walk"
+    elseif string.find(act, "^Duck") then loop = "DuckRelax"
+    else loop = "Relax" end
+  end
+  R.lastLoop = loop
+  return loop
 end
 
 -- The AI's Ross unseen while he runs: with bCheckFPSVisible set the engine draws a squad
