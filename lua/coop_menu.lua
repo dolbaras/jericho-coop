@@ -577,7 +577,11 @@ function CoopMenu.Lobby()
   else
     options[#options + 1] = {T("leave"), "CoopMenu.Leave"}
   end
-  Menu.VerticalMenu(T("title_lobby"), options, "CoopMenu.Leave", nil, CoopMenu.LOBBY_TOP - 52, CoopMenu.LOBBY_STEP)
+  -- (a Steam host's lobby has one row more, "Invite friends": rows a little closer, from a
+  -- little higher, or the last one left the screen)
+  CoopMenu.lobbyTop = #options > 8 and CoopMenu.LOBBY_TOP - 8 or CoopMenu.LOBBY_TOP
+  CoopMenu.lobbyStep = #options > 8 and CoopMenu.LOBBY_STEP - 3 or CoopMenu.LOBBY_STEP
+  Menu.VerticalMenu(T("title_lobby"), options, "CoopMenu.Leave", nil, CoopMenu.lobbyTop - 52, CoopMenu.lobbyStep)
   local it = item("Itm1")
   it.onLeft = "CoopMenu.PrevChar"
   it.onRight = "CoopMenu.NextChar"
@@ -604,7 +608,7 @@ CoopMenu.LOBBY_TOP, CoopMenu.LOBBY_STEP = 246, 28
 function CoopMenu.layoutRows()
   local i = 1
   while item("Itm" .. i) do
-    item("Itm" .. i).Y = CoopMenu.LOBBY_TOP + (i - 1) * CoopMenu.LOBBY_STEP
+    item("Itm" .. i).Y = (CoopMenu.lobbyTop or CoopMenu.LOBBY_TOP) + (i - 1) * (CoopMenu.lobbyStep or CoopMenu.LOBBY_STEP)
     i = i + 1
   end
 end

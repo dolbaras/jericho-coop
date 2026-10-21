@@ -2030,3 +2030,18 @@ if cfg.jonestest and Coop.isClient() and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'xinprobe': every 15 ticks the four XInput slots as the game reads them (Net.CoopKey(-3):
+-- -1 = not connected, else buttons + packet * 65536), to see what Steam's overlay does to pads.
+if cfg.xinprobe then
+  local prevX = Coop.dev
+  function Coop.dev()
+    if prevX then prevX() end
+    if Coop.frame % 15 ~= 0 then return end
+    local r = {pcall(Net.CoopKey, -3)}
+    if r[1] then
+      Coop.log(string.format("xinprobe: %s %s %s %s set %s", tostring(r[2]), tostring(r[3]), tostring(r[4]),
+        tostring(r[5]), tostring(Input.GetActionSet and Input.GetActionSet())))
+    end
+  end
+end

@@ -4,7 +4,7 @@
 #                                            coop\*.lua, the cutscene animation builder)
 #   README-COOP.txt, LICENSE.txt, ENET-LICENSE.txt, STEAM-NOTICE.txt
 # files\coop\steam_api.dll (Steam joining, native/steam_net.c) comes from
-# <workspace>	ools\steam: Steamworks.NET Standalone 2025.164.1, Windows-x86, SHA-256 checked.
+# <workspace>\tools\steam: Steamworks.NET Standalone 2025.164.1, Windows-x86, SHA-256 checked.
 # Run native\build.sh first. The test helpers (dev.lua, probe.lua) are left out.
 # Usage: package.ps1 -Version 0.2
 param([Parameter(Mandatory)] [string] $Version)
@@ -19,10 +19,11 @@ $files = Join-Path $stage "files"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $files "bin"), (Join-Path $files "coop") | Out-Null
 Copy-Item $dll (Join-Path $files "bin")
-$steam = Join-Path $root "..\..\..	ools\steam\steam_api.dll"
+$steam = Join-Path $root "..\..\..\tools\steam\steam_api.dll"
 $steamSha = "FDAFB7C65EC7D4182B42BF92CC8671C68E4DC547CC6E613899D2618A47EB65DA"
 if (-not (Test-Path $steam)) { throw "tools\steam\steam_api.dll missing (Steamworks.NET Standalone 2025.164.1, Windows-x86)" }
-if ((Get-FileHash $steam -Algorithm SHA256).Hash -ne $steamSha) { throw "tools\steam\steam_api.dll is not the pinned one" }
+$sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($steam))) -replace "-", ""
+if ($sha -ne $steamSha) { throw "tools\steam\steam_api.dll is not the pinned one ($sha)" }
 Copy-Item $steam (Join-Path $files "coop")
 Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $files "coop")

@@ -16,6 +16,7 @@ void display_hooks_set_background(int on);
 int display_hooks_key_down(int vk);
 int display_hooks_pad_read(int user, int out[7]);
 int display_hooks_pads_rescan(void);
+int display_hooks_pad_raw(int out[4]);
 
 /* Split screen in one game: pick the two players' pads (on), and let both act as pad 0
    (merge) while a menu or a scene is up. */

@@ -765,6 +765,14 @@ static int l_split(lua_State *L)
 static int l_key(lua_State *L)
 {
     int vk = lua_tointeger(L, 1);
+    if (vk == -3) {   /* Net.CoopKey(-3): the four XInput slots as read (diagnosis) */
+        int v[4];
+        if (!display_hooks_pad_raw(v))
+            return 0;
+        for (int i = 0; i < 4; i++)
+            lua_pushnumber(L, v[i]);
+        return 4;
+    }
     if (vk == -2) {   /* Net.CoopKey(-2): split screen pads plugged in or out -> 1 on a change */
         lua_pushnumber(L, display_hooks_pads_rescan());
         return 1;

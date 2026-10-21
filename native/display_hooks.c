@@ -22,6 +22,7 @@
  * Hooks go through the exe's import table, so the game code itself is not patched.
  */
 #include <windows.h>
+#include <stdio.h>
 #include <d3d9.h>
 #include <stdlib.h>
 #include <string.h>
@@ -561,6 +562,41 @@ static DWORD test_pad_as(void *state, const char *var)
     return ERROR_SUCCESS;
 }
 
+/* Steam's overlay (gameoverlayrenderer.dll, loaded with steam_api when a co-op session runs
+   over Steam as "Spacewar") takes the pads over: the game's XInput then answers every pad
+   with an empty state (0.2.1: buttons 0, packet number frozen) - Spacewar is a Steam Input
+   game, so Steam does not pass the pads through. While the overlay is in the process, pads
+   are read through a private copy of the system's xinput1_4.dll under another name, which
+   the overlay leaves alone. */
+static XInputGetState_t private_XInputGetState;
+static XInputSetState_t private_XInputSetState;   /* rumble, the same way */
+static int private_tried;
+
+static XInputGetState_t xinput_get(void)
+{
+    if (!real_XInputGetState)
+        return NULL;
+    if (!GetModuleHandleA("gameoverlayrenderer.dll"))
+        return real_XInputGetState;
+    if (!private_tried) {
+        private_tried = 1;
+        char sys[MAX_PATH], src[MAX_PATH], dst[MAX_PATH];
+        UINT n = GetSystemDirectoryA(sys, MAX_PATH);   /* SysWOW64 for this 32-bit game */
+        DWORD m = GetTempPathA(MAX_PATH, dst);
+        if (n && n < MAX_PATH - 20 && m && m < MAX_PATH - 40) {
+            snprintf(src, sizeof src, "%s\\xinput1_4.dll", sys);
+            strcat(dst, "jericho-coop-xinput.dll");
+            CopyFileA(src, dst, FALSE);
+            HMODULE h = LoadLibraryA(dst);
+            private_XInputGetState = h ? (XInputGetState_t)GetProcAddress(h, "XInputGetState") : NULL;
+            private_XInputSetState = h ? (XInputSetState_t)GetProcAddress(h, "XInputSetState") : NULL;
+        }
+        coop_log("pads: Steam overlay in the game, pads read %s", private_XInputGetState ?
+                 "through a private xinput copy" : "as the overlay gives them (no private xinput)");
+    }
+    return private_XInputGetState ? private_XInputGetState : real_XInputGetState;
+}
+
 static DWORD read_pad(int phys, void *state)
 {
     if (phys < 0)
@@ -569,7 +605,7 @@ static DWORD read_pad(int phys, void *state)
         return test_pad(state);
     if (phys == 8)
         return test_pad_as(state, "JERICHO_TESTPAD2");
-    return real_XInputGetState((DWORD)phys, state);
+    return xinput_get()((DWORD)phys, state);
 }
 
 /* Split screen in one game (split.c): pads_merge while a menu or a scene is up, where the
@@ -663,7 +699,7 @@ int display_hooks_pads_rescan(void)
     int connected[4] = {0, 0, 0, 0}, any = 0;
     test_pad_state st;
     for (int p = 0; p < 4; p++)
-        if (real_XInputGetState((DWORD)p, &st) == ERROR_SUCCESS)
+        if (xinput_get()((DWORD)p, &st) == ERROR_SUCCESS)
             connected[p] = 1, any = 1;
     if (!any)
         return 0;
@@ -689,6 +725,20 @@ int display_hooks_pads_rescan(void)
         return 0;
     memcpy(pad_map, m, sizeof m);
     coop_log("pads: player 1 %d, player 2 %d (pads plugged in or out)", m[0], m[1]);
+    return 1;
+}
+
+/* Diagnosis: the four XInput slots as the game's XInput answers them (after anything that
+   hooks it, e.g. Steam's overlay): out[slot] = -1 not connected, else buttons | packet<<16. */
+int display_hooks_pad_raw(int out[4])
+{
+    if (!real_XInputGetState)
+        return 0;
+    for (int p = 0; p < 4; p++) {
+        test_pad_state s;
+        memset(&s, 0, sizeof s);
+        out[p] = xinput_get()((DWORD)p, &s) == ERROR_SUCCESS ? (int)(s.buttons | ((s.packet & 0x7fff) << 16)) : -1;
+    }
     return 1;
 }
 
@@ -727,7 +777,7 @@ void display_hooks_pads_split(int on, int merge)
         int found[4], n = 0;
         test_pad_state st;
         for (int p = 0; p < 4; p++)
-            if (real_XInputGetState((DWORD)p, &st) == ERROR_SUCCESS)
+            if (xinput_get()((DWORD)p, &st) == ERROR_SUCCESS)
                 found[n++] = p;
         m[2] = m[3] = -1;
         if (n >= 2) { m[0] = found[0]; m[1] = found[1]; }
@@ -744,7 +794,10 @@ static DWORD WINAPI pad_SetState(DWORD i, void *vib)
 {
     if (i >= 4 || pad_map[i] < 0 || pad_map[i] == 9)
         return ERROR_DEVICE_NOT_CONNECTED;
-    return real_XInputSetState((DWORD)pad_map[i], vib);
+    XInputSetState_t set = real_XInputSetState;
+    if (xinput_get() == private_XInputGetState && private_XInputSetState)
+        set = private_XInputSetState;
+    return set((DWORD)pad_map[i], vib);
 }
 
 static void install_pad_router(const char *spec)
