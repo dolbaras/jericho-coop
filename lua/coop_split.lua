@@ -220,11 +220,27 @@ function Sp.stop()
   Coop.log("split: off")
 end
 
+-- A first-person scene gives the view back through an interpolating camera, deleted when it
+-- arrives (Scene.SetUsrPosAngEndInterpolated): split screen switched on in between, the game
+-- deleted its active camera ("Check failed: GetActiveCamera() != this", a network client at the
+-- end of the desert's Landing, 0.2.1). Waited for, 3 s at most.
+Sp.SCENE_CAM_WAIT = 3
+function Sp.sceneCamUp()
+  if not Game.GetEntity("InterpolusCamera") then
+    Sp.sceneCamSince = nil
+    return false
+  end
+  local now = Net.CoopTime()
+  Sp.sceneCamSince = Sp.sceneCamSince or now
+  return now - Sp.sceneCamSince < Sp.SCENE_CAM_WAIT
+end
+
 -- Full screen (user 0's view and HUD) while a scene plays or a menu is open: scenes and
 -- menus are made for one screen.
 function Sp.shouldHold()
   if Sp.waiting then return true end
   if Scene and Scene.IsPlaying then return true end
+  if Sp.sceneCamUp() then return true end
   local set = Input.GetActionSet and Input.GetActionSet()
   return set == "Menu" or set == "Inactive"
 end
@@ -686,7 +702,7 @@ function Sp.autoStart()
   if not char then Sp.tried = true return end
   local b = Game.GetEntity(char)
   local usr = Game.UsrEntity(0)
-  if not b or not usr or (Scene and Scene.IsPlaying) then return end   -- try again next tick
+  if not b or not usr or (Scene and Scene.IsPlaying) or Sp.sceneCamUp() then return end   -- try again next tick
   Sp.tried = true
   if usr.Name == char then
     Coop.log("split: player 2's body " .. char .. " is player 1's")

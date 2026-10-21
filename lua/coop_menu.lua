@@ -280,6 +280,9 @@ function CoopMenu.HostSetup()
   end
   options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Root"}
   Menu.VerticalMenu(T("title_host"), options, "CoopMenu.Root")
+  local a, b = item("Itm1"), item("Itm2")
+  CoopMenu.rowsTop = a and a.Y
+  CoopMenu.rowsStep = a and b and b.Y - a.Y
   local it = item("Itm1")
   it.onLeft = "CoopMenu.PrevLevel"
   it.onRight = "CoopMenu.NextLevel"
@@ -350,6 +353,9 @@ function CoopMenu.JoinSetup()
   for i = 1, CoopMenu.LAN_SLOTS do options[#options + 1] = {"", "CoopMenu.JoinLan" .. i} end
   options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Root"}
   Menu.VerticalMenu(T("title_join"), options, "CoopMenu.Root")
+  local a, b = item("Itm1"), item("Itm2")
+  CoopMenu.rowsTop = a and a.Y
+  CoopMenu.rowsStep = a and b and b.Y - a.Y
   CoopMenu.lanNext = 0
   local it = item("Itm1")
   it.MaxInput = 21
@@ -483,8 +489,8 @@ function CoopMenu.layoutRows()
   end
 end
 
--- The settings rows drift the same way (0.2.1: the cutscene row, and "Back", over their
--- neighbour): one step apart from where the menu put the first row.
+-- The settings and join rows drift the same way (0.2.1: the cutscene row, "Back", a LAN game
+-- over their neighbour): one step apart from where the menu put the first row.
 function CoopMenu.keepRows(top, step)
   if not top or not step or step <= 0 then return end
   local i = 1
@@ -1035,6 +1041,10 @@ function CoopMenu.update()
     CoopMenu.message(T(why))
   end
   if CoopMenu.screen == "lobby" then CoopMenu.refreshLobby() end
+  -- (a LAN game over "Connect", the chapter over "Create session", as the settings rows did)
+  if CoopMenu.screen == "host" or CoopMenu.screen == "join" then
+    CoopMenu.keepRows(CoopMenu.rowsTop, CoopMenu.rowsStep)
+  end
   if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then
     CoopMenu.lanNext = Coop.frame + 10
     CoopMenu.refreshLan()

@@ -668,9 +668,13 @@ function E.installSceneClient()
       local chain = E.fpChain
       local continues = chain and chain.class == class and Net.CoopTime() - chain.t < E.FP_CHAIN_TIME
       if Coop.fromHost or E.inEndOfScene or E.inReplay or continues then
+        -- (a chain this machine runs itself, from a scene's end, goes on the same way: the
+        -- desert's HelicopterTrip after TheDreamC was dropped at its Scene.Play, 0.2.1)
+        if mode ~= "play" and not continues then E.fpChain = {class = class, t = Net.CoopTime()} end
         if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
         return orig(class, ...)
       end
+      Coop.log("scene " .. fname .. " " .. tostring(class) .. " left to the host")
       E.stats.dropped = E.stats.dropped + 1
       return false
     end

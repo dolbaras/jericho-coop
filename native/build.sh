@@ -10,4 +10,4 @@ mkdir -p build
   dinput8_proxy.c coop_net.c display_hooks.c boot_inject.c capture.c split.c dinput8.def \
   "$ENET/callbacks.c" "$ENET/compress.c" "$ENET/host.c" "$ENET/list.c" \
   "$ENET/packet.c" "$ENET/peer.c" "$ENET/protocol.c" "$ENET/win32.c" \
-  -luser32 -lshell32 -lkernel32 -lws2_32 -lwinmm
+  -luser32 -lshell32 -lkernel32 -lws2_32 -lwinmm -liphlpapi

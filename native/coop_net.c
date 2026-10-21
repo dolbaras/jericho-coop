@@ -31,7 +31,9 @@
  *                                                 call (at most once a second) asks the LAN again
  *
  * LAN discovery: UDP port DISCOVERY_PORT. A client broadcasts "JCOOP?" (and sends it to
- * 127.0.0.1 for a second instance on the same PC); a host that announces answers
+ * 127.0.0.1 for a second instance on the same PC, and to the broadcast address of each
+ * network: Windows sends 255.255.255.255 out of one adapter only, the one with the lowest
+ * metric, e.g. Radmin VPN's; 0.2.1 test PC); a host that announces answers
  * "JCOOP!<text>" to the sender. Runs on the network thread.
  */
 #include <winsock2.h>
@@ -40,6 +42,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <shlobj.h>
+#include <iphlpapi.h>
 #include <enet/enet.h>
 
 #include "coop_net.h"
@@ -278,6 +281,22 @@ static void discovery_poll(void)
             lo.port = DISCOVERY_PORT;
             enet_socket_send(disc_query, &bc, &q, 1);
             enet_socket_send(disc_query, &lo, &q, 1);
+            /* each network's own broadcast address (address | ~mask), loopback and single
+               addresses (VPN /32) left out */
+            ULONG size = 0;
+            if (GetIpAddrTable(NULL, &size, FALSE) == ERROR_INSUFFICIENT_BUFFER && size) {
+                MIB_IPADDRTABLE *t = (MIB_IPADDRTABLE *)malloc(size);
+                if (t && GetIpAddrTable(t, &size, FALSE) == NO_ERROR) {
+                    for (DWORD k = 0; k < t->dwNumEntries; k++) {
+                        DWORD ip = t->table[k].dwAddr, mask = t->table[k].dwMask;
+                        if (!ip || mask == 0xFFFFFFFFu || (ntohl(ip) >> 24) == 127)
+                            continue;
+                        ENetAddress nb = {ip | ~mask, DISCOVERY_PORT};
+                        enet_socket_send(disc_query, &nb, &q, 1);
+                    }
+                }
+                free(t);
+            }
         }
     }
     for (int i = 0; i < 16 && disc_query != ENET_SOCKET_NULL; i++) {
