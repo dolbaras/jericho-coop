@@ -15,7 +15,8 @@ param(
     [switch] $Player,                  # as a player starts it: no boot line, the Lua from <game>\coop, no cfg
     [int] $Antialiasing = -1,          # -Antialiasing:<n> for the game (-1: off on the iGPU, else the game's own)
     [int] $LimitFps = 30,              # -R_LimitFPS (0: uncapped, frame rate measurements)
-    [string] $LuaDir = ""              # the mod's Lua from here (e.g. <game>\coop), not from mod\lua
+    [string] $LuaDir = "",             # the mod's Lua from here (e.g. <game>\coop), not from mod\lua
+    [int] $Console = 0                 # test console on 127.0.0.1:<port> (tools/luacon.py; needs dev=true)
 )
 
 . (Join-Path $PSScriptRoot "paths.ps1")
@@ -45,10 +46,11 @@ $env:JERICHO_WINSIZE = "$winW,$winH"
 $env:JERICHO_BACKGROUND = "1"
 $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
+if ($Console) { $env:JERICHO_CONSOLE = "$Console" }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "game.raw"; $env:JERICHO_RECORD_START = "$RecordStart"; $Shots = @() }
 if ($Record -and $RecordFps -gt 0) { $env:JERICHO_RECORD_FPS = "$RecordFps" }
 $p = Start-Process -FilePath (Join-Path $Game "bin\$Exe") -ArgumentList $args -WorkingDirectory $Game -PassThru
-foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FPS", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE") {
+foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FPS", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE", "JERICHO_CONSOLE") {
     Remove-Item "Env:$v" -ErrorAction SilentlyContinue
 }
 try {

@@ -789,6 +789,61 @@ static int l_key(lua_State *L)
     return 1;
 }
 
+/* Net.CoopConsole([reply]): the test console (tools/luacon.py), only when the environment
+ * names its UDP port (JERICHO_CONSOLE=<port>; test runs, never a player's game), on
+ * 127.0.0.1 only, and run by lua/dev.lua, which the release does not ship:
+ *   no argument -> the next Lua chunk sent to that port, nil if none (lua/dev.lua runs it)
+ *   reply       -> 1   sent back to whoever sent the last chunk */
+static SOCKET con_sock = INVALID_SOCKET;
+static int con_tried;
+static struct sockaddr_in con_from;
+
+static int l_console(lua_State *L)
+{
+    if (!con_tried) {
+        con_tried = 1;
+        char v[16];
+        if (GetEnvironmentVariableA("JERICHO_CONSOLE", v, sizeof v) > 0 && atoi(v) > 0) {
+            con_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            struct sockaddr_in a = {0};
+            a.sin_family = AF_INET;
+            a.sin_port = htons((u_short)atoi(v));
+            a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);   /* this PC only (the N100 through ssh) */
+            u_long nb = 1;
+            if (con_sock == INVALID_SOCKET || bind(con_sock, (struct sockaddr *)&a, sizeof a) != 0 ||
+                ioctlsocket(con_sock, FIONBIO, &nb) != 0) {
+                if (con_sock != INVALID_SOCKET)
+                    closesocket(con_sock);
+                con_sock = INVALID_SOCKET;
+                coop_log("console: UDP port %s not available", v);
+            } else {
+                coop_log("console: listening on UDP port %s", v);
+            }
+        }
+    }
+    if (con_sock == INVALID_SOCKET) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (lua_gettop(L) >= 1) {
+        size_t n = 0;
+        const char *s = lua_tolstring(L, 1, &n);
+        if (s && con_from.sin_family == AF_INET)
+            sendto(con_sock, s, (int)(n > 60000 ? 60000 : n), 0, (struct sockaddr *)&con_from, sizeof con_from);
+        lua_pushnumber(L, 1);
+        return 1;
+    }
+    static char buf[60001];
+    int fl = sizeof con_from;
+    int r = recvfrom(con_sock, buf, sizeof buf - 1, 0, (struct sockaddr *)&con_from, &fl);
+    if (r <= 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushlstring(L, buf, (size_t)r);
+    return 1;
+}
+
 /* Net.CoopSteam(command [, argument]): the Steam transport (steam_net.c, from the fork
  * MAK-PIVO/jericho-coop). Steam starts only when the player picks it in the co-op menu.
  *   "init"     -> "steam=ready ..." or "steam=off error=..."   (starts Steam once)
@@ -920,6 +975,7 @@ static const struct {
     {"PingInetSvrs", "CoopBoot", l_boot},
     {"SendMasterString", "CoopSplit", l_split},
     {"ServerChangeLevel", "CoopSteam", l_steam},
+    {"GetPing", "CoopConsole", l_console},
 };
 
 int coop_net_install(void)

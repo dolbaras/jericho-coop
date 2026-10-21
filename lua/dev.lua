@@ -2332,3 +2332,34 @@ if cfg.xinprobe then
     end
   end
 end
+
+-- Test console (tools/luacon.py; JERICHO_CONSOLE=<udp port> in the test's environment): a Lua
+-- chunk sent to that port runs here, between frames, in the game's own Lua; what it prints
+-- and returns is sent back. An expression is returned as is ("Game.UsrEntity(0).Name").
+if Net.CoopConsole then
+  local prevCon = Coop.dev
+  function Coop.dev()
+    if prevCon then prevCon() end
+    for _ = 1, 4 do
+      local src = Net.CoopConsole()
+      if not src then return end
+      local out = {}
+      local oldPrint = print
+      print = function(...)
+        local t = {}
+        for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
+        out[#out + 1] = table.concat(t, "\t")
+      end
+      local f, err = loadstring("return " .. src, "console")
+      if not f then f, err = loadstring(src, "console") end
+      local res = f and {pcall(f)} or {false, err}
+      print = oldPrint
+      if not res[1] then
+        out[#out + 1] = "error: " .. tostring(res[2])
+      else
+        for i = 2, table.maxn(res) do out[#out + 1] = tostring(res[i]) end
+      end
+      Net.CoopConsole(table.concat(out, "\n"))
+    end
+  end
+end
