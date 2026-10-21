@@ -2363,3 +2363,53 @@ if Net.CoopConsole then
     end
   end
 end
+
+-- 'splitface' (split screen): every 150 ticks from tick 300 both players look at the next
+-- target from 300 units, standing side by side: player 2's body, player 1's body, then each
+-- squad member in turn ("splitface: <target>" in the log; a recording shows both halves).
+if cfg.splitface and Coop.level ~= "levels/menu" then
+  local prevSf = Coop.dev
+  function Coop.dev()
+    if prevSf then prevSf() end
+    local b0 = Game.UsrEntity(0)
+    local b1 = CoopSplit and CoopSplit.on and CoopSplit.body and CoopSplit.body()
+    if not b0 or not b1 or Coop.frame < 300 then return end
+    local list = Coop.sfList
+    if not list then
+      list = {b1.Name, b0.Name}
+      for _, n in ipairs(Coop.SQUAD) do
+        local e = Game.GetEntity(n)
+        if e and e.Life and e.Life > 0 and n ~= b0.Name and n ~= b1.Name then list[#list + 1] = n end
+      end
+      Coop.sfList = list
+    end
+    local k = math.floor((Coop.frame - 300) / 150) % #list + 1
+    local t = Game.GetEntity(list[k])
+    if not t then return end
+    if k ~= Coop.sfK then
+      Coop.sfK = k
+      -- both 300 units in front of the target, 80 apart; the target faces them
+      local y = math.rad(t.Ang.y)
+      local fx, fz = -math.sin(y), -math.cos(y)
+      local px, pz = fz, -fx
+      local mover = {b0, b1}
+      for i, b in ipairs(mover) do
+        if b ~= t then
+          local side = (i == 1) and -40 or 40
+          b.Pos = t.Pos + V3D(fx * 200 + px * side, 0, fz * 200 + pz * side)
+          pcall(Game.SetOnFloor, b.Name)
+        end
+      end
+      Coop.log("splitface: looking at " .. t.Name .. " (" .. k .. "/" .. #list .. ")")
+    end
+    for _, b in ipairs({b0, b1}) do
+      if b ~= t then
+        local d = t.Pos - b.Pos
+        local yaw = math.deg(math.atan2(-d.x, -d.z))
+        b.IgnoreUsrControl = 1
+        b.Ang = V3D(0, yaw, 0)
+        b.ViewAng = V3D(5, yaw, 0)
+      end
+    end
+  end
+end

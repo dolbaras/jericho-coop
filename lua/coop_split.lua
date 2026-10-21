@@ -178,7 +178,7 @@ function Sp.resetEngine()
   Game.Set("CameraViewScaleY", 1)
   if Net.CoopSplit then Net.CoopSplit(0, -1) end
   Sp.applyFx(false)
-  Sp.fx, Sp.fxShown, Sp.bodyVis, Sp.shownFor = nil, nil, {}, nil
+  Sp.fx, Sp.fxShown, Sp.bodyVis, Sp.bodyFps, Sp.shownFor = nil, nil, {}, {}, nil
 end
 
 function Sp.start(char, owner)
@@ -626,6 +626,17 @@ function Sp.checkBody()
       tostring(b ~= nil), tostring(b and b.bActive), tostring(b and b.Active),
       tostring(Team.UnavaliablePlayers and Team.UnavaliablePlayers[Sp.char])))
     Sp.moveOut()
+    return
+  end
+  -- Player 2's FP model: set as the body is taken, the engine sometimes keeps none (no arms
+  -- or weapon in player 2's view: Delgado from the lobby, recorded 0.2.1).
+  local fpName = "1FP_" .. Sp.char
+  if b and b.FPSEntity ~= fpName and Game.GetEntity(fpName) then
+    pcall(function() b.FPSEntity = fpName end)
+    if not Sp.fpRetried then
+      Sp.fpRetried = true
+      Coop.log("split: " .. Sp.char .. "'s FP model set again")
+    end
   end
 end
 
@@ -726,6 +737,18 @@ Sp.CALLBACKS = {"SpecialPress", "SpecialRelease", "SpecialPressPlus", "SpecialRe
   "OMain", "HitPress", "DigitalUpPress", "DigitalDownPress", "DigitalLeftPress", "DigitalRightPress"}
 
 local function one(i) if i == 0 then return 1 end return i end
+
+-- An FP model hidden from a view has id 3 (Sp.showFor), and the game's scripts take its user
+-- from it (Game.UsrEntity(fp.id): Black's telekinesis, melee hits, Church's spell...): user 3
+-- is whoever's model has it now.
+if Game.UsrEntity ~= Sp.usrWrap then
+  local real = Game.UsrEntity
+  Sp.usrWrap = function(i, ...)
+    if i == 3 and Sp.id3User then return real(Sp.id3User, ...) end
+    return real(i, ...)
+  end
+  Game.UsrEntity = Sp.usrWrap
+end
 
 -- Names the game's scripts use for user 0's things, and user 1's (first-person model, camera).
 local function fpName(n)
@@ -1226,43 +1249,73 @@ function Sp.fxShow(u)
   Sp.fxShown = u
 end
 
--- FP arms and bodies for the view drawn next (user u). A body keeps the visibility the game
--- gave it in its own player's view and is shown in the other's.
+-- FP arms and bodies for the view drawn next (user u). A player's body is hidden in its own
+-- player's view (the camera is inside it) and shown in the other's; the game's values come back after.
+-- While a body's bCheckFPSVisible is set the engine hides it in both views and shows its
+-- player's FP model instead (only the weapon and arms of the other player were left in each
+-- half): off on player 1's body (the FP model stays), and on player 2's in player 1's view only
+-- (without it the engine switches player 2's FP model off).
 Sp.bodyVis = Sp.bodyVis or {}
-local function bodyFor(b, shown)
+Sp.bodyFps = Sp.bodyFps or {}
+local function bodyFor(b, shown, check)
   if not b then return end
   local saved = Sp.bodyVis[b.Name]
-  if saved == nil then saved = b.bObjectVisible; Sp.bodyVis[b.Name] = saved end
-  local want = shown and true or saved
+  if saved == nil then
+    saved = b.bObjectVisible
+    Sp.bodyVis[b.Name] = saved
+    Sp.bodyFps[b.Name] = b.bCheckFPSVisible
+  end
+  local want = shown == true
   if b.bObjectVisible ~= want then b.bObjectVisible = want end
+  if b.bCheckFPSVisible ~= check then b.bCheckFPSVisible = check end
+end
+
+local function restoreBody(name, e)
+  local v, fps = Sp.bodyVis[name], Sp.bodyFps[name]
+  if e and v ~= nil and e.bObjectVisible ~= v then e.bObjectVisible = v end
+  if e and fps ~= nil and e.bCheckFPSVisible ~= fps then e.bCheckFPSVisible = fps end
+  Sp.bodyVis[name], Sp.bodyFps[name] = nil, nil
 end
 
 function Sp.showFor(u)
   local b0, b1 = Game.UsrEntity(0), not Sp.waiting and Sp.body()
   if b1 == b0 then b1 = nil end
   -- A body no longer a player's (a switch, a move): back to what the game gave it.
-  for name, v in pairs(Sp.bodyVis) do
+  for name in pairs(Sp.bodyVis) do
     if not ((b0 and b0.Name == name) or (b1 and b1.Name == name)) then
-      local e = Game.GetEntity(name)
-      if e and e.bObjectVisible ~= v then e.bObjectVisible = v end
-      Sp.bodyVis[name] = nil
+      restoreBody(name, Game.GetEntity(name))
     end
   end
   local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
   local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
-  -- (written only when it changes: an object made visible as the story deletes it asserts)
-  if f0 and f0.bObjectVisible ~= (u == 0) then f0.bObjectVisible = u == 0 end
-  if f1 and f1.bObjectVisible ~= (u == 1) then f1.bObjectVisible = u == 1 end
+  -- The engine draws each user's FP model in every view, at that user's camera (the other
+  -- player's arms and weapon floating at their body, recorded 0.2.1), and sets its visibility
+  -- and Active itself each frame. Its hidden "id" (whose camera it follows) it keeps: a user
+  -- that does not exist (3) in the view it does not belong to draws it nowhere. Like a body's
+  -- visibility it takes effect in the frame after next: set for the other view.
+  local uf = 1 - u
+  if cfg.splitfpflip == false then uf = u end
+  local id0, id1 = (uf == 0) and 0 or 3, (uf == 1) and 1 or 3
+  Sp.id3User = (f0 and id0 == 3 and 0) or (f1 and id1 == 3 and 1) or nil
+  if f0 and f0.id ~= id0 then f0.id = id0 end
+  if f1 and f1.id ~= id1 then f1.id = id1 end
   if cfg.splitbodies ~= false then
-    -- Act 1: player 1's Ross is shown by his stand-in (coop_ross.lua), his own model unseen.
-    local ross = b0 and b0.Name == "Ross" and CoopRoss and CoopRoss.body()
+    -- A body's visibility too (recorded 0.2.1: set for the view drawn next, each player saw
+    -- their own body from inside and the other's weapon alone).
+    local ub, uc = u, u
+    if cfg.splitbodyflip ~= false then ub = 1 - u end
+    if cfg.splitcheckflip ~= false then uc = 1 - u end
+    -- Act 1: Ross is shown by his stand-in (coop_ross.lua), his own model unseen: player 1's
+    -- in player 2's view, the AI's in both.
+    local ross = CoopRoss and CoopRoss.body()
     if ross then
       local ok, err = pcall(CoopRoss.update, u)
       if not ok then Coop.log("split: ross error " .. tostring(err)) end
-    else
-      bodyFor(b0, u == 1)
     end
-    bodyFor(b1, u == 0)
+    if not (ross and b0 and b0.Name == "Ross") then
+      bodyFor(b0, ub == 1, false)
+    end
+    bodyFor(b1, ub == 0, uc == 1)
   end
   Sp.shownFor = u
 end
@@ -1270,17 +1323,18 @@ end
 -- Everything as the game has it for one screen (split held or over).
 function Sp.showAll()
   if Sp.shownFor == nil then return end
-  for _, n in ipairs({"0FP_", "1FP_"}) do
+  for i, n in ipairs({"0FP_", "1FP_"}) do
     for _, c in ipairs(Coop.SQUAD) do
       local f = Game.GetEntity(n .. c)
       if f and f.bObjectVisible == false then f.bObjectVisible = true end
+      if f and f.id ~= i - 1 then f.id = i - 1 end
     end
   end
-  for name, v in pairs(Sp.bodyVis) do
-    local b = Game.GetEntity(name)
-    if b then b.bObjectVisible = v end
+  Sp.id3User = nil
+  for name in pairs(Sp.bodyVis) do
+    restoreBody(name, Game.GetEntity(name))
   end
-  Sp.bodyVis = {}
+  Sp.bodyVis, Sp.bodyFps = {}, {}
   Sp.shownFor = nil
 end
 

@@ -6,10 +6,11 @@
 -- own player looks through his eyes, it follows his entity (seen by this PC's split screen
 -- player 2); on the other machines it is the host's Ross: position, facing, action, weapon and
 -- shots from his network state, while his own entity is switched off (Active 0, as scenes hide
--- characters). The visibility flag cannot hide him there: the engine draws a squad member it
--- does not look through whatever bObjectVisible says (recorded, 0.2.1: his untextured body,
--- with SMOD his full one, inside the stand-in - "two Rosses"). With SMOD, whose own Ross
--- model is complete, the stand-in stays: TrueRoss looks much better (owner, 0.2.1).
+-- characters). bObjectVisible alone cannot hide him: while bCheckFPSVisible is set the engine
+-- draws a squad member it does not look through whatever that flag says (recorded, 0.2.1: his
+-- untextured body, with SMOD his full one, inside the stand-in - "two Rosses"). The AI's Ross
+-- (a test that starts the host in another body) keeps running with both flags off. With SMOD,
+-- whose own Ross model is complete, the stand-in stays: TrueRoss looks much better (owner).
 CoopRoss = CoopRoss or {}
 local R = CoopRoss
 
@@ -123,8 +124,9 @@ function R.showable()
   return true
 end
 
--- Per frame (coop.lua): follow Ross. view: the user whose view is drawn next (split screen).
-function R.update(view)
+-- Per frame (coop.lua): follow Ross. view: the user whose view is drawn next (split screen);
+-- p2: Ross is this PC's player 2's body.
+function R.update(view, p2)
   local e = R.body()
   if not e then
     R.restore()
@@ -136,6 +138,9 @@ function R.update(view)
   -- Another machine's Ross: what his player's machine sent (his own entity is off here).
   local st = not mine and Coop.remote and Coop.remote["Ross"]
   local tg = st and Coop.puppetTarget and Coop.puppetTarget("Ross", Net.CoopTime())
+  -- Nobody's eyes in him and nobody's network state: the AI's Ross on this machine (the host's,
+  -- or a game without a session). He keeps running; only his model is hidden.
+  local ai = r ~= nil and not mine and not st and not Coop.isRemoteOwned("Ross")
   if show then
     if tg then
       e.Pos = V3D(tg.x, tg.y, tg.z)
@@ -144,6 +149,7 @@ function R.update(view)
     else
       e.Pos = r.Pos
       e.Ang = V3D(0, r.Ang.y, 0)
+      if r.ViewAng then e.ViewAng = r.ViewAng end
     end
     local act = (st and st.action) or r.Action
     if act and act ~= R.lastAct then
@@ -157,11 +163,20 @@ function R.update(view)
     if st then
       if e.owc then e.owc.Shot = st.shot or 0 end
       Coop.syncSlot(e, st.slot)
+    elseif ai then
+      if e.owc and r.owc then e.owc.Shot = r.owc.Shot or 0 end
+      local wc = r.oWeapCtrl
+      if wc and wc.iSlot then Coop.syncSlot(e, tonumber(wc.iSlot)) end
     end
   end
   if mine then
     R.restore()   -- (his player is here now)
+  elseif ai then
+    -- (switched off through Active he would stop: his AI and the story's orders to him)
+    if R.offRoss then R.restore() end
+    if show then R.hideModel(r) else R.showModel() end
   elseif r then
+    R.showModel()
     -- Switched off while the stand-in shows him; back on when it does not (down, or the
     -- story takes over), unless a scene hides him (the scene gives him back afterwards).
     if show then
@@ -171,23 +186,49 @@ function R.update(view)
       R.restore()
     end
   end
-  -- Hidden through Active: the visibility flag the other bodies use does nothing on it
-  -- (tested 0.2.1), and Active takes effect a frame later than that flag does, i.e. in the
-  -- other view: shown in player 2's view when set in the update before player 1's.
+  -- Active takes effect in the frame after next, i.e. in the other view: set in the update
+  -- before player 1's view, it shows in player 2's.
   if view ~= nil and mine then
-    show = show and view == 0   -- this PC's player 2 sees this PC's Ross
+    if p2 then
+      show = show and view == 1  -- this PC's player 1 sees player 2's Ross
+    else
+      show = show and view == 0  -- this PC's player 2 sees this PC's Ross
+    end
   elseif mine then
-    show = false                -- only Ross's own view here
+    show = false                 -- only Ross's own view here
   end
   local a = show and 1 or 0
   if e.Active ~= a then e.Active = a end
   if Coop.cfg.rosslog and Coop.frame % 7 == 0 then
-    Coop.log(string.format("ross: view %s shown %s action %s", tostring(view), tostring(show), tostring(r and r.Action)))
+    Coop.log(string.format("ross: view %s shown %s ai %s action %s", tostring(view), tostring(show), tostring(ai),
+      tostring(r and r.Action)))
   end
+end
+
+-- The AI's Ross unseen while he runs: with bCheckFPSVisible set the engine draws a squad
+-- member whatever bObjectVisible says (the "two Rosses" of 0.2.1); both off, he is hidden.
+function R.hideModel(r)
+  if not R.hidRoss then
+    R.hidRoss = {vis = r.bObjectVisible, check = r.bCheckFPSVisible}
+    Coop.log("ross: the AI's Ross shown by the stand-in")
+  end
+  if r.bCheckFPSVisible ~= false then r.bCheckFPSVisible = false end
+  if r.bObjectVisible ~= false then r.bObjectVisible = false end
+end
+
+function R.showModel()
+  local h = R.hidRoss
+  if not h then return end
+  R.hidRoss = nil
+  local r = Game.GetEntity("Ross")
+  if not r then return end
+  if h.check ~= nil and r.bCheckFPSVisible ~= h.check then r.bCheckFPSVisible = h.check end
+  if h.vis ~= nil and r.bObjectVisible ~= h.vis then r.bObjectVisible = h.vis end
 end
 
 -- Ross's own entity on again (it was off for the stand-in): stand-in gone, or not shown.
 function R.restore()
+  R.showModel()
   if not R.offRoss then return end
   R.offRoss = nil
   local r = Game.GetEntity("Ross")
