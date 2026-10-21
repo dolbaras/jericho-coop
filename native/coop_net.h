@@ -7,3 +7,7 @@ int coop_net_install(void);
 
 /* Appends a timestamped line to %JERICHO_COOP_LOG% (no-op when unset). */
 void coop_log(const char *fmt, ...);
+
+/* A file in the co-op folder (Documents\...\Coop, or %JERICHO_COOP_SAVEDIR%) from "coop:name"
+ * (name of [A-Za-z0-9_.-]). 1 = out holds the path. */
+int coop_data_path(const char *name, char *out, size_t size);

@@ -1142,8 +1142,26 @@ function Coop.controlWatchdog()
   end
 end
 
+-- F11: the last 30 seconds saved as a video for a bug report (native/clip.c).
+Coop.CLIP_KEY = 0x7A
+function Coop.clipKey()
+  if not Net.CoopClip then return end
+  local down = Net.CoopKey(Coop.CLIP_KEY) == 1
+  if down and not Coop.clipHeld then
+    local path = Net.CoopClip("save")
+    Coop.log("clip: F11 -> " .. tostring(path))
+    if path and path ~= "" then
+      local name = string.match(path, "[^\\]+$") or path
+      pcall(Scorer.SetMsgText, (Coop.lang() == "ru" and Coop.cp1251("Видео последних 30 с сохранено: ") or
+        "Last 30 s saved as a video: ") .. "Coop\\" .. name, Game.GetTime() + 5)
+    end
+  end
+  Coop.clipHeld = down
+end
+
 function Coop.update()
   Coop.frame = Coop.frame + 1
+  pcall(Coop.clipKey)
   if Coop.inSession() then
     local ok, err = pcall(Coop.reclaimBody)
     if not ok and (Coop.reclaimErrors or 0) < 3 then

@@ -31,6 +31,7 @@
 #include "display_hooks.h"
 #include "split.h"
 #include "capture.h"
+#include "clip.h"
 
 static int win_x, win_y, have_winpos, run_in_background;
 static int kbm_off;               /* JERICHO_KBM=0 */
@@ -444,6 +445,7 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
     }
     if (SUCCEEDED(hr) && out) {
         capture_on_device(*out);
+        clip_on_device(*out);    /* the last 30 s for bug reports (F11) */
         split_on_device(*out);   /* after capture: the split hooks wrap the recording */
     }
     return hr;

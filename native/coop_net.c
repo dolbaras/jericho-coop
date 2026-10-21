@@ -47,6 +47,7 @@
 
 #include "coop_net.h"
 #include "display_hooks.h"
+#include "clip.h"
 #include "boot_inject.h"
 #include "split.h"
 #include "steam_net.h"
@@ -671,6 +672,19 @@ static int coop_save_path(const char *name, char *out, size_t size)
     return snprintf(out, size, "%s\\%s", dir, name) < (int)size;
 }
 
+int coop_data_path(const char *name, char *out, size_t size)
+{
+    return coop_save_path(name, out, size);
+}
+
+/* Net.CoopClip("save") -> the clip being written (clip.c: the last 30 s), "" if none. */
+static int l_clip(lua_State *L)
+{
+    const char *cmd = lua_tolstring(L, 1, NULL);
+    lua_pushstring(L, cmd && strcmp(cmd, "save") == 0 ? clip_save() : "");
+    return 1;
+}
+
 static int l_file(lua_State *L)
 {
     const char *path = lua_tolstring(L, 1, NULL);
@@ -976,6 +990,7 @@ static const struct {
     {"SendMasterString", "CoopSplit", l_split},
     {"ServerChangeLevel", "CoopSteam", l_steam},
     {"GetPing", "CoopConsole", l_console},
+    {"IsMaster", "CoopClip", l_clip},
 };
 
 int coop_net_install(void)

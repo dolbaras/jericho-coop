@@ -119,6 +119,9 @@ Reports
 https://github.com/dolbaras/jericho-coop/issues — what happened, on which level, host or client.
 Attach the log: Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log (coop.prev.log is the
 previous run).
+Saw it happen? Press F11 right after: the last 30 seconds of the game are saved as a video
+(clip-<date>-<time>.avi in the same Coop folder) - attach it too. The mod keeps only what the
+game draws, in memory, and writes nothing until F11.
 
 
 РУССКИЙ
@@ -241,6 +244,9 @@ SMOD
 Пишите в https://github.com/dolbaras/jericho-coop/issues : что делали, на каком уровне,
 хост вы или клиент. Приложите лог: Документы\Codemasters\Clive Barker's Jericho\Coop\coop.log
 (лог прошлого запуска — coop.prev.log).
+Увидели ошибку? Сразу нажмите F11: последние 30 секунд игры сохранятся как видео
+(clip-<дата>-<время>.avi в той же папке Coop) — приложите и его. Мод хранит только то, что рисует
+игра, в памяти, и ничего не записывает до нажатия F11.
 
 License: MIT (LICENSE.txt). ENet 1.3.18 (MIT, ENET-LICENSE.txt). coop\steam_api.dll: Valve's
 Steamworks API (STEAM-NOTICE.txt). coop\python: Python 3.12.10's embeddable build from
