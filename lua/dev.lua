@@ -1575,3 +1575,50 @@ if cfg.p2aim and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'padlog' (split screen): both players' bodies (position, facing, life, weapon) and the action
+-- set every 30 ticks (real gamepads: which pad moves whom).
+if cfg.padlog and Coop.level ~= "levels/menu" then
+  local prevPad = Coop.dev
+  function Coop.dev()
+    if prevPad then prevPad() end
+    -- in the astral set: what the engine reads for "Return" and "MoveUp", both users, every 3 ticks
+    if Input.GetActionSet() == "Astral" and Coop.frame % 3 == 0 then
+      local function g(a, u) local ok, v = pcall(Input.GetInputState, "Astral", a, u) return ok and tostring(v) or "err" end
+      local pad1 = {pcall(Net.CoopKey, -1, 1)}
+      local pad0 = {pcall(Net.CoopKey, -1, 0)}
+      Coop.log(string.format("padlog astral: Return u0 %s u1 %s, MoveUp u0 %s u1 %s, raw buttons p0 %s p1 %s",
+        g("Return", 0), g("Return", 1), g("MoveUp", 0), g("MoveUp", 1), tostring(pad0[2]), tostring(pad1[2])))
+    end
+    if Coop.frame % 15 ~= 0 then return end
+    local function d(e)
+      if not e then return "-" end
+      local w = "-"
+      pcall(function() w = e.oWeapCtrl.oActual.oType.Name end)
+      return string.format("%s %s yaw %.0f life %.0f %s", e.Name, Coop.v3(e.Pos), e.Ang and e.Ang.y or 0, e.Life or -1, tostring(w))
+    end
+    local p2 = CoopSplit and CoopSplit.on and CoopSplit.body and CoopSplit.body()
+    local ac = Game.GetEntity("AstralCam")
+    Coop.log("padlog: p1 " .. d(Game.UsrEntity(0)) .. " | p2 " .. d(p2) .. " | set " .. tostring(Input.GetActionSet()) ..
+      " cam0 " .. tostring(Game.GetCam(0)) .. " cam1 " .. tostring(Game.GetCam(1)) ..
+      (ac and (" astralcam " .. Coop.v3(ac.Pos) .. " ang " .. Coop.v3(ac.Ang)) or ""))
+  end
+end
+
+-- 'bindprobe': the input bindings of users 0 and 1 for the actions Jones's astral projection
+-- reads (logged once the split screen is on).
+if cfg.bindprobe and Coop.level ~= "levels/menu" then
+  local prevBind = Coop.dev
+  function Coop.dev()
+    if prevBind then prevBind() end
+    if Coop.frame ~= 400 then return end
+    for _, a in ipairs({{"Walk", "Special"}, {"Walk", "SpecialPlus"}, {"Walk", "Forward"}, {"Walk", "TurnRight"},
+                        {"Astral", "Return"}, {"Astral", "GoTo"}, {"Astral", "MoveUp"}, {"Astral", "Forward"},
+                        {"Astral", "TurnRight"}, {"Astral", "TurnUp"}}) do
+      for u = 0, 1 do
+        local ok, v = pcall(Input.GetDefinedList, u, a[1], a[2])
+        Coop.log(string.format("bindprobe: user %d %s.%s = %s", u, a[1], a[2], ok and tostring(v) or ("error " .. tostring(v))))
+      end
+    end
+  end
+end

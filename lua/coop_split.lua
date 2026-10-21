@@ -258,25 +258,7 @@ function Sp.frame()
       Coop.log("split: player 2's projection cut short, controls back to \"Walk\"")
     end
   end
-  local astral = Sp.p2Astral or false
-  if astral and not Sp.camSwap and Game.GetCam(1) == "AstralCam" then
-    Sp.p1Cam = Game.GetCam(0)
-    Game.SetCam(0, "AstralCam")
-    Game.SetCam(1, Sp.p1Cam)
-    Sp.camSwap = true
-    Coop.log("split: astral camera in slot 0, player 1's " .. tostring(Sp.p1Cam) .. " in slot 1")
-  elseif Sp.camSwap and not astral then
-    Sp.camSwap = nil
-    Game.SetCam(0, Sp.p1Cam or "MainCam")
-    if Game.GetCam(1) ~= Sp.CAM then Game.SetCam(1, Sp.CAM) end
-    Coop.log("split: cameras back in their slots")
-  end
-  local merge = astral and cfg.astralmerge ~= false
-  if not hold and merge ~= (Sp.padsMerged or false) then
-    Sp.padsMerged = merge
-    Net.CoopSplit(Sp.wide() and 1 or 2, merge and 2 or 0)
-    Coop.log("split: pads " .. (merge and "merged for player 2's astral projection" or "apart again"))
-  end
+  Sp.applyP2Astral(hold)
   if not hold then
     -- split.c says which half the next drawn frame fills; the engine draws the slot set
     -- now in the frame after (found by test: the other slot).
@@ -304,11 +286,48 @@ function Sp.frame()
   end
   if not Sp.waiting then Sp.checkDown() end
   if not hold then Sp.driveDuringAstral() else Sp.stopDrive() end
+  -- pads plugged in or out meanwhile (dll: the players keep theirs, a player without one gets
+  -- a free one)
+  if not hold and now >= (Sp.nextPadScan or 0) then
+    Sp.nextPadScan = now + 3
+    local ok, changed = pcall(Net.CoopKey, -2)
+    if ok and changed == 1 then
+      Scorer.SetMsgText(Coop.lang() == "ru" and Coop.cp1251("Геймпады назначены заново") or "Gamepads assigned again",
+        Game.GetTime() + 4)
+    end
+  end
   if not hold and now >= (Sp.nextHudCheck or 0) then
     Sp.nextHudCheck = now + 0.25
     Sp.checkHud()
   end
   Sp.updateHealth()
+end
+
+-- Player 2's astral projection: the astral camera in slot 0 (the engine moves only that slot's
+-- camera by input), player 1's camera in slot 1, player 2's pad acting as pad 0. Done when
+-- player 2's power sets "Astral" too, before the engine changes the set: done a frame later,
+-- the button that started the projection showed up on user 0 after the change, as a new
+-- press of "Return" (virtual pad test 0.2.1).
+function Sp.applyP2Astral(hold)
+  local astral = Sp.p2Astral or false
+  if astral and not Sp.camSwap and Game.GetCam(1) == "AstralCam" and cfg.astralswap ~= false then
+    Sp.p1Cam = Game.GetCam(0)
+    Game.SetCam(0, "AstralCam")
+    Game.SetCam(1, Sp.p1Cam)
+    Sp.camSwap = true
+    Coop.log("split: astral camera in slot 0, player 1's " .. tostring(Sp.p1Cam) .. " in slot 1")
+  elseif Sp.camSwap and not astral then
+    Sp.camSwap = nil
+    Game.SetCam(0, Sp.p1Cam or "MainCam")
+    if Game.GetCam(1) ~= Sp.CAM then Game.SetCam(1, Sp.CAM) end
+    Coop.log("split: cameras back in their slots")
+  end
+  local merge = astral and cfg.astralmerge ~= false
+  if not hold and merge ~= (Sp.padsMerged or false) then
+    Sp.padsMerged = merge
+    Net.CoopSplit(Sp.wide() and 1 or 2, merge and 2 or 0)
+    Coop.log("split: pads " .. (merge and "merged for player 2's astral projection" or "apart again"))
+  end
 end
 
 -- A power's HUD (Black's ghost bullet, Cole's slowdown...) replaces the user's HUD and the
@@ -335,56 +354,107 @@ function Sp.checkHud()
   Coop.log("split: player 2's HUD back")
 end
 
--- Player 1's astral projection takes the one action set ("Astral") for its camera, and the
--- engine then moves no body from its "Walk" bindings: player 2 would stand frozen. Their
--- pad is read here by its "Walk" bindings (Input.GetInputState, as Black's ghost bullet reads
--- its owner's pad) and drives the body as the network drives a remote player's: walk,
+-- A player's astral projection takes the one action set ("Astral") for its camera, and the
+-- engine then moves no body from its "Walk" bindings: the other player would stand frozen.
+-- Their pad drives their body meanwhile, as the network drives a remote player's: walk,
 -- strafe, turn, look, sprint, fire.
 Sp.TURN_SPEED, Sp.PITCH_SPEED = 160, 110   -- degrees per second at full stick
+Sp.drives = Sp.drives or {}
+
+-- The other player's body while one player's astral projection holds the "Astral" set: its
+-- pad straight from XInput (the dll; the game updates no "Walk" input meanwhile: virtual pad
+-- test 0.2.1, every state read 0 and the body stood). Without a pad of its own (player 1 on
+-- keyboard and mouse, or an older dll) only player 2 falls back to the game's own bindings.
 function Sp.driveDuringAstral()
-  local b = not Sp.waiting and Sp.body()
-  local astral = Input.GetActionSet and Input.GetActionSet() == "Astral" and not Sp.p2Astral
-  if not astral or not b or b.UsrControl ~= 1 or b.Life <= 0 then
-    Sp.stopDrive()
+  local set = Input.GetActionSet and Input.GetActionSet()
+  local astral = set == "Astral"
+  local p2 = not Sp.waiting and Sp.body()
+  local p1 = Game.UsrEntity(0)
+  -- player 1 projects: player 2 is driven; player 2 projects: player 1 is
+  Sp.driveUser(1, astral and not Sp.p2Astral and p2 or nil)
+  Sp.driveUser(0, astral and Sp.p2Astral and p1 ~= p2 and p1 or nil)
+end
+
+local function axis(v, dead)
+  v = tonumber(v) or 0
+  local a = math.abs(v)
+  if a <= dead then return 0 end
+  return (v > 0 and 1 or -1) * math.min(1, (a - dead) / (32767 - dead))
+end
+
+function Sp.driveUser(user, b)
+  local d = Sp.drives[user]
+  if not b or (b.Life or 0) <= 0 or b.UsrControl ~= user then
+    if d then Sp.stopDriveUser(user) end
+    return
+  end
+  local pad = {pcall(Net.CoopKey, -1, user)}
+  local raw = pad[1] and pad[2] ~= nil and pad
+  if not raw and user == 0 then
+    if d then Sp.stopDriveUser(user) end
     return
   end
   local function st(a)
-    local ok, v = pcall(Input.GetInputState, "Walk", a, 1)
+    if raw then
+      local buttons, rt = raw[2], raw[4]
+      local lx, ly, rx, ry = axis(raw[5], 7849), axis(raw[6], 7849), axis(raw[7], 8689), axis(raw[8], 8689)
+      if a == "Forward" then return math.max(0, ly) end
+      if a == "Backward" then return math.max(0, -ly) end
+      if a == "StrafeRight" then return math.max(0, lx) end
+      if a == "StrafeLeft" then return math.max(0, -lx) end
+      if a == "TurnRight" then return math.max(0, rx) end
+      if a == "TurnLeft" then return math.max(0, -rx) end
+      if a == "TurnUp" then return math.max(0, ry) end
+      if a == "TurnDown" then return math.max(0, -ry) end
+      if a == "MainShot" then return (tonumber(rt) or 0) / 255 end
+      if a == "Sprint" then return (math.floor((tonumber(buttons) or 0) / 64) % 2 == 1) and 1 or 0 end
+      return 0
+    end
+    local ok, v = pcall(Input.GetInputState, "Walk", a, user)
     return ok and tonumber(v) or 0
   end
   local now = Game.GetTime()
-  local dt = math.min(0.1, now - (Sp.driveT or now))
-  Sp.driveT = now
-  if not Sp.driving then
-    Sp.driving = true
+  if not d then
     local va = b.ViewAng or b.Ang
-    Sp.driveYaw, Sp.drivePitch = b.Ang.y, va and va.x or 0
-    Coop.log("split: player 2 driven from their pad during player 1's astral projection")
+    d = {name = b.Name, yaw = b.Ang.y, pitch = va and va.x or 0, t = now}
+    Sp.drives[user] = d
+    if user == 1 then Sp.driving = true end
+    Coop.log("split: player " .. (user + 1) .. " driven from their pad during the other's astral projection")
   end
-  Sp.driveYaw = Sp.driveYaw - (st("TurnRight") - st("TurnLeft")) * Sp.TURN_SPEED * dt
-  Sp.drivePitch = math.max(-80, math.min(80, Sp.drivePitch + (st("TurnUp") - st("TurnDown")) * Sp.PITCH_SPEED * dt))
-  b.Ang = V3D(0, Sp.driveYaw, 0)
-  b.ViewAng = V3D(Sp.drivePitch, Sp.driveYaw, 0)
-  b.InCtrl_Walk = st("Forward")
+  local dt = math.min(0.1, now - d.t)
+  d.t = now
+  d.yaw = d.yaw - (st("TurnRight") - st("TurnLeft")) * Sp.TURN_SPEED * dt
+  d.pitch = math.max(-80, math.min(80, d.pitch + (st("TurnUp") - st("TurnDown")) * Sp.PITCH_SPEED * dt))
+  -- (the engine writes a user's body controls from its input every frame: zeros meanwhile)
+  b.IgnoreUsrControl = 1
+  b.Ang = V3D(0, d.yaw, 0)
+  b.ViewAng = V3D(d.pitch, d.yaw, 0)
+  b.InCtrl_Walk = st("Forward") - st("Backward")
   b.InCtrl_Str = st("StrafeRight") - st("StrafeLeft")
   b.InCtrl_Sprint = st("Sprint") > 0.5 and 1 or 0
   if b.owc then b.owc.Shot = st("MainShot") > 0.5 and 1 or 0 end
-  Sp.astralHud(b)
+  Sp.astralHud(b, user)
+  if cfg.dev and Coop.frame % 30 == 0 then
+    Coop.log(string.format("split: drive %s (user %d) fwd %.2f str %.2f turn %.2f shot %.2f pos %s", b.Name, user,
+      st("Forward") - st("Backward"), st("StrafeRight") - st("StrafeLeft"), st("TurnRight") - st("TurnLeft"),
+      st("MainShot"), Coop.v3(b.Pos)))
+  end
 end
 
 -- The engine draws no Aim/Ammo/Selector/TeamStatus item while the action set is "Astral",
--- in player 2's scorer too (hudprobe 0.2.1: the mod's own text items still show). Player 2
--- keeps a crosshair and the loaded ammo meanwhile.
-function Sp.astralHud(b)
-  local aim = Scorer.GetItem(1, "AstralAim")
-  local ammo = Scorer.GetItem(1, "AstralAmmo")
+-- in either player's scorer (hudprobe 0.2.1: the mod's own text items still show). The
+-- player who plays on keeps a crosshair and the loaded ammo meanwhile.
+function Sp.astralHud(b, user)
+  user = user or 1
+  local aim = Scorer.GetItem(user, "AstralAim")
+  local ammo = Scorer.GetItem(user, "AstralAmmo")
   if not b then
     if aim then aim.Text = "" end
     if ammo then ammo.Text = "" end
     return
   end
   if not aim then
-    aim = Scorer.NewItem(1, "AstralAim", "Text", 1)
+    aim = Scorer.NewItem(user, "AstralAim", "Text", 1)
     aim.Font = Menu.SmallFont
     aim.Effect = "Shadow"
     aim.Color = V4D(230, 230, 230, 220)
@@ -392,7 +462,7 @@ function Sp.astralHud(b)
   Coop.setCentered(aim, "+")
   aim.Y = 232
   if not ammo then
-    ammo = Scorer.NewItem(1, "AstralAmmo", "Text", 1)
+    ammo = Scorer.NewItem(user, "AstralAmmo", "Text", 1)
     ammo.Font = Menu.SmallFont
     ammo.Effect = "Shadow"
     ammo.Pos = V2D(586, 440)
@@ -403,16 +473,24 @@ function Sp.astralHud(b)
   ammo.Color = Menu.ItemColor
 end
 
-function Sp.stopDrive()
-  if not Sp.driving then return end
-  pcall(Sp.astralHud, nil)
-  Sp.driving, Sp.driveT = nil, nil
-  local b = Sp.body()
+function Sp.stopDriveUser(user)
+  local d = Sp.drives[user]
+  if not d then return end
+  Sp.drives[user] = nil
+  if user == 1 then Sp.driving = nil end
+  pcall(Sp.astralHud, nil, user)
+  local b = Game.GetEntity(d.name)
   if b then
     b.InCtrl_Walk, b.InCtrl_Str, b.InCtrl_Sprint = 0, 0, 0
     if b.owc then b.owc.Shot = 0 end
+    b.IgnoreUsrControl = 0
   end
-  Coop.log("split: player 2 back on the game's own controls")
+  Coop.log("split: player " .. (user + 1) .. " back on the game's own controls")
+end
+
+function Sp.stopDrive()
+  Sp.stopDriveUser(0)
+  Sp.stopDriveUser(1)
 end
 
 -- SMOD's health counter (_G.PrintHealth, autoexec.lua) is user 0's, in scorer 0: the same
@@ -423,7 +501,7 @@ function Sp.updateHealth()
   local b = not Sp.waiting and Sp.body()
   local cls = b and b.oActCtrl and b.oActCtrl.oActClass
   -- Hidden like SMOD's own while the view is a power's (ghost bullet, astral projection).
-  if not cls or b.UsrControl ~= 1 or (Scene and Scene.IsPlaying) or b.IgnoreUsrControl == 1 or
+  if not cls or b.UsrControl ~= 1 or (Scene and Scene.IsPlaying) or (b.IgnoreUsrControl == 1 and not Sp.driving) or
      Game.GetCam(1) ~= Sp.CAM then
     if bg then bg.Color = Color(255, 255, 255, 0) end
     if text then text.Text = "" end
@@ -693,6 +771,7 @@ function Sp.buildRemap()
       Sp.p2Set = set
       if set == "Astral" then
         Sp.p2Astral = true
+        pcall(Sp.asUser0, Sp.applyP2Astral, Sp.held)
         return f(set)
       elseif set == "Walk" and (Sp.p2Astral or Sp.realGetActionSet() == "Astral") then
         Sp.p2Astral = nil
@@ -900,8 +979,13 @@ function Sp.installPowers()
       return asP2(function(...)
         local r = orig(...)
         local cam = Game.GetEntity("AstralCam")
-        if cam and cfg.astraluser then
-          local u = Sp.inUser1 and 1 or 0
+        -- Player 2's projection: the astral camera is user 0's (it sits in slot 0, its input is
+        -- player 2's pad as pad 0). Left at its default (-1) it ended after 0.75 s although
+        -- "Return" was held (virtual pad test 0.2.1). (astraluser = <n> forces a user, tests)
+        local want = cfg.astraluser
+        if want == nil and Sp.inUser1 then want = 0 end
+        if cam and want ~= nil and want ~= false then
+          local u = type(want) == "number" and want or (Sp.inUser1 and 1 or 0)
           local ok, err = pcall(function() cam.UsrControl = u end)
           if cfg.dev then Coop.log("split: astral camera for user " .. u .. (ok and "" or (" (" .. tostring(err) .. ")"))) end
         end

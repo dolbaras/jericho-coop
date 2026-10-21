@@ -575,6 +575,7 @@ static DWORD read_pad(int phys, void *state)
 /* Split screen in one game (split.c): pads_merge while a menu or a scene is up, where the
    game reads only its pad 0: both players' pads act as pad 0 then, pad 1 rests. */
 static volatile LONG pads_merge;
+static volatile LONG pads_merge_kind;   /* 1: menus and scenes, 2: player 2's astral projection */
 static int pads_env;   /* JERICHO_PADS given: the map is the test's, not automatic */
 /* Buttons held when the merge changes (the press that opened or closed the menu): kept from
    the game until released, or it would see them as new presses on the other pad. Bit 16/17:
@@ -611,6 +612,8 @@ static DWORD WINAPI pad_GetState(DWORD i, void *state)
         test_pad_state *s = (test_pad_state *)state;
         if (i == 1) {
             DWORD r = read_pad(pad_map[1], state);
+            /* player 2's pad acts as pad 0 only (also during their astral projection: the
+               projection ended when user 1 held "Return" too; virtual pad test 0.2.1) */
             if (r == ERROR_SUCCESS) { DWORD pk = s->packet; memset(s, 0, sizeof *s); s->packet = pk; }
             return r;
         }
@@ -633,6 +636,9 @@ static DWORD pad_merged(void *state)
             return ra;
         if (ra != ERROR_SUCCESS) { *s = b; return ERROR_SUCCESS; }
         if (rb != ERROR_SUCCESS) { *s = a; return ERROR_SUCCESS; }
+        /* player 2's astral projection: their pad alone steers it (player 1 plays on, driven
+           from their own pad by coop_split.lua) */
+        if (pads_merge_kind == 2) { *s = b; s->packet = a.packet + b.packet; return ERROR_SUCCESS; }
         *s = a;
         s->packet = a.packet + b.packet;
         s->buttons = a.buttons | b.buttons;
@@ -646,15 +652,72 @@ static DWORD pad_merged(void *state)
 
 static DWORD WINAPI pad_SetState(DWORD i, void *vib);
 
+/* Pads plugged in or out during a split screen session (a pad's battery, a second player
+   sitting down later): the players keep the pads they have; a player without one (or whose
+   pad went away) gets the first connected pad nobody uses, player 2 first (player 1 may be
+   on keyboard and mouse). Nothing changes with no pad connected. Returns 1 on a change. */
+int display_hooks_pads_rescan(void)
+{
+    if (pads_env || !real_XInputGetState)
+        return 0;
+    int connected[4] = {0, 0, 0, 0}, any = 0;
+    test_pad_state st;
+    for (int p = 0; p < 4; p++)
+        if (real_XInputGetState((DWORD)p, &st) == ERROR_SUCCESS)
+            connected[p] = 1, any = 1;
+    if (!any)
+        return 0;
+    int m[4];
+    memcpy(m, pad_map, sizeof m);
+    for (int u = 0; u < 2; u++)
+        if (m[u] >= 0 && m[u] < 4 && !connected[m[u]])
+            m[u] = -1;
+    for (int u = 1; u >= 0; u--) {
+        if (m[u] >= 0)
+            continue;
+        for (int p = 0; p < 4; p++)
+            if (connected[p] && p != m[0] && p != m[1]) {
+                /* player 1 gets a pad only once player 2 has one */
+                if (u == 0 && m[1] < 0)
+                    break;
+                m[u] = p;
+                break;
+            }
+    }
+    m[2] = m[3] = -1;
+    if (memcmp(m, pad_map, sizeof m) == 0)
+        return 0;
+    memcpy(pad_map, m, sizeof m);
+    coop_log("pads: player 1 %d, player 2 %d (pads plugged in or out)", m[0], m[1]);
+    return 1;
+}
+
+/* A split screen user's own pad as it is (no merging, no latch): buttons, LT, RT, LX, LY, RX, RY. */
+int display_hooks_pad_read(int user, int out[7])
+{
+    if (user < 0 || user > 3 || !real_XInputGetState)
+        return 0;
+    test_pad_state s;
+    memset(&s, 0, sizeof s);
+    if (read_pad(pad_map[user], &s) != ERROR_SUCCESS)
+        return 0;
+    out[0] = s.buttons, out[1] = s.lt, out[2] = s.rt;
+    out[3] = s.lx, out[4] = s.ly, out[5] = s.rx, out[6] = s.ry;
+    return 1;
+}
+
 /* Split screen: which physical pads the two players use. Two or more connected: player 1 the
    first, player 2 the second. One: it is player 2's (player 1 on keyboard and mouse). None:
    as connected later. Off: as the game reads them. */
 void display_hooks_pads_split(int on, int merge)
 {
-    /* merge 2: no latch, the buttons held go on being held (player 2's astral projection is
-       held with the button that started it) */
-    if ((on && merge) != pads_merge) {
+    /* merge 2: no latch, the buttons held go on being held: player 2's astral projection lasts
+       while the button that started it is held, on user 0 (whose camera slot the astral camera
+       takes; coop_split.lua merges before the engine changes the action set, so it is no new
+       press there) and on player 2's own pad alike. */
+    if ((on && merge) != pads_merge || (on && merge && merge != pads_merge_kind)) {
         latch[0] = latch[1] = merge == 2 ? 0 : -1;
+        InterlockedExchange(&pads_merge_kind, on ? merge : 0);
         InterlockedExchange(&pads_merge, on && merge);
     }
     if (pads_env || !real_XInputGetState)

@@ -693,9 +693,25 @@ static int l_split(lua_State *L)
     return 1;
 }
 
+/* Net.CoopKey(vk) -> 1/0; Net.CoopKey(-1, user) -> buttons, lt, rt, lx, ly, rx, ry of that
+   split screen user's own pad (straight from XInput: the game updates no "Walk" input while
+   the action set is player 1's "Astral"), or nothing when it has none. */
 static int l_key(lua_State *L)
 {
-    lua_pushnumber(L, display_hooks_key_down(lua_tointeger(L, 1)));
+    int vk = lua_tointeger(L, 1);
+    if (vk == -2) {   /* Net.CoopKey(-2): split screen pads plugged in or out -> 1 on a change */
+        lua_pushnumber(L, display_hooks_pads_rescan());
+        return 1;
+    }
+    if (vk == -1) {
+        int v[7];
+        if (!display_hooks_pad_read(lua_tointeger(L, 2), v))
+            return 0;
+        for (int i = 0; i < 7; i++)
+            lua_pushnumber(L, v[i]);
+        return 7;
+    }
+    lua_pushnumber(L, display_hooks_key_down(vk));
     return 1;
 }
 

@@ -85,7 +85,8 @@ A second player on the same PC, in the same game: the screen is split top and bo
 player with their own view and HUD. In the lobby pick "Player 2 (gamepad)" and their
 character; it works in a hosted game and when you join one (up to 4 players in a session).
 - Gamepads: with two connected, player 1 uses the first (and keyboard + mouse), player 2 the
-  second; with one connected, it is player 2's and player 1 plays with keyboard + mouse.
+  second; with one connected, it is player 2's and player 1 plays with keyboard + mouse. A
+  gamepad plugged in or out during play is assigned again within a few seconds (player 2 first).
 - In menus and cutscenes the screen is whole again and both gamepads work there.
 - Each half shows the whole picture with black bars at the sides; the HUD keeps its normal
   shape, its corners (weapons and ammo, powers, squad, SMOD's health) sit on the bars at the
@@ -94,9 +95,10 @@ character; it works in a hosted game and when you join one (up to 4 players in a
   of a power (blur, colours, noise) only in the half of the player who uses it. Delgado's fire
   barrier flames are not shown in split screen (they would cover both halves); the barrier
   itself works.
-- All powers work for both players. Jones's astral projection: while player 1 projects, player
-  2 plays on (with a simple crosshair and ammo count: the game hides its own HUD then); while
-  player 2 projects, player 1's character waits (the game has one set of controls for it).
+- All powers work for both players. Jones's astral projection: while one player projects, the
+  other plays on from their gamepad (with a simple crosshair and ammo count: the game hides its
+  own HUD then); player 1 on keyboard + mouse only waits meanwhile (the game has one set of
+  controls during a projection).
 - It uses the game's own split screen leftovers (from the engine's Scrapland days): each frame
   draws one player's view in turn, so each view runs at half the frame rate.
 
@@ -189,7 +191,9 @@ SMOD
 вид и свой HUD. В лобби выберите «Игрок 2 (геймпад)» и его персонажа; работает и в своей
 игре, и при подключении к чужой (в сессии до 4 игроков).
 - Геймпады: если подключены два, у игрока 1 первый (и клавиатура с мышью), у игрока 2 второй;
-  если подключён один, он у игрока 2, а игрок 1 играет клавиатурой и мышью.
+  если подключён один, он у игрока 2, а игрок 1 играет клавиатурой и мышью. Геймпад,
+  подключённый или отключённый во время игры, назначается заново за несколько секунд (сначала
+  игроку 2).
 - В меню и катсценах экран снова целый, и там работают оба геймпада.
 - В каждой половине видна вся картинка, по бокам чёрные полосы; HUD в своих обычных
   пропорциях: его углы (оружие и патроны, способности, отряд, здоровье SMOD) стоят на полосах
@@ -197,10 +201,10 @@ SMOD
 - Каждый видит свои руки и второго игрока целиком, а экранные эффекты способностей (размытие,
   цвет, шум) — только в половине того, кто ими пользуется. Пламя огненного барьера Дельгадо в
   сплитскрине не показывается (оно закрыло бы обе половины), сам барьер работает.
-- Все способности работают у обоих игроков. Астральная проекция Джонс: пока в проекции первый
-  игрок, второй играет дальше (с простым прицелом и счётчиком патронов: свой HUD игра в это
-  время прячет); пока в проекции второй, персонаж первого ждёт (управление для неё в игре одно
-  на всех).
+- Все способности работают у обоих игроков. Астральная проекция Джонс: пока один игрок в
+  проекции, другой играет дальше со своего геймпада (с простым прицелом и счётчиком патронов:
+  свой HUD игра в это время прячет); первый игрок на клавиатуре и мыши в это время только ждёт
+  (управление во время проекции в игре одно на всех).
 - Сделано на остатках сплитскрина самого движка (со времён Scrapland): кадры по очереди рисуют
   вид каждого игрока, поэтому у каждого вида половина частоты кадров.
 
