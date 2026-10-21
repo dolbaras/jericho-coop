@@ -59,9 +59,8 @@ How it works
   where your character's eyes cannot see the scene (a wall, someone in your face, the
   helicopter going down) the original camera takes over for that moment. The scene's
   character walks where the game only moved its camera. Still experimental: the sets were
-  made for one camera. Its animations are built by the installer from your game files and
-  need Python 3 (python.org); without Python the view works, but the scene's character is
-  not shown.
+  made for one camera. Its animations are built by the installer from your game files (the
+  Python it needs comes with the mod, nothing to install).
 - QTEs (session setting): "as in the game" - seen and played only by the player of the scene's
   character; "automatic" - they pass by themselves; "all players, one success" - everyone gets
   the QTE and it passes when at least one player succeeds.
@@ -180,8 +179,8 @@ previous run).
   за тем, что показывает сцена; где глазами персонажа сцену не увидеть (стена, кто-то вплотную,
   падение вертолёта), на этот момент включается камера оригинала. Персонаж сцены идёт шагом
   там, где игра двигала только его камеру. Режим всё ещё экспериментальный: декорации сделаны
-  под одну камеру. Анимации для него установщик собирает из файлов вашей игры, нужен Python 3
-  (python.org); без Python режим работает, но персонаж сцены не виден.
+  под одну камеру. Анимации для него установщик собирает из файлов вашей игры (нужный для этого
+  Python входит в мод, ставить ничего не нужно).
 - QTE (настройка сессии): «как в игре» — видит и проходит только тот, кто играет за персонажа
   сцены; «автоматически» — проходят сами; «все, хватит одного успеха» — QTE получают все
   игроки, и оно пройдено, если справился хотя бы один.
@@ -238,6 +237,8 @@ SMOD
 (лог прошлого запуска — coop.prev.log).
 
 License: MIT (LICENSE.txt). ENet 1.3.18 (MIT, ENET-LICENSE.txt). coop\steam_api.dll: Valve's
-Steamworks API (STEAM-NOTICE.txt). No game files are included.
+Steamworks API (STEAM-NOTICE.txt). coop\python: Python 3.12.10's embeddable build from
+python.org (PSF license, coop\python\LICENSE.txt), used only by the installer. No game files
+are included.
 Credits: the Steam option, shared QTEs, smoother movement, door/object and power sync come
 from MAK-PIVO's fork (https://github.com/MAK-PIVO/jericho-coop, MIT), adapted and tested here.

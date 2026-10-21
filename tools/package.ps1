@@ -25,6 +25,15 @@ if (-not (Test-Path $steam)) { throw "tools\steam\steam_api.dll missing (Steamwo
 $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($steam))) -replace "-", ""
 if ($sha -ne $steamSha) { throw "tools\steam\steam_api.dll is not the pinned one ($sha)" }
 Copy-Item $steam (Join-Path $files "coop")
+# files\coop\python: Python's official embeddable build (python.org 3.12.10, win32, PSF license
+# in it), so the installer builds the cutscene animations and Ross's model without the player
+# installing Python. <workspace>\tools\python-embed, SHA-256 checked.
+$pyZip = Join-Path $root "..\..\..\tools\python-embed\python-3.12.10-embed-win32.zip"
+$pySha = "084B9EB24CB848605C895D05B738FBC2572EFC8B4C18C415A824065864A2B853"
+if (-not (Test-Path $pyZip)) { throw "tools\python-embed\python-3.12.10-embed-win32.zip missing (python.org)" }
+$sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($pyZip))) -replace "-", ""
+if ($sha -ne $pySha) { throw "tools\python-embed zip is not the pinned one ($sha)" }
+Expand-Archive $pyZip (Join-Path $files "coop\python")
 Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $files "coop")
 Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encoding ASCII

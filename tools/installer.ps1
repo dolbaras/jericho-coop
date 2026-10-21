@@ -107,7 +107,11 @@ function Do-Uninstall($g) {
 # motion moved onto the full model. That motion is made here from the player's own game files
 # (coop\anims\cm3_retarget.py, Python 3, a few minutes) into <game>\Pack1.packed, which the
 # game mounts by itself. Without Python the view still works, without that body.
+# Python comes with the mod (coop\python: python.org's embeddable build); one installed on the
+# PC is the fallback.
 function Find-Python {
+    $own = Join-Path "$script:gameDir" "coop\python\python.exe"
+    if ($script:gameDir -and (Test-Path $own)) { return @{ exe = $own; args = @() } }
     foreach ($c in @(@("py", "-3"), @("python"), @("python3"))) {
         $cmd = Get-Command $c[0] -ErrorAction SilentlyContinue
         if (-not $cmd) { continue }
@@ -156,6 +160,7 @@ function Build-Anims($g) {
     $current = (Test-Path $pack) -and (Select-String -Path $pack -Pattern "coopbody_pack_v4" -SimpleMatch -Quiet) -and
         (-not $loose -or (Test-Path (Join-Path $g "models\chars\trueross\trueross_coop.sm3")))
     if ($current) { Fix-PackEnd $pack; return "ok" }
+    $script:gameDir = $g
     $py = Find-Python
     if (-not $py) {
         if (Test-Path $pack) { Fix-PackEnd $pack; return "ok" }
@@ -247,8 +252,8 @@ function Do-Install($g) {
               "Jericho Co-op $version установлен в`n$g`n`nЗапустите игру: в главном меню появится «Совместная игра».`nУдалить: «Uninstall Co-op.bat» в папке игры.")
     if ($smod) { $msg += (L "`n`nSMOD found: supported." "`n`nНайден SMOD: поддерживается.") }
     if ($anims -eq "nopython" -or $anims -eq "failed") {
-        $msg += (L "`n`nThe experimental cutscene view 'own eyes' needs Python 3 to build its animations$(if ($anims -eq 'failed') {' (the build failed)'}): without it the scene's character is not shown in that view. To add it, install Python 3 (python.org) and run the installer again." `
-                   "`n`nЭкспериментальному режиму катсцен «своими глазами» нужен Python 3 для сборки анимаций$(if ($anims -eq 'failed') {' (сборка не удалась)'}): без него персонаж сцены в этом режиме не виден. Чтобы добавить, установите Python 3 (python.org) и запустите установщик ещё раз.")
+        $msg += (L "`n`nThe cutscene animations and Ross's model could not be built from your game files$(if ($anims -eq 'failed') {' (the build failed)'}): in the 'own eyes' cutscene view the scene's character is not shown, and Ross's rifle looks checkered. Run the installer again; if it fails again, please report it (see README-COOP.txt)." `
+                   "`n`nНе удалось собрать из файлов игры анимации катсцен и модель Росса$(if ($anims -eq 'failed') {' (сборка не удалась)'}): в режиме катсцен «своими глазами» персонаж сцены не виден, а винтовка Росса в клетку. Запустите установщик ещё раз; если снова не получится, сообщите об ошибке (см. README-COOP.txt).")
     }
     if ($old.version) { $msg = (L "Updated from $($old.version).`n" "Обновлено с $($old.version).`n") + $msg }
     Show-Msg $msg
