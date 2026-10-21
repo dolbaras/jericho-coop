@@ -138,9 +138,11 @@ function R.update(view, p2)
   -- Another machine's Ross: what his player's machine sent (his own entity is off here).
   local st = not mine and Coop.remote and Coop.remote["Ross"]
   local tg = st and Coop.puppetTarget and Coop.puppetTarget("Ross", Net.CoopTime())
-  -- Nobody's eyes in him and nobody's network state: the AI's Ross on this machine (the host's,
-  -- or a game without a session). He keeps running; only his model is hidden.
-  local ai = r ~= nil and not mine and not st and not Coop.isRemoteOwned("Ross")
+  -- Nobody's eyes in him, on the machine that runs him: the host's AI Ross (or a game without a
+  -- session). He keeps running; only his model is hidden. (A client gets no state for an AI
+  -- Ross: its copy is switched off as before, the stand-in follows it.)
+  local ai = r ~= nil and not mine and not st and not Coop.isRemoteOwned("Ross") and
+             not (Coop.inSession() and not Coop.isHost())
   if show then
     if tg then
       e.Pos = V3D(tg.x, tg.y, tg.z)
