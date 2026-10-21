@@ -194,7 +194,10 @@ local function send(...)
   relay(table.concat({"pw", ...}, "|"))
 end
 
-local function wrapPower(tbl, fname, after)
+-- before(...), when given, runs before the power: false means it will not act here (Jones's
+-- astral camera says CanTK/CanBurn 0), and then nothing is reported either (a client's no-op
+-- pushed and lit the host's enemy: network test 0.2.1).
+local function wrapPower(tbl, fname, after, before)
   local t = _G[tbl]
   -- Checked every tick: a character's script table is built again when a player takes that
   -- character, which drops a wrapper put on the old one.
@@ -205,11 +208,16 @@ local function wrapPower(tbl, fname, after)
     -- (split screen wraps the same functions; wrapped again around that, one use is
     -- reported once: the inner wrapper only calls through)
     if P.inPower then return orig(...) end
+    local acts = true
+    if before then
+      local ok, v = pcall(before, ...)
+      acts = ok and v ~= false
+    end
     P.inPower = true
     local r = {pcall(orig, ...)}
     P.inPower = nil
     if not r[1] then error(r[2], 0) end
-    if Coop.inSession() and not P.replaying then
+    if acts and Coop.inSession() and not P.replaying then
       local ok, err = pcall(after, ...)
       if not ok then Coop.log("powers: " .. tbl .. "." .. fname .. " report error: " .. tostring(err)) end
     end
@@ -236,9 +244,15 @@ function P.installWorldPowers()
     if f <= 0 or f >= 1 then return end
     local v = (tgt.Pos - linked.Pos):norm() * (Jones.TKPower * 5 * f)
     send("jt", ownerName, targetName, string.format("%.1f", v.x), string.format("%.1f", v.y), string.format("%.1f", v.z), 0)
+  end, function()
+    local cam = Game.GetEntity("AstralCam")
+    return cam ~= nil and cam:CanTK() ~= 0
   end)
   wrapPower("Jones", "PressPyrokinesis", function(ownerName, linkedName, targetName)
     if Coop.isLocalPlayer(ownerName) and targetName then send("jp", ownerName, targetName) end
+  end, function()
+    local cam = Game.GetEntity("AstralCam")
+    return cam ~= nil and cam:CanBurn() ~= 0
   end)
 end
 

@@ -1727,3 +1727,306 @@ if cfg.bosscall and Coop.level ~= "levels/menu" then
     Coop.log("bosscall: no " .. tostring(cls))
   end
 end
+
+-- 'puppetlog' (from the fork MAK-PIVO/jericho-coop): every frame from cfg.puppetlog_from to cfg.puppetlog_to seconds after the
+-- level start, log where each puppet is drawn ("pp|time|name|x|y|z|yaw"); tools/puppet_jitter.py
+-- turns the lines into smoothness numbers (frame-to-frame jumps, acceleration, turn steps).
+if cfg.puppetlog and Coop.level ~= "levels/menu" then
+  local prevFrame = Coop.devFrame
+  local t0
+  Coop.devFrame = function(dt)
+    if prevFrame then prevFrame(dt) end
+    local now = Net.CoopTime()
+    t0 = t0 or now
+    local age = now - t0
+    if age < (cfg.puppetlog_from or 20) or age > (cfg.puppetlog_to or 60) then return end
+    for _, name in ipairs(Coop.SQUAD) do
+      local e = Coop.isPuppet(name) and Coop.remote[name] and Coop.squadEnt(name)
+      if e and e.Life and e.Life > 0 then
+        local p = e.Pos
+        Coop.log(string.format("pp|%.4f|%s|%.1f|%.1f|%.1f|%.2f", now, name, p.x, p.y, p.z, e.Ang.y))
+      end
+    end
+    -- Enemies a client draws from the host's snapshots.
+    for name in pairs(CoopEnemies and CoopEnemies.targets or {}) do
+      local e = Game.GetEntity(name)
+      if e and e.Life and e.Life > 0 then
+        local p = e.Pos
+        Coop.log(string.format("pp|%.4f|E:%s|%.1f|%.1f|%.1f|%.2f", now, name, p.x, p.y, p.z, e.Ang.y))
+      end
+    end
+    -- The player's own body as the reference: how smooth the engine itself moves a body.
+    local usr = Game.UsrEntity(0)
+    if usr then
+      local p = usr.Pos
+      Coop.log(string.format("pp|%.4f|own-%s|%.1f|%.1f|%.1f|%.2f", now, usr.Name, p.x, p.y, p.z, usr.Ang.y))
+    end
+  end
+end
+
+-- Tests of the parts taken from the fork MAK-PIVO/jericho-coop (its dev.lua).
+-- 'worldtest': doors and object deaths across machines (coop_world.lua). At tick 300 the
+-- host opens cfg.door (default Rom_Tepidarium's "puerta final frigi") and kills the first
+-- tracked object it finds; at tick 340 the client kills another one. The reports' "world:"
+-- part then shows doors/dead on both machines and any digest misses.
+if cfg.worldtest and Coop.level ~= "levels/menu" then
+  local prevWorld = Coop.dev
+  local function killOne(skip)
+    for name in pairs(CoopWorld.objects or {}) do
+      local e = Game.GetEntity(name)
+      if e and name ~= skip and string.sub(name, 1, 3) == "OB_" then
+        e.Life = 0
+        Coop.log("worldtest: killed " .. name)
+        return name
+      end
+    end
+  end
+  function Coop.dev()
+    if prevWorld then prevWorld() end
+    if Coop.isHost() and Coop.frame == 300 then
+      local door = cfg.door or "puerta final frigi"
+      PhysicsObj.OpenDoor(door)
+      Coop.log("worldtest: opened " .. door)
+      Coop.worldTestKill = killOne()
+    elseif Coop.isClient() and Coop.frame == 340 then
+      killOne(Coop.worldTestKill)
+    end
+    if Coop.frame == 420 then
+      local d = Game.GetEntity(cfg.door or "puerta final frigi")
+      Coop.log("worldtest: door action " .. tostring(d and d.Action) .. ", " .. CoopWorld.report())
+    end
+  end
+end
+
+-- 'locktest' (client): at tick 300 lock the player's controls as a stuck story script would;
+-- Coop.controlWatchdog should release them about 12 s later.
+if cfg.locktest and Coop.level ~= "levels/menu" then
+  local prevLock = Coop.dev
+  function Coop.dev()
+    if prevLock then prevLock() end
+    local usr = Game.UsrEntity(0)
+    if Coop.isClient() and Coop.frame == 300 and usr then
+      usr.IgnoreUsrControl = 1
+      Coop.log("locktest: controls locked on " .. usr.Name)
+    end
+  end
+end
+
+-- 'qtebot' = 'win' | 'fail' (per machine): stands in for this player's keys in shared story
+-- QTEs (coop_scenes.lua), 0.4 s after a prompt starts: 'win' makes this machine's scorer say
+-- the sequence is done, 'fail' presses a wrong key's failure. Test windows get no real input.
+-- 'qtescene' (host, Rom_Outskirts): plays the Behemoth's death scene (Church, four QTEs) once
+-- no scene is playing after tick 300.
+if cfg.qtebot and Coop.level ~= "levels/menu" then
+  local prevQ = Coop.devFrame
+  Coop.devFrame = function(dt)
+    if prevQ then prevQ(dt) end
+    local q = CoopScenes and CoopScenes.shared and CoopScenes.shared.active
+    if not q or q.botDone or Net.CoopTime() - (q.startedAt or 0) < 0.4 then return end
+    q.botDone = true
+    if cfg.qtebot == "win" then q.botWin = true
+    elseif cfg.qtebot == "fail" then pcall(Scorer.QTESequenceFailed) end
+    Coop.log("qtebot: " .. tostring(cfg.qtebot) .. " on QTE " .. q.id .. " (" .. tostring(q.sequence) .. ")")
+  end
+  if Scorer and Scorer.QTEIsSequenceOK and not Coop.qteBotWrapped then
+    Coop.qteBotWrapped = true
+    local origOK = Scorer.QTEIsSequenceOK
+    Scorer.QTEIsSequenceOK = function(...)
+      local q = CoopScenes and CoopScenes.shared and CoopScenes.shared.active
+      if q and q.botWin then return true end
+      return origOK(...)
+    end
+  end
+end
+if cfg.qtescene and Coop.isHost() and Coop.level == "levels/rom_outskirts" then
+  local prevScene = Coop.dev
+  function Coop.dev()
+    if prevScene then prevScene() end
+    -- After the client has loaded the level and got its catch-up (else the scene runs alone).
+    if Coop.qteScenePlayed or Coop.frame < 300 or (Scene and Scene.IsPlaying) then return end
+    if not (CoopEnemies and CoopEnemies.catchupSent) then return end
+    Coop.qteScenePlayed = true
+    Coop.log("qtescene: Behemoth death scene")
+    pcall(MapScenes.StartBehemotQTE)
+  end
+end
+
+-- 'gbtest' (client playing Black): at tick 300 fire the ghost bullet as the power does
+-- (ThreadsBlack.CreateGhostBullet); the host logs where its copy flies every 5 ticks.
+-- 'abbytest' (client playing Delgado, with 'fight' on the host): from tick 400 turn to the
+-- nearest enemy within 2500 and send the Ababanili at it (Ababanili.AbabaniliStart).
+if (cfg.gbtest or cfg.abbytest) and Coop.level ~= "levels/menu" then
+  local prevPow = Coop.dev
+  function Coop.dev()
+    if prevPow then prevPow() end
+    local u = Game.UsrEntity(0)
+    if cfg.gbtest and Coop.isClient() and u and Coop.frame == 300 then
+      local ok, o = pcall(ThreadsBlack.CreateGhostBullet, u)
+      Coop.log("gbtest: bullet " .. tostring(ok and o and o.Name or o))
+    end
+    if Coop.isHost() and Coop.frame % 5 == 0 and CoopPowers then
+      for owner, c in pairs(CoopPowers.copies) do
+        local e = Game.GetEntity(c.name)
+        if e then Coop.log(string.format("gbtest: copy of %s at %.0f %.0f %.0f", owner, e.Pos.x, e.Pos.y, e.Pos.z)) end
+      end
+    end
+    if cfg.abbytest and Coop.isClient() and u and Coop.frame >= 400 and not Coop.abbySent and Coop.frame % 20 == 0 then
+      local best, bd
+      local e = Game.GetFirst()
+      while e ~= nil do
+        if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then
+          local d = (e.Pos - u.Pos):mod()
+          if d < 2500 and (not bd or d < bd) then best, bd = e, d end
+        end
+        e = Game.GetEntity(e.NextInSlot)
+      end
+      if best then
+        local d = best.Pos - u.Pos
+        -- (the spirit takes the target the player looks at, from close enough: 600 units)
+        if bd > 700 then
+          local k = 600 / bd
+          u.Pos = best.Pos - V3D(d.x * k, 0, d.z * k)
+          pcall(Game.SetOnFloor, u.Name)
+          d = best.Pos - u.Pos
+        end
+        local yaw = math.deg(math.atan2(-d.x, -d.z))
+        local pitch = -math.deg(math.atan2(d.y + 60, math.sqrt(d.x * d.x + d.z * d.z)))
+        u.IgnoreUsrControl = 1
+        u.Ang = V3D(0, yaw, 0)
+        u.ViewAng = V3D(pitch, yaw, 0)
+        local ok, r = pcall(Ababanili.AbabaniliStart, u.Name)
+        Coop.log("abbytest: at " .. best.Name .. " (" .. math.floor(bd) .. ") -> " .. tostring(ok and (r and r.Name or r) or r))
+        if ok and r then Coop.abbySent = true end
+      end
+    end
+  end
+end
+
+-- 'tktest' (client playing Black, 'fight' on the host): from tick 400 Black's telekinesis on
+-- the first active enemy (Black.ApplyTelePower), once.
+-- 'runetest' (client playing Church): at tick 300 Church's blood rune where he stands
+-- (ThreadsChurch.ActivatePower); the host logs its rune table every 50 ticks.
+if (cfg.tktest or cfg.runetest) and Coop.level ~= "levels/menu" then
+  local prevTk = Coop.dev
+  function Coop.dev()
+    if prevTk then prevTk() end
+    local u = Game.UsrEntity(0)
+    if cfg.tktest and Coop.isClient() and u and Coop.frame >= 400 and not Coop.tkDone and Coop.frame % 20 == 0 then
+      local e = Game.GetFirst()
+      while e ~= nil do
+        if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then
+          local ok, err = pcall(Black.ApplyTelePower, u, e)
+          Coop.log("tktest: on " .. e.Name .. " " .. tostring(ok and "ok" or err))
+          Coop.tkDone = true
+          break
+        end
+        e = Game.GetEntity(e.NextInSlot)
+      end
+    end
+    if cfg.runetest and Coop.isClient() and u and Coop.frame == 300 then
+      local ok, err = pcall(ThreadsChurch.ActivatePower, u.Name)
+      Coop.log("runetest: rune " .. tostring(ok and "ok" or err))
+    end
+    if cfg.runetest and Coop.isHost() and Coop.frame % 50 == 0 and ThreadsChurch and ThreadsChurch.BloodRuneTable then
+      local n = 0
+      for _, name in pairs(ThreadsChurch.BloodRuneTable) do if Game.GetEntity(name) then n = n + 1 end end
+      if n > 0 then Coop.log("runetest: host has " .. n .. " blood rune(s)") end
+    end
+  end
+end
+
+-- 'burntest' (client, 'fight' on the host): from tick 400 set the first active enemy on fire
+-- in this player's name, as a firestorm shot would; the host should light its copy.
+if cfg.burntest and Coop.isClient() and Coop.level ~= "levels/menu" then
+  local prevBurn = Coop.dev
+  function Coop.dev()
+    if prevBurn then prevBurn() end
+    local u = Game.UsrEntity(0)
+    if not u or Coop.burnDone or Coop.frame < 400 or Coop.frame % 20 ~= 0 then return end
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then
+        e.FireRemainTime, e.FireDelayTime, e.FireAtenuationFactor, e.Pyromaniac = 5, 0.5, 0, u.Name
+        Coop.log("burntest: lit " .. e.Name)
+        Coop.burnDone = true
+        return
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+  end
+end
+
+
+-- 'jonestest' (client playing Jones, 'fight' on the host): from tick 400 Jones goes 500 units
+-- from the nearest active enemy and projects (Jones.PressSpecial, as the power's button); then
+-- the astral camera's own callbacks: telekinesis on that enemy, later pyrokinesis on another
+-- (or the same), then the return. The host's log shows what reached its enemies.
+if cfg.jonestest and Coop.isClient() and Coop.level ~= "levels/menu" then
+  local prevJones = Coop.dev
+  local function nearest(u, skip)
+    local best, bd
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive and e.Name ~= skip then
+        local d = (e.Pos - u.Pos):mod()
+        if not bd or d < bd then best, bd = e, d end
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    return best, bd
+  end
+  function Coop.dev()
+    if prevJones then prevJones() end
+    local u = Game.UsrEntity(0)
+    local J = Coop.jt
+    if not u or Coop.frame < 400 then return end
+    if not J then
+      local t, d = nearest(u)
+      if not t then return end
+      local v = t.Pos - u.Pos
+      local k = 500 / math.max(d, 1)
+      u.Pos = t.Pos - V3D(v.x * k, 0, v.z * k)
+      pcall(Game.SetOnFloor, u.Name)
+      Coop.jt = {t = t.Name, at = Coop.frame}
+      Coop.log("jonestest: next to " .. t.Name)
+      return
+    end
+    local cam = Game.GetEntity("AstralCam")
+    local f = Coop.frame - J.at
+    local tg = Game.GetEntity(J.t)
+    if f <= 10 and tg then
+      -- looking at the enemy: the astral camera starts with the body's view and selects it
+      local d = tg.Pos + V3D(0, 60, 0) - (u.Pos + V3D(0, 120, 0))
+      local yaw = math.deg(math.atan2(-d.x, -d.z))
+      local pitch = -math.deg(math.atan2(d.y, math.sqrt(d.x * d.x + d.z * d.z)))
+      u.IgnoreUsrControl = 1
+      u.Ang = V3D(0, yaw, 0)
+      u.ViewAng = V3D(pitch, yaw, 0)
+    end
+    if f > 10 and f < 30 and f % 3 == 0 and cam then
+      local sel = AstralCamera and AstralCamera.LastSelectedEntity
+      local ok1, tk = pcall(function() return cam:CanTK() end)
+      local ok2, bn = pcall(function() return cam:CanBurn() end)
+      Coop.log("jonestest: selected " .. tostring(sel) .. " CanTK " .. tostring(tk) .. " CanBurn " .. tostring(bn))
+      if sel and sel ~= "" and Game.GetEntity(sel) then J.t = sel end
+    end
+    if f == 10 then
+      local ok, err = pcall(Jones.PressSpecial, u.Name)
+      Coop.log("jonestest: projection " .. tostring(ok and "on" or err) .. ", set " .. tostring(Input.GetActionSet()))
+    elseif f == 30 and cam then
+      local ok, can = pcall(function() return cam:CanTK() end)
+      local r, err = pcall(Jones.PressTelekinesis, u.Name, u.Name, J.t)
+      Coop.log("jonestest: telekinesis on " .. J.t .. " (CanTK " .. tostring(ok and can) .. ") " .. tostring(r and "ok" or err))
+    elseif f == 60 and cam then
+      local t2 = Game.GetEntity(J.t) or nearest(u, J.t)
+      local ok, can = pcall(function() return cam:CanBurn() end)
+      local r, err = pcall(Jones.PressPyrokinesis, u.Name, u.Name, t2 and t2.Name)
+      Coop.log("jonestest: pyrokinesis on " .. tostring(t2 and t2.Name) .. " (CanBurn " .. tostring(ok and can) .. ") " ..
+        tostring(r and "ok" or err) .. ", fire " .. tostring(t2 and t2.FireRemainTime))
+    elseif f == 90 then
+      u.IgnoreUsrControl = 0
+      pcall(Jones.Return)
+      Coop.log("jonestest: back, set " .. tostring(Input.GetActionSet()))
+    end
+  end
+end
