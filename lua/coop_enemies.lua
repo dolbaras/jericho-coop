@@ -13,9 +13,9 @@
 
 CoopEnemies = {}
 local E = CoopEnemies
-E.SNAP_EVERY = 2          -- network ticks between snapshots (20 Hz tick -> 10 Hz)
+E.SNAP_EVERY = 1          -- network ticks between snapshots (20 Hz; fork MAK-PIVO/jericho-coop)
 E.SNAP_DIST = 250         -- units; enemy puppet teleports beyond this
-E.NUDGE = 0.3
+E.FOLLOW = 0.9            -- share of the error to the interpolated place removed per 0.05 s
 E.MAX_PACKET = 900        -- bytes per snapshot packet
 E.targets = {}            -- client: name -> {x,y,z,yaw,action,active}
 E.applied = {}            -- client: name -> last action forced
@@ -65,13 +65,15 @@ function E.snapshot()
   local parts, size = {}, 0
   local function flush()
     if #parts > 0 then
-      Net.CoopSend(-1, 0, "e|" .. table.concat(parts, ";"))
+      -- e|<host time>|<enemies>: the time lets clients interpolate (Coop.puppetTarget).
+      Net.CoopSend(-1, 0, string.format("e|%.3f|", E.snapTime) .. table.concat(parts, ";"))
       E.stats.snapshots = E.stats.snapshots + 1
       parts, size = {}, 0
     end
   end
   local e = Game.GetFirst()
   local n = 0
+  E.snapTime = Net.CoopTime()
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
@@ -735,6 +737,8 @@ function E.sendCatchup(peer)
     e = Game.GetEntity(e.NextInSlot)
   end
   Coop.log(string.format("catch-up for peer %d: %d groups, %d spawned enemies", peer, groups, spawns))
+  -- Doors and broken objects as the host has them (coop_world.lua).
+  if CoopWorld and CoopWorld.sendState then CoopWorld.sendState(peer) end
   E.catchupSent = true
 end
 
@@ -829,20 +833,33 @@ function E.installClient()
   end
 end
 
-function E.onSnapshot(body)
+function E.onSnapshot(body, rt)
+  local now = Net.CoopTime()
   for item in string.gmatch(body, "[^;]+") do
     local name, x, y, z, yaw, action, flags = string.match(item, "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+)$")
     if name then
-      E.targets[name] = {x = tonumber(x), y = tonumber(y), z = tonumber(z), yaw = tonumber(yaw),
-                         action = action, active = flags == "1", t = Net.CoopTime()}
+      local st = {x = tonumber(x), y = tonumber(y), z = tonumber(z), yaw = tonumber(yaw),
+                  action = action, active = flags == "1", t = now, rt = rt}
+      if Coop.pushState(name, st, Coop.TICK * E.SNAP_EVERY) then E.targets[name] = st end
     end
   end
 end
 
+-- Like the players' bodies (coop.lua), host enemies are drawn between two snapshots a little
+-- in the past and their actions play without root motion, which moved them a second time
+-- (fork MAK-PIVO/jericho-coop). Grabs keep theirs: the grab animation places the enemy on the
+-- grabbed player.
+local function grabbing(e, action)
+  if string.find(action or "", "Grab", 1, true) then return true end
+  local g = QTE and QTE.InGame and QTE.InGame.en
+  return g ~= nil and g.Name == e.Name
+end
+
 -- Every frame on a client: host enemies follow the snapshots; no enemy runs local AI.
 function E.driveEnemies(dt)
-  local nudge = 1 - (1 - E.NUDGE) ^ (math.min(dt, 0.25) / 0.05)
+  local follow = 1 - (1 - E.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
   local now = Net.CoopTime()
+  local localKeys = Coop.keepLocalRootMotion()
   for name, st in pairs(E.targets) do
     local e = Game.GetEntity(name)
     if not e then
@@ -853,15 +870,18 @@ function E.driveEnemies(dt)
     else
       if st.active and not e.bActive then e.bActive = true end
       if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+      local tg = Coop.puppetTarget(name, now) or st
+      local grab = grabbing(e, tostring(e.Action))
+      if not grab then Coop.suppressRootMotion(e, localKeys) end
       local pos = e.Pos
-      local dx, dy, dz = pos.x - st.x, pos.y - st.y, pos.z - st.z
+      local dx, dy, dz = tg.x - pos.x, tg.y - pos.y, tg.z - pos.z
       local err = math.sqrt(dx * dx + dz * dz)
       if err > E.SNAP_DIST or math.abs(dy) > E.SNAP_DIST then
-        e.Pos = V3D(st.x, st.y, st.z)
-      elseif err > 5 then
-        e.Pos = V3D(pos.x - dx * nudge, pos.y - dy * nudge, pos.z - dz * nudge)
+        e.Pos = V3D(tg.x, tg.y, tg.z)
+      elseif not grab then
+        e.Pos = V3D(pos.x + dx * follow, pos.y + dy * follow, pos.z + dz * follow)
       end
-      e.Ang = V3D(0, st.yaw, 0)
+      e.Ang = V3D(0, tg.yaw, 0)
       if st.action ~= "" and st.action ~= E.applied[name] and e.Action ~= st.action
          and not string.find(st.action, "Death") then
         e.ForceAction = st.action
@@ -889,7 +909,7 @@ end
 function E.onMessage(peer, f)
   local kind = f[1]
   if kind == "e" and Coop.isClient() then
-    E.onSnapshot(f[2] or "")
+    if f[3] then E.onSnapshot(f[3], tonumber(f[2])) else E.onSnapshot(f[2] or "") end
   elseif kind == "espawn" and Coop.isClient() then
     local name, class, group = f[2], f[3], f[4]
     if not Game.GetEntity(name) and E.origCreate then

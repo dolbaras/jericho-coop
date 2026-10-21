@@ -23,9 +23,15 @@ Coop.SQUAD_SET = {}
 for _, name in ipairs(Coop.SQUAD) do Coop.SQUAD_SET[name] = true end
 Coop.TICK = 0.05
 Coop.SEND_EVERY = 1        -- ticks between state messages (20 Hz)
-Coop.SNAP_DIST = 150       -- units; puppet is teleported beyond this error
-Coop.NUDGE_DIST = 10       -- units; below this the puppet is left alone
-Coop.NUDGE = 0.25          -- fraction of the error removed per tick
+Coop.SNAP_DIST = 250       -- units; puppet is teleported beyond this error
+Coop.FOLLOW = 0.9          -- fraction of the error to the interpolated place removed per 0.05 s
+Coop.FOLLOW_Y = 40         -- units; height is left to the engine (floor) below this error
+-- Other bodies are drawn a little in the past, between two received states (snapshot
+-- interpolation): the delay covers the send interval plus the network's jitter (fork
+-- MAK-PIVO/jericho-coop: 107-201 visible jumps a minute of a running puppet before, 1.5-4.5 after).
+Coop.INTERP_MIN = 0.07     -- seconds
+Coop.INTERP_MAX = 0.25
+Coop.EXTRAP_MAX = 0.2      -- seconds a body keeps moving on its last velocity when states stop
 Coop.owners = {}           -- char name -> peer id (0 = host)
 Coop.remote = {}           -- char name -> latest received state
 Coop.storyDriven = {}      -- char name -> true while a story walk drives it (coop_story.lua)
@@ -289,9 +295,15 @@ function Coop.stateOf(e)
   local usr = Game.UsrEntity(0)
   local flash = usr and usr.Name == e.Name and (tonumber(Game.Get("FPSFlashLightTimeOn")) or 0) > 0
   if CoopSplit and CoopSplit.on and CoopSplit.char == e.Name then flash = CoopSplit.flash end
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d",
+  Coop.stateSeq = (Coop.stateSeq or 0) + 1
+  -- The weapon slot in hand: 0/1 the weapons, 2/3 a power used as a weapon (Delgado's fire
+  -- arm, Church's blade...). The puppet takes the same slot, so it shows and fires that.
+  local wc = e.oWeapCtrl
+  local slot = wc and tonumber(wc.iSlot) or -1
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
-    e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0)
+    e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
+    Coop.stateSeq, Net.CoopTime(), slot)
 end
 
 function Coop.sendStates()
@@ -329,44 +341,221 @@ function Coop.isPuppet(name)
   return Coop.isClient() and cfg.myId ~= nil
 end
 
+-- Root motion: locomotion actions (UseDisp = 1) move a body by their animation. On a puppet
+-- that moved it a second time on top of the network position, unevenly from frame to frame
+-- (fork MAK-PIVO/jericho-coop, from the earlier JerichoCoop mod). A puppet's current action
+-- plays without displacement. Action objects are shared by the bodies of a class: the actions
+-- this machine's players are playing (player 1, and player 2 in split screen) keep theirs.
+Coop.rootMotion = {}   -- "class:action" -> {class, action, value} original UseDisp
+
+local function actionKey(e)
+  local ok, cls, act, obj = pcall(function()
+    local a = e.oActCtrl.oAction
+    return e.oActCtrl.oActClass.Name, a.Name, a
+  end)
+  if not ok or type(cls) ~= "string" or type(act) ~= "string" then return nil end
+  return cls .. ":" .. act, cls, act, obj
+end
+
+local function restoreRootMotion(rec)
+  pcall(function()
+    local c = Act and Act.GetClass and Act.GetClass(rec.class)
+    local a = c and c:GetAct(rec.action)
+    if a and tonumber(a.UseDisp) ~= rec.value then a.UseDisp = rec.value end
+  end)
+end
+
+function Coop.suppressRootMotion(e, localKeys)
+  local key, cls, act, obj = actionKey(e)
+  if not key then return end
+  local rec = Coop.rootMotion[key]
+  if not rec then
+    local v = tonumber(obj.UseDisp)
+    if v == nil then return end
+    rec = {class = cls, action = act, value = v}
+    Coop.rootMotion[key] = rec
+  end
+  -- Turns rotate the body through their displacement: left alone.
+  if (localKeys and localKeys[key]) or string.find(act, "Turn", 1, true) then
+    restoreRootMotion(rec)
+  elseif tonumber(obj.UseDisp) ~= 0 then
+    pcall(function() obj.UseDisp = 0 end)
+  end
+end
+
+-- The actions this machine's players are playing: their root motion put back every frame.
+function Coop.keepLocalRootMotion()
+  local keys = {}
+  local bodies = {Game.UsrEntity(0)}
+  if CoopSplit and CoopSplit.on and CoopSplit.body then bodies[2] = CoopSplit.body() end
+  for _, b in pairs(bodies) do
+    local key = b and actionKey(b)
+    if key then
+      keys[key] = true
+      local rec = Coop.rootMotion[key]
+      if rec then restoreRootMotion(rec) end
+    end
+  end
+  return keys
+end
+
+function Coop.restoreAllRootMotion()
+  for _, rec in pairs(Coop.rootMotion) do restoreRootMotion(rec) end
+end
+
 function Coop.releasePuppet(e)
   e.InCtrl_Walk = 0
   e.InCtrl_Str = 0
   if e.owc then e.owc.Shot = 0 end
   if e.oAI then e.oAI.bEnable = true end
+  -- Back to the engine: collision on, and actions move bodies again.
+  if Coop.puppetNoCollide and Coop.puppetNoCollide[e.Name] ~= nil then
+    pcall(function() e.bIgnoreCollision = Coop.puppetNoCollide[e.Name] end)
+    Coop.puppetNoCollide[e.Name] = nil
+  end
+  Coop.restoreAllRootMotion()
+end
+
+-- History of a body's states for interpolation (Coop.hist[name]): ordered by the sender's
+-- clock (st.rt); out-of-order and repeated states are dropped (a relay may reorder
+-- unreliable messages). Returns false for a dropped state.
+Coop.hist = Coop.hist or {}
+function Coop.pushState(name, st, interval)
+  local h = Coop.hist[name]
+  local now = st.t
+  if not st.rt then st.rt = now end   -- a sender without times: its receive time
+  if h and h.n > 0 then
+    local last = h[h.n]
+    -- A new sender (owner change, restarted level): start over.
+    if st.rt < last.rt - 2 or st.rt > last.rt + 5 then h = nil end
+  end
+  if not h then
+    h = {n = 0, jit = 0, interval = interval or Coop.TICK}
+    Coop.hist[name] = h
+  end
+  if h.n > 0 and st.rt <= h[h.n].rt then
+    Coop.stale = (Coop.stale or 0) + 1
+    return false
+  end
+  -- Clock offset: the smallest (local - sender) time seen lately is the least delayed state;
+  -- it may creep up 1 ms per state so a drifting clock is followed.
+  local off = now - st.rt
+  if not h.off or off < h.off then h.off = off else h.off = h.off + 0.001 end
+  h.jit = h.jit * 0.9 + (off - h.off) * 0.1
+  h.n = h.n + 1
+  h[h.n] = st
+  -- About two seconds.
+  if h.n > 48 then
+    table.remove(h, 1)
+    h.n = h.n - 1
+  end
+  return true
+end
+
+local function lerpAngle(a, b, u)
+  return a + ((b - a + 180) % 360 - 180) * u
+end
+
+-- Where a body should be drawn now: interpolated between the two states around
+-- (now - delay) on the sender's clock, or carried on its last velocity for a short while.
+function Coop.puppetTarget(name, now)
+  local h = Coop.hist[name]
+  if not h or h.n == 0 then return nil end
+  local delay = math.max(Coop.INTERP_MIN, math.min(Coop.INTERP_MAX, h.interval * 1.4 + 2 * h.jit))
+  local rr = now - h.off - delay
+  local a, b = h[1], h[h.n]
+  if rr <= a.rt then
+    return {x = a.x, y = a.y, z = a.z, yaw = a.yaw, pitch = a.pitch or 0, st = a}
+  end
+  if rr >= b.rt then
+    local p = h.n > 1 and h[h.n - 1]
+    local ext = math.min(rr - b.rt, Coop.EXTRAP_MAX)
+    if not p or b.rt - p.rt <= 0 or ext <= 0 then
+      return {x = b.x, y = b.y, z = b.z, yaw = b.yaw, pitch = b.pitch or 0, st = b}
+    end
+    local k = ext / (b.rt - p.rt)
+    return {x = b.x + (b.x - p.x) * k, y = b.y, z = b.z + (b.z - p.z) * k,
+            yaw = b.yaw, pitch = b.pitch or 0, st = b}
+  end
+  local i = h.n - 1
+  while i > 1 and h[i].rt > rr do i = i - 1 end
+  a, b = h[i], h[i + 1]
+  local u = (rr - a.rt) / math.max(b.rt - a.rt, 1e-3)
+  return {
+    x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, z = a.z + (b.z - a.z) * u,
+    yaw = lerpAngle(a.yaw, b.yaw, u), pitch = (a.pitch or 0) + ((b.pitch or 0) - (a.pitch or 0)) * u,
+    st = u < 0.5 and a or b,
+  }
+end
+
+-- A puppet takes the weapon slot its owner holds (oWeapCtrl.iDesiredSlot, the way the
+-- characters' scripts switch). Slots 2/3 are powers used as weapons: the scripts point the
+-- main and second weapon at them too (delgado.lua PressSpecial), and back to 0/1 after.
+function Coop.syncSlot(e, slot)
+  local wc = e.oWeapCtrl
+  -- The owner's engine accepted this slot for the same body, so the puppet has it too; a
+  -- slot out of range would stop the engine (WeaponCtrl.cpp:180 "i>=0 && i<nSlots").
+  if not wc or not slot or slot < 0 or slot > 3 or slot ~= math.floor(slot) then return end
+  local ok = pcall(function()
+    if tonumber(wc.iSlot) == slot or tonumber(wc.iDesiredSlot) == slot then return end
+    wc.iDesiredSlot = slot
+    if slot >= 2 then
+      wc.idMainWeapon, wc.idSecondWeapon = slot, slot
+    elseif tonumber(wc.idMainWeapon) and tonumber(wc.idMainWeapon) >= 2 then
+      wc.idMainWeapon, wc.idSecondWeapon = 0, 1
+    end
+    Coop.log("puppet " .. e.Name .. " takes weapon slot " .. slot)
+  end)
+  if not ok then Coop.slotErrors = (Coop.slotErrors or 0) + 1 end
 end
 
 function Coop.drivePuppets(dt)
   -- Scenes freeze and hide the squad (Scene.HideChars); puppets resume afterwards.
   if Scene and Scene.IsPlaying then return end
-  -- NUDGE is the share of the error removed per 0.05 s; scale it to this frame's length.
-  local nudge = 1 - (1 - Coop.NUDGE) ^ (math.min(dt, 0.25) / 0.05)
+  -- FOLLOW is the share of the error removed per 0.05 s; scale it to this frame's length.
+  local follow = 1 - (1 - Coop.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
+  local now = Net.CoopTime()
+  local localKeys = Coop.keepLocalRootMotion()
+  Coop.puppetNoCollide = Coop.puppetNoCollide or {}
   for _, name in ipairs(Coop.SQUAD) do
     local e = Coop.squadEnt(name)
     local st = Coop.remote[name]
     if e and st and CoopTeam and Coop.isPuppet(name) then CoopTeam.syncPuppetLife(e, st) end
     if e and e.Life and e.Life > 0 then
-      if Coop.isPuppet(name) and st then
+      local tg = Coop.isPuppet(name) and st and Coop.puppetTarget(name, now)
+      if tg then
         if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
-        local target = V3D(st.x, st.y, st.z)
-        local pos = e.Pos
-        local d = pos - target
-        local err = math.sqrt(d.x * d.x + d.z * d.z)
-        if err > Coop.SNAP_DIST or math.abs(d.y) > Coop.SNAP_DIST then
-          e.Pos = target
-          Coop.snaps = (Coop.snaps or 0) + 1
-        elseif err > Coop.NUDGE_DIST then
-          -- Pull towards the target a little every frame; the walk animation keeps playing.
-          e.Pos = V3D(pos.x - d.x * nudge, pos.y, pos.z - d.z * nudge)
+        -- The network places this body: colliding with the local player or other soldiers
+        -- made them shove each other and the body shook (fork MAK-PIVO/jericho-coop).
+        if Coop.puppetNoCollide[name] == nil then
+          local ok, was = pcall(function() return e.bIgnoreCollision end)
+          Coop.puppetNoCollide[name] = ok and was or false
+          pcall(function() e.bIgnoreCollision = true end)
         end
-        e.Ang = V3D(0, st.yaw, 0)
-        e.ViewAng = V3D(st.pitch or 0, st.yaw, 0)
+        Coop.suppressRootMotion(e, localKeys)
+        local pos = e.Pos
+        local dx, dy, dz = tg.x - pos.x, tg.y - pos.y, tg.z - pos.z
+        local err = math.sqrt(dx * dx + dz * dz)
+        if err > Coop.SNAP_DIST or math.abs(dy) > Coop.SNAP_DIST then
+          e.Pos = V3D(tg.x, tg.y, tg.z)
+          Coop.snaps = (Coop.snaps or 0) + 1
+        else
+          -- The body walks on its own inputs (animation, collision); this keeps it on the
+          -- interpolated path every frame, without a dead zone that would make it jump.
+          -- Height stays with the engine (floor contact) unless it is clearly off.
+          local y = math.abs(dy) > Coop.FOLLOW_Y and pos.y + dy * follow or pos.y
+          e.Pos = V3D(pos.x + dx * follow, y, pos.z + dz * follow)
+        end
+        e.Ang = V3D(0, tg.yaw, 0)
+        e.ViewAng = V3D(tg.pitch, tg.yaw, 0)
         -- Firing through the body's own control makes the engine play the shot (sound,
         -- flash, animation); damage from puppet shots is dropped in coop_enemies.lua.
+        -- Shots use the newest state (no added delay), movement inputs the drawn one.
         if e.owc then e.owc.Shot = st.shot or 0 end
-        e.InCtrl_Walk = st.walk
-        e.InCtrl_Str = st.str
-        e.InCtrl_Sprint = st.sprint
+        Coop.syncSlot(e, st.slot)
+        e.InCtrl_Walk = tg.st.walk
+        e.InCtrl_Str = tg.st.str
+        e.InCtrl_Sprint = tg.st.sprint
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1
@@ -459,18 +648,21 @@ function Coop.onMessage(peer, data)
   if CoopStory and CoopStory.onMessage(peer, f) then return end
   if CoopSplits and CoopSplits.onMessage(peer, f) then return end
   if CoopPatrol and CoopPatrol.onMessage(peer, f) then return end
+  if CoopPowers and CoopPowers.onMessage(peer, f, data) then return end
   if kind == "s" then
     local name = f[2]
     -- Only the owner (or the host for unowned bodies) may drive a body.
     local owner = Coop.owners[name]
     if Coop.isHost() and Coop.peerOf(owner) ~= peer then return end
-    Coop.remote[name] = {
+    local st = {
       x = tonumber(f[3]), y = tonumber(f[4]), z = tonumber(f[5]),
       yaw = tonumber(f[6]), pitch = tonumber(f[7]),
       walk = tonumber(f[8]), str = tonumber(f[9]), sprint = tonumber(f[10]),
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
-      raw = data, t = Net.CoopTime(),
+      raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
     }
+    if not st.x or not st.z then return end
+    if Coop.pushState(name, st) then Coop.remote[name] = st end
   elseif kind == "jump" then
     -- Another player jumped (SMOD's jump, coop_smod.lua): the same push for their body here.
     local name = f[2]
@@ -865,6 +1057,13 @@ function Coop.frameUpdate(now, dt)
   end
   if Coop.inSession() then
     Coop.drivePuppets(dt)
+    if CoopPowers then
+      local okp, errp = pcall(CoopPowers.frame, now)
+      if not okp and (Coop.powerErrors or 0) < 5 then
+        Coop.powerErrors = (Coop.powerErrors or 0) + 1
+        Coop.log("powers error: " .. tostring(errp))
+      end
+    end
     local ok, err = pcall(Coop.puppetLights)
     if not ok and (Coop.lightErrors or 0) < 5 then
       Coop.lightErrors = (Coop.lightErrors or 0) + 1
@@ -891,9 +1090,55 @@ function Coop.frameUpdate(now, dt)
     end
   end
   if now >= (Coop.nextTick or 0) then
-    Coop.nextTick = now + Coop.TICK
+    -- Step from the previous tick, not from now: at 30 fps "now + TICK" ticked every other
+    -- frame (15 Hz, logs 0.2.1). After a long frame (loading) the schedule restarts from now.
+    -- (fork MAK-PIVO/jericho-coop)
+    Coop.nextTick = math.max((Coop.nextTick or now) + Coop.TICK, now - Coop.TICK)
     Coop.rearm()
     Coop.update()
+  end
+end
+
+-- Control lock watchdog (fork MAK-PIVO/jericho-coop, from the earlier JerichoCoop mod). Stock
+-- story scripts lock the player (IgnoreUsrControl = 1) and unlock later, often from a scheduled
+-- map callback; on a client those callbacks are the host's, and a script line that errors there
+-- (it reads something only the host has) never reaches its unlock: the player was left without
+-- control. A lock nobody in this mod holds is released after 12 s, on clients only (the host's
+-- story releases its own locks: a 12 s release cut a Brandenburg cinematic short).
+Coop.LOCK_LIMIT = 12
+
+function Coop.modHoldsControl()
+  if not Coop.isClient() then return true end
+  local me = Coop.localChar() or ""
+  if Coop.storyDriven and Coop.storyDriven[me] then return true end
+  if Scene and Scene.IsPlaying then return true end
+  if CoopEnemies and CoopEnemies.curtain then return true end
+  if CoopSpirit and CoopSpirit.active then return true end
+  -- Menus, astral projections, a squad switch's travel: not the "Walk" set.
+  if Input and Input.GetActionSet and Input.GetActionSet() ~= "Walk" then return true end
+  -- Split screen: player 1 driven from their pad during player 2's astral projection.
+  if CoopSplit and CoopSplit.drives and next(CoopSplit.drives) then return true end
+  if cfg.storyline then return true end
+  local sp = CoopSplits
+  if sp and sp.G6 and sp.G6.holding then return true end
+  if sp and sp.G15 and sp.G15.struggle and not (sp.G15.freed or {})[me] then return true end
+  local ok, grab = pcall(function() return QTE and QTE.InGame and QTE.InGame.Blocked end)
+  if ok and grab then return true end
+  return cfg.bot ~= nil
+end
+
+function Coop.controlWatchdog()
+  local usr = Game.UsrEntity(0)
+  if not usr or usr.IgnoreUsrControl ~= 1 or Coop.modHoldsControl() then
+    Coop.lockSince = nil
+    return
+  end
+  local now = Net.CoopTime()
+  Coop.lockSince = Coop.lockSince or now
+  if now - Coop.lockSince > Coop.LOCK_LIMIT then
+    usr.IgnoreUsrControl = 0
+    Coop.lockSince = nil
+    Coop.log("control lock on " .. tostring(usr.Name) .. " released after " .. Coop.LOCK_LIMIT .. " s")
   end
 end
 
@@ -943,7 +1188,14 @@ function Coop.update()
     CoopEnemies.install()
     if CoopEnemies.installed then
       CoopEnemies.update()
-      if CoopWorld then CoopWorld.install() end
+      if CoopWorld then
+        CoopWorld.install()
+        local ok, err = pcall(CoopWorld.update)
+        if not ok and (Coop.worldErrors or 0) < 5 then
+          Coop.worldErrors = (Coop.worldErrors or 0) + 1
+          Coop.log("world error: " .. tostring(err))
+        end
+      end
     end
   end
   if CoopTeam and Coop.inSession() and Coop.level ~= "levels/menu" then CoopTeam.update() end
@@ -991,6 +1243,14 @@ function Coop.update()
   end
   if Coop.inSession() then
     Coop.updateLocalOwnership()
+    if Coop.level ~= "levels/menu" then pcall(Coop.controlWatchdog) end
+    if Coop.level ~= "levels/menu" and CoopPowers then
+      local okp, errp = pcall(CoopPowers.update)
+      if not okp and (Coop.powerErrors or 0) < 5 then
+        Coop.powerErrors = (Coop.powerErrors or 0) + 1
+        Coop.log("powers error: " .. tostring(errp))
+      end
+    end
     if Coop.frame % Coop.SEND_EVERY == 0 then Coop.sendStates() end
     if Coop.isHost() and Coop.frame % 40 == 0 then Coop.broadcastOwners() end
   end
@@ -1040,8 +1300,15 @@ end
 local status = Net.CoopStatus()
 if cfg.auto and Coop.isHost() and string.find(status, "role=none") then
   Coop.log("host start: " .. Net.CoopHost(cfg.port or 28100, 4))
+  -- (test sessions over Steam: the lobby too)
+  if cfg.net == "steam" and Net.CoopSteam then Coop.log("steam host: " .. tostring(Net.CoopSteam("host", "4"))) end
 elseif cfg.auto and Coop.isClient() and string.find(status, "role=none") then
-  Coop.log("client start: " .. Net.CoopJoin(cfg.addr or "127.0.0.1", cfg.port or 28100))
+  if cfg.steamjoin and Net.CoopSteam then
+    -- (test sessions over Steam: the host's lobby id)
+    Coop.log("client start (steam): " .. tostring(Net.CoopSteam("join", tostring(cfg.steamjoin))))
+  else
+    Coop.log("client start: " .. Net.CoopJoin(cfg.addr or "127.0.0.1", cfg.port or 28100))
+  end
 elseif not cfg.auto and Coop.level == "levels/menu" and not string.find(status, "role=none") then
   -- Back in the main menu after a session: the session is over.
   Net.CoopClose()
@@ -1070,6 +1337,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("scenes load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_spirit.lua")
   if not ok then Coop.log("spirit load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_powers.lua")
+  if not ok then Coop.log("powers load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_world.lua")
   if not ok then Coop.log("world load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_claim.lua")

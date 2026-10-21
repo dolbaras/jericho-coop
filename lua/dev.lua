@@ -1698,3 +1698,32 @@ if cfg.hidetest and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'bosscall' = '<Class>.<Handler>' (client test): from tick 400, every 100 ticks, the boss
+-- class's animation-event handler is called for its entity here, as an event of the host-driven
+-- copy would (fork MAK-PIVO: native AI calls of Sumerian bosses crashed clients).
+if cfg.bosscall and Coop.level ~= "levels/menu" then
+  local prevBoss = Coop.dev
+  function Coop.dev()
+    if prevBoss then prevBoss() end
+    if Coop.frame < 400 or Coop.frame % 100 ~= 0 then return end
+    local list = {}
+    for x in string.gmatch(cfg.bosscall, "[^;]+") do list[#list + 1] = x end
+    Coop.bossCallN = (Coop.bossCallN or 0) + 1
+    local call = list[(Coop.bossCallN - 1) % #list + 1]
+    local cls, fn = string.match(call, "^([%w_]+)%.([%w_]+)$")
+    local e = Game.GetFirst()
+    while e do
+      local ok, name = pcall(function() return e.oActCtrl.oActClass.Name end)
+      if ok and name == cls then
+        Coop.log("bosscall: " .. call .. " for " .. e.Name .. " (AI on " .. tostring(e.oAI and e.oAI.bEnable) .. ")")
+        local ok2, err = pcall(_G[cls][fn], e.Name, "test", 0)
+        Coop.log("bosscall: returned " .. tostring(ok2) .. " " .. tostring(err))
+        return
+      end
+      if e.NextInSlot == "" then break end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    Coop.log("bosscall: no " .. tostring(cls))
+  end
+end

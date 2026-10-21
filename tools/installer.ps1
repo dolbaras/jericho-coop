@@ -182,8 +182,12 @@ function Do-Install($g) {
         # A file of someone else's that we replace: keep the original once.
         if ((Test-Path $dst) -and ($old.files -notcontains $rel) -and ($backups -notcontains $rel) -and -not $rel.StartsWith("coop\")) {
             $bk = Join-Path $g "coop-backup\$rel"
-            New-Item -ItemType Directory -Force (Split-Path $bk -Parent) | Out-Null
-            Copy-Item $dst $bk -Force
+            # A backup from an earlier, interrupted install is the real original: kept
+            # (fork MAK-PIVO/jericho-coop).
+            if (-not (Test-Path $bk)) {
+                New-Item -ItemType Directory -Force (Split-Path $bk -Parent) | Out-Null
+                Copy-Item $dst $bk -Force
+            }
             $backups.Add($rel)
         }
         New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null

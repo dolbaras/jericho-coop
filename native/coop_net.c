@@ -49,6 +49,7 @@
 #include "display_hooks.h"
 #include "boot_inject.h"
 #include "split.h"
+#include "steam_net.h"
 
 /* ---- Jericho.exe Lua 5.1.1 C API (cdecl) ---- */
 typedef struct lua_State lua_State;
@@ -125,7 +126,13 @@ static CRITICAL_SECTION lock;
 static Queue inbox, outbox;
 static ENetHost *host;
 static ENetPeer *peers[MAX_PEERS + 1];  /* index = Lua peer id; host is 0 on clients */
+/* The same ids for players connected through Steam (steam_net.c; from the fork
+   MAK-PIVO/jericho-coop). A session is LAN (ENet) or Steam, the host's choice in the menu. */
+static steam_id steam_peers[MAX_PEERS + 1];
 static int is_host, running;
+
+static int slot_used(int i) { return peers[i] || steam_peers[i]; }
+static int session_active(void) { return host || steam_net_session(); }
 
 /* ---- LAN discovery state (guarded by lock) ---- */
 #define DISCOVERY_PORT 28199
@@ -322,6 +329,38 @@ static void discovery_poll(void)
     }
 }
 
+/* Steam transport events (steam_net.c), on the network thread with the lock held. */
+static void on_steam_event(steam_id who, char kind, const char *data, size_t len)
+{
+    int id = -1;
+    for (int i = 0; i <= MAX_PEERS; i++)
+        if (who && steam_peers[i] == who)
+            id = i;
+    if (kind == 'j' && id < 0) {
+        if (is_host) {
+            for (int i = 1; i <= MAX_PEERS; i++)
+                if (!slot_used(i)) { id = i; break; }
+        } else {
+            id = 0;
+        }
+        if (id < 0)
+            return;
+        steam_peers[id] = who;
+        coop_log("connect peer %d (Steam %llu)", id, who);
+        q_push(&inbox, msg_new(id, 'j', 1, NULL, 0));
+    } else if (kind == 'm' && id >= 0) {
+        q_push(&inbox, msg_new(id, 'm', 1, data, len));
+    } else if (kind == 'l') {
+        if (id < 0 && !is_host)
+            id = 0;   /* the lobby refused us or the host is gone */
+        if (id < 0)
+            return;
+        steam_peers[id] = 0;
+        coop_log("disconnect peer %d (Steam)", id);
+        q_push(&inbox, msg_new(id, 'l', 1, NULL, 0));
+    }
+}
+
 static DWORD WINAPI net_thread(LPVOID unused)
 {
     (void)unused;
@@ -330,12 +369,13 @@ static DWORD WINAPI net_thread(LPVOID unused)
         discovery_poll();
         Msg *m;
         while ((m = q_pop(&outbox)) != NULL) {
-            if (m->peer < 0) {
-                for (int i = 0; i <= MAX_PEERS; i++)
-                    if (peers[i])
-                        send_one(peers[i], m);
-            } else if (m->peer <= MAX_PEERS && peers[m->peer]) {
-                send_one(peers[m->peer], m);
+            for (int i = 0; i <= MAX_PEERS; i++) {
+                if (m->peer >= 0 && m->peer != i)
+                    continue;
+                if (peers[i])
+                    send_one(peers[i], m);
+                else if (steam_peers[i])
+                    steam_net_send(steam_peers[i], m->reliable, m->data, m->len);
             }
             free(m);
         }
@@ -346,7 +386,7 @@ static DWORD WINAPI net_thread(LPVOID unused)
                 int id = -1;
                 if (is_host) {
                     for (int i = 1; i <= MAX_PEERS; i++)
-                        if (!peers[i]) { id = i; break; }
+                        if (!slot_used(i)) { id = i; break; }
                 } else {
                     id = 0;
                 }
@@ -381,6 +421,7 @@ static DWORD WINAPI net_thread(LPVOID unused)
                 break;
             }
         }
+        steam_net_poll(on_steam_event);
         LeaveCriticalSection(&lock);
         Sleep(2);
     }
@@ -398,6 +439,8 @@ static void start_thread(void)
 static void close_host(void)
 {
     EnterCriticalSection(&lock);
+    steam_net_leave();
+    memset(steam_peers, 0, sizeof steam_peers);
     if (host) {
         for (int i = 0; i <= MAX_PEERS; i++)
             if (peers[i])
@@ -459,7 +502,7 @@ static int l_send(lua_State *L)
     int peer = lua_tointeger(L, 1), reliable = lua_tointeger(L, 2);
     size_t len = 0;
     const char *data = lua_tolstring(L, 3, &len);
-    if (!data || !host) {
+    if (!data || !session_active()) {
         lua_pushnumber(L, 0);
         return 1;
     }
@@ -492,10 +535,13 @@ static int l_status(lua_State *L)
     char buf[256];
     int n = 0, len;
     EnterCriticalSection(&lock);
-    len = snprintf(buf, sizeof buf, "role=%s", !host ? "none" : is_host ? "host" : "client");
+    len = snprintf(buf, sizeof buf, "role=%s", !session_active() ? "none" : is_host ? "host" : "client");
     for (int i = 0; i <= MAX_PEERS && len < (int)sizeof buf - 24; i++)
         if (peers[i]) {
             len += snprintf(buf + len, sizeof buf - len, " p%d:rtt=%u", i, peers[i]->roundTripTime);
+            n++;
+        } else if (steam_peers[i]) {
+            len += snprintf(buf + len, sizeof buf - len, " p%d:rtt=%d:steam", i, steam_net_rtt(steam_peers[i]));
             n++;
         }
     LeaveCriticalSection(&lock);
@@ -557,6 +603,7 @@ static int l_announce(lua_State *L)
     for (char *c = announce_text; *c; c++)
         if (*c == ';')
             *c = ',';   /* ';' separates entries in CoopDiscover */
+    steam_net_set_text(announce_text);
     LeaveCriticalSection(&lock);
     start_thread();
     lua_pushnumber(L, 1);
@@ -734,6 +781,95 @@ static int l_key(lua_State *L)
     return 1;
 }
 
+/* Net.CoopSteam(command [, argument]): the Steam transport (steam_net.c, from the fork
+ * MAK-PIVO/jericho-coop). Steam starts only when the player picks it in the co-op menu.
+ *   "init"     -> "steam=ready ..." or "steam=off error=..."   (starts Steam once)
+ *   "status"   -> the same, without starting Steam
+ *   "host", max -> 1/0  a friends-only Steam lobby for the session being hosted (after
+ *                       Net.CoopHost; LAN discovery is not announced for it)
+ *   "join", id -> 1/0   join the friend's lobby id (decimal string); then Net.CoopRecv as usual
+ *   "friends"  -> "name|lobby;..." friends playing Spacewar with a lobby open
+ *   "pending"  -> lobby id the player accepted in Steam (invite or "Join game"), "" if none
+ *   "text", s  -> 1     the Steam lobby's text (nick|level|players|max)
+ *   "invite"   -> 1/0   open the Steam overlay's invite dialog (host)
+ *   "name"     -> the player's Steam name (cp1251), "" without Steam */
+static int l_steam(lua_State *L)
+{
+    const char *cmd = lua_tolstring(L, 1, NULL);
+    const char *arg = lua_gettop(L) >= 2 ? lua_tolstring(L, 2, NULL) : NULL;
+    static char out[4096];
+    out[0] = 0;
+    if (!cmd) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (strcmp(cmd, "init") == 0 || strcmp(cmd, "status") == 0) {
+        if (cmd[0] == 'i')
+            steam_net_init();
+        EnterCriticalSection(&lock);
+        steam_net_status(out, sizeof out);
+        LeaveCriticalSection(&lock);
+        lua_pushstring(L, out);
+        return 1;
+    }
+    if (strcmp(cmd, "name") == 0) {
+        lua_pushstring(L, steam_net_ready() ? steam_net_persona() : "");
+        return 1;
+    }
+    if (!steam_net_init()) {
+        lua_pushnumber(L, 0);
+        return 1;
+    }
+    if (strcmp(cmd, "host") == 0) {
+        int max = arg ? atoi(arg) : MAX_PEERS;
+        if (max < 1 || max > MAX_PEERS)
+            max = MAX_PEERS;
+        EnterCriticalSection(&lock);
+        is_host = 1;
+        steam_net_host(max + 1, announce_text);
+        LeaveCriticalSection(&lock);
+        start_thread();
+        coop_log("steam: hosting a lobby for %d", max + 1);
+        lua_pushnumber(L, 1);
+    } else if (strcmp(cmd, "join") == 0) {
+        steam_id id = arg ? _strtoui64(arg, NULL, 10) : 0;
+        close_host();
+        EnterCriticalSection(&lock);
+        is_host = 0;
+        steam_net_join(id);
+        LeaveCriticalSection(&lock);
+        if (id)
+            start_thread();
+        lua_pushnumber(L, id ? 1 : 0);
+    } else if (strcmp(cmd, "text") == 0) {
+        /* the Steam lobby's text ("nick|level|players|max"): not announced on the LAN */
+        EnterCriticalSection(&lock);
+        steam_net_set_text(arg ? arg : "");
+        LeaveCriticalSection(&lock);
+        lua_pushnumber(L, 1);
+    } else if (strcmp(cmd, "friends") == 0) {
+        EnterCriticalSection(&lock);
+        steam_net_friends(out, sizeof out);
+        LeaveCriticalSection(&lock);
+        lua_pushstring(L, out);
+    } else if (strcmp(cmd, "pending") == 0) {
+        EnterCriticalSection(&lock);
+        steam_id id = steam_net_take_pending();
+        LeaveCriticalSection(&lock);
+        if (id)
+            snprintf(out, sizeof out, "%llu", id);
+        lua_pushstring(L, out);
+    } else if (strcmp(cmd, "invite") == 0) {
+        EnterCriticalSection(&lock);
+        int ok = steam_net_invite();
+        LeaveCriticalSection(&lock);
+        lua_pushnumber(L, ok);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 /* ---- registration: rewrite unused entries of the engine's Net luaL_Reg table ---- */
 typedef struct {
     const char *name;
@@ -762,6 +898,7 @@ static const struct {
     {"SendCtrlString", "CoopFile", l_file},
     {"PingInetSvrs", "CoopBoot", l_boot},
     {"SendMasterString", "CoopSplit", l_split},
+    {"ServerChangeLevel", "CoopSteam", l_steam},
 };
 
 int coop_net_install(void)

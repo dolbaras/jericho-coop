@@ -135,6 +135,7 @@ end
 
 function W.onMessage(peer, f, data)
   local kind = f[1]
+  if W.onObjectMessage and W.onObjectMessage(peer, f) then return true end
   if kind ~= "cb" and kind ~= "use" then return false end
   local t = splitMsg(data)
   if kind == "cb" and Coop.isClient() then
@@ -161,5 +162,218 @@ function W.install()
 end
 
 function W.report()
-  return string.format("world: sent=%d replayed=%d", W.sent or 0, W.replayed or 0)
+  local doors, dead = 0, 0
+  for _ in pairs(W.doors or {}) do doors = doors + 1 end
+  for _ in pairs(W.dead or {}) do dead = dead + 1 end
+  return string.format("world: sent=%d replayed=%d doors=%d dead=%d digest_misses=%d", W.sent or 0, W.replayed or 0,
+    doors, dead, W.digestMisses or 0)
+end
+
+------------------------------------------------------------------------------
+-- Doors and breakable objects (fork MAK-PIVO/jericho-coop, 2026-10-20). Map callbacks cover most story doors, but
+-- doors are also opened by level init, scenes, enemy scripts (psichiccommander) and object
+-- deaths (wwii_britishbomb), and an object broken by one player's shot broke on that
+-- machine only. Approach taken from the earlier JerichoCoop mod (70_world.lua,
+-- 68_world_digest.lua), on this mod's messages:
+--   door|<name>|1/0        host -> clients: a door's state (the host decides doors)
+--   kill|<name>            both ways: a physics object's Life reached 0; the receiver sets
+--                          Life = 0 and the engine plays the object's own death (pieces,
+--                          sound, a lamp going dark, level OnDeath callbacks)
+--   wd|<count>|<sum>       host -> clients every 10 s: digest of doors and dead objects
+--   wdneed                 client -> host after two differing digests in a row
+--   wstate|D:name+;K:name  host -> one client: every door and dead object (catch-up, resend)
+------------------------------------------------------------------------------
+W.doors = {}      -- name -> true open / false closed, as set on this machine
+W.objects = {}    -- name -> last seen alive (physics objects created with Life)
+W.dead = {}       -- name -> true: killed here or on another machine
+W.DIGEST_EVERY = 10
+W.OBJECT_POLL = 0.25
+
+local function now() return Net.CoopTime() end
+
+function W.trackObject(o)
+  local ok, name, life = pcall(function() return o.Name, tonumber(o.Life) end)
+  -- "Bip ..." are the bones of characters' ragdolls (PxBodyPhysics too), not props.
+  if ok and type(name) == "string" and life and life > 0 and #name < 64 and string.sub(name, 1, 4) ~= "Bip " then
+    W.objects[name] = true
+  end
+end
+
+function W.installObjects()
+  if W.objectsInstalled or not PhysicsObj or not PhysicsObj.OpenDoor then return end
+  W.objectsInstalled = true
+  for _, fn in ipairs({"OpenDoor", "CloseDoor"}) do
+    local orig, open = PhysicsObj[fn], fn == "OpenDoor"
+    PhysicsObj[fn] = function(name, ...)
+      if type(name) == "string" and W.doors[name] ~= open then
+        W.doors[name] = open
+        if Coop.isHost() and Coop.inSession() then Net.CoopSend(-1, 1, "door|" .. name .. "|" .. (open and 1 or 0)) end
+      end
+      return orig(name, ...)
+    end
+    W["orig" .. fn] = orig
+  end
+  if PhysicsObj.CreateObj then
+    local origCreate = PhysicsObj.CreateObj
+    PhysicsObj.CreateObj = function(...)
+      local o = origCreate(...)
+      if o then W.trackObject(o) end
+      return o
+    end
+  end
+  -- Objects the map created before this ran.
+  local e, n = Game.GetFirst(), 0
+  while e ~= nil do
+    -- Check the type before reading Life: reading a missing property makes the engine log
+    -- an error per read (coop_enemies.lua isEnemy). Physics props are PxBodyPhysics.
+    -- Only the map's props ("OB_..."): other physics bodies are parts of characters
+    -- (ragdolls); setting their Life killed a squad member's body part in a test.
+    local ok, body = pcall(function() return e:IsType("PxBodyPhysics") end)
+    if ok and body and string.sub(tostring(e.Name), 1, 3) == "OB_" then
+      W.trackObject(e)
+      n = n + 1
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  Coop.log("world: doors and objects tracked (" .. n .. " objects found on the map)")
+end
+
+-- A door's real state (PhysicsObj.OpenDoor sets Action "Open", it then reads "Opened").
+function W.doorOpen(name)
+  local e = Game.GetEntity(name)
+  if not e then return nil end
+  local a = tostring(e.Action)
+  return a == "Open" or a == "Opened"
+end
+
+function W.setDoor(name, open)
+  W.doors[name] = open
+  if W.doorOpen(name) == open then return end
+  local f = open and W.origOpenDoor or W.origCloseDoor
+  if f then
+    local ok, err = pcall(f, name)
+    if not ok then Coop.log("world: door " .. name .. " error: " .. tostring(err)) end
+  end
+end
+
+function W.killObject(name)
+  if W.dead[name] then return end
+  W.dead[name] = true
+  W.objects[name] = nil
+  local e = Game.GetEntity(name)
+  if e then pcall(function() if (tonumber(e.Life) or 0) > 0 then e.Life = 0 end end) end
+end
+
+-- Every tick: objects whose Life reached 0 here.
+function W.pollObjects()
+  if now() < (W.nextPoll or 0) then return end
+  W.nextPoll = now() + W.OBJECT_POLL
+  for name in pairs(W.objects) do
+    local e = Game.GetEntity(name)
+    local ok, life = pcall(function() return e and tonumber(e.Life) end)
+    if not e then
+      W.objects[name] = nil
+    elseif ok and life and life <= 0 and not W.dead[name] then
+      W.dead[name] = true
+      W.objects[name] = nil
+      Net.CoopSend(Coop.isHost() and -1 or 0, 1, "kill|" .. name)
+    end
+  end
+end
+
+function W.entries()
+  local t = {}
+  for name, open in pairs(W.doors) do
+    local real = W.doorOpen(name)
+    if real == nil then real = open end
+    t[#t + 1] = "D:" .. name .. (real and "+" or "-")
+  end
+  for name in pairs(W.dead) do t[#t + 1] = "K:" .. name end
+  table.sort(t)
+  return t
+end
+
+-- Entry count and a 31-bit hash (exact in Lua 5.1 numbers).
+function W.digest(t)
+  local text, sum = table.concat(t, ";"), 5381
+  for i = 1, #text do sum = (sum * 33 + string.byte(text, i)) % 2147483647 end
+  return #t, sum
+end
+
+function W.sendState(peer)
+  local t = W.entries()
+  Net.CoopSend(peer, 1, "wstate|" .. table.concat(t, ";"))
+  Coop.log("world: state sent to peer " .. peer .. " (" .. #t .. " entries)")
+end
+
+function W.applyState(text)
+  local host, fixed = {}, 0
+  for item in string.gmatch(text or "", "[^;]+") do
+    host[item] = true
+    local kind, name, sign = string.match(item, "^(%a):(.-)([%+%-]?)$")
+    if kind == "D" and (W.doorOpen(name) ~= (sign == "+") or W.doors[name] ~= (sign == "+")) then
+      if W.doorOpen(name) ~= (sign == "+") then fixed = fixed + 1 end
+      W.setDoor(name, sign == "+")
+    elseif kind == "K" and not W.dead[name] then
+      W.killObject(name)
+      fixed = fixed + 1
+    end
+  end
+  local extra = {}
+  for _, item in ipairs(W.entries()) do
+    if not host[item] then extra[#extra + 1] = item end
+  end
+  Coop.log("world: host state applied, " .. fixed .. " fixed" ..
+    (#extra > 0 and (", only here: " .. table.concat(extra, " ")) or ""))
+end
+
+function W.update()
+  if not Coop.inSession() or Coop.level == "levels/menu" then return end
+  W.installObjects()
+  W.pollObjects()
+  if Coop.isHost() and now() >= (W.nextDigest or now() + W.DIGEST_EVERY) then
+    local n, sum = W.digest(W.entries())
+    Net.CoopSend(-1, 1, "wd|" .. n .. "|" .. sum)
+    W.nextDigest = now() + W.DIGEST_EVERY
+  elseif Coop.isHost() and not W.nextDigest then
+    W.nextDigest = now() + W.DIGEST_EVERY
+  end
+end
+
+-- Messages of this part; returns true when handled.
+function W.onObjectMessage(peer, f)
+  local kind = f[1]
+  -- Messages queued while this machine loaded the level are handled before the first tick:
+  -- the door wrappers must exist first, or a door would be recorded open but stay shut.
+  if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" then W.installObjects() end
+  if kind == "door" and Coop.isClient() then
+    W.setDoor(f[2], f[3] == "1")
+  elseif kind == "kill" then
+    if Coop.isHost() then
+      if not W.dead[f[2]] then Net.CoopSend(-1, 1, "kill|" .. f[2]) end
+    elseif peer ~= 0 then
+      return true
+    end
+    W.killObject(f[2])
+  elseif kind == "wd" and Coop.isClient() then
+    local n, sum = W.digest(W.entries())
+    if n == tonumber(f[2]) and sum == tonumber(f[3]) then
+      W.mismatch = 0
+    else
+      W.mismatch = (W.mismatch or 0) + 1
+      W.digestMisses = (W.digestMisses or 0) + 1
+      Coop.log("world: digest differs (host " .. tostring(f[2]) .. " entries, here " .. n .. ")")
+      if W.mismatch >= 2 then
+        W.mismatch = 0
+        Net.CoopSend(0, 1, "wdneed")
+      end
+    end
+  elseif kind == "wdneed" and Coop.isHost() then
+    W.sendState(peer)
+  elseif kind == "wstate" and Coop.isClient() then
+    W.applyState(f[2])
+  else
+    return false
+  end
+  return true
 end

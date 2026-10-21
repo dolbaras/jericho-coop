@@ -1,0 +1,19 @@
+coop\steam_api.dll
+
+Valve's Steamworks API library (32-bit), as published in the Steamworks.NET Standalone
+release 2025.164.1 (https://github.com/rlabrecque/Steamworks.NET/releases, Windows-x86),
+SHA-256 fdafb7c65ec7d4182b42bf92cc8671c68e4dc547cc6e613899d2618a47eb65da.
+Steamworks and steam_api.dll are Valve Corporation's; Steamworks.NET is MIT licensed
+(Copyright (c) 2013-2022 Riley Labrecque).
+
+The co-op mod loads it only when a player chooses Steam in the co-op menu. It then runs as
+Valve's free sample app "Spacewar" (AppID 480): Steam shows the players as playing Spacewar.
+Nothing else of Steam is used; the game's own files are not touched.
+
+---
+
+coop\steam_api.dll
+
+Библиотека Steamworks API от Valve (32-бит) из релиза Steamworks.NET Standalone 2025.164.1
+(Windows-x86), SHA-256 выше. Мод загружает её, только если игрок выбрал Steam в меню
+совместной игры; тогда Steam показывает игроков как играющих в Spacewar (AppID 480).

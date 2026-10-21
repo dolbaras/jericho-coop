@@ -40,7 +40,11 @@ CoopMenu.screen = nil      -- "root", "host", "join", "lobby"
 
 CoopMenu.TEXT = {
   en = {
-    coop = "Co-op", title_root = "CO-OP", host = "Host game", join = "Join game",
+    coop = "Co-op", title_root = "CO-OP", host = "Host game", join = "Join (local network)",
+    join_steam = "Join through Steam", net = "Network", net_lan = "local network", net_steam = "Steam",
+    title_steam = "JOIN THROUGH STEAM", steam_hint = "Steam friends who created a game through Steam",
+    steam_none = "(no friends' games)", steam_off = "Steam unavailable:", invite = "Invite friends (Steam)",
+    steam_norun = "Steam is not running", steam_nodll = "steam_api.dll is missing",
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
     title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host IP, then Connect",
     title_lobby = "CO-OP LOBBY", character = "Character", ready = "Ready", yes = "YES", no = "no",
@@ -53,7 +57,7 @@ CoopMenu.TEXT = {
     continue = "Continue", continue_from = "Continue from",
     scaling = "Enemy toughness", scale_off = "as in the game", scale_light = "+15% per player",
     scale_full = "+30% per player", settings = "Session settings...", title_settings = "SESSION SETTINGS",
-    qte = "QTE", qte_normal = "as in the game", qte_auto = "automatic",
+    qte = "QTE", qte_normal = "as in the game", qte_auto = "automatic", qte_shared = "all players, one success",
     aisquad = "AI squadmates", ai_normal = "as in the game", ai_tough = "take 60% damage",
     ai_very = "take 30% damage",
     cutscenes = "Cutscenes", pov_off = "original camera", pov_on = "own eyes (experimental)",
@@ -65,7 +69,11 @@ CoopMenu.TEXT = {
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
-    join = "Присоединиться", title_host = "СОЗДАТЬ ИГРУ", chapter = "Глава",
+    join = "Присоединиться (локальная сеть)", title_host = "СОЗДАТЬ ИГРУ", chapter = "Глава",
+    join_steam = "Присоединиться через Steam", net = "Сеть", net_lan = "локальная сеть", net_steam = "Steam",
+    title_steam = "ЧЕРЕЗ STEAM", steam_hint = "Друзья в Steam, создавшие игру через Steam",
+    steam_none = "(игр друзей нет)", steam_off = "Steam недоступен:", invite = "Пригласить друзей (Steam)",
+    steam_norun = "Steam не запущен", steam_nodll = "нет steam_api.dll",
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
     join_hint = "IP хоста, затем Подключиться", title_lobby = "ЛОББИ",
     character = "Персонаж", ready = "Готов", yes = "ДА", no = "нет", start = "Начать",
@@ -78,7 +86,7 @@ CoopMenu.TEXT = {
     continue = "Продолжить", continue_from = "Продолжение",
     scaling = "Живучесть врагов", scale_off = "как в игре", scale_light = "+15% за игрока",
     scale_full = "+30% за игрока", settings = "Настройки сессии...", title_settings = "НАСТРОЙКИ СЕССИИ",
-    qte = "QTE", qte_normal = "как в игре", qte_auto = "автоматически",
+    qte = "QTE", qte_normal = "как в игре", qte_auto = "автоматически", qte_shared = "все, хватит одного успеха",
     aisquad = "Союзники ИИ", ai_normal = "как в игре", ai_tough = "60% урона",
     ai_very = "30% урона",
     cutscenes = "Катсцены", pov_off = "камера оригинала", pov_on = "своими глазами (эксп.)",
@@ -228,6 +236,9 @@ function CoopMenu.Root()
   Menu.VerticalMenu(T("title_root"), {
     {T("host"), "CoopMenu.HostSetup"},
     {T("join"), "CoopMenu.JoinSetup"},
+    -- Steam (native/steam_net.c, from the fork MAK-PIVO/jericho-coop): friends join a
+    -- Steam lobby through Valve's relay, no IP or open port. Its own lobby, its own screen.
+    {T("join_steam"), "CoopMenu.SteamJoinSetup"},
     {Menu.GetBackText(), "MainMenu.MainMenu"},
   }, "MainMenu.MainMenu")
 end
@@ -272,6 +283,7 @@ function CoopMenu.HostSetup()
   if not CoopMenu.unlocked(CoopMenu.levelIndex) then CoopMenu.levelIndex = 1 end
   local options = {
     {"", "CoopMenu.NextLevel"},
+    {"", "CoopMenu.ToggleNet"},
     {T("create"), "CoopMenu.CreateSession"},
   }
   CoopMenu.saved = CoopMenu.savedGame()
@@ -286,11 +298,31 @@ function CoopMenu.HostSetup()
   local it = item("Itm1")
   it.onLeft = "CoopMenu.PrevLevel"
   it.onRight = "CoopMenu.NextLevel"
+  local net = item("Itm2")
+  net.onLeft = "CoopMenu.ToggleNet"
+  net.onRight = "CoopMenu.ToggleNet"
   CoopMenu.refreshHost()
 end
 
 function CoopMenu.refreshHost()
   setText(item("Itm1"), "< " .. T("chapter") .. ": " .. CoopMenu.levelName(CoopMenu.LEVELS[CoopMenu.levelIndex]) .. " >")
+  setText(item("Itm2"), "< " .. T("net") .. ": " .. T(cfg.net == "steam" and "net_steam" or "net_lan") .. " >")
+end
+
+-- The session's network: the local network (ENet, LAN list and IP) or Steam (a friends-only
+-- lobby). Steam itself starts only when a session or the Steam screen uses it.
+function CoopMenu.ToggleNet()
+  cfg.net = cfg.net ~= "steam" and "steam" or nil
+  CoopMenu.refreshHost()
+end
+
+-- Why Steam is not there, for the player.
+function CoopMenu.steamError()
+  local st = Net.CoopSteam and Net.CoopSteam("status") or ""
+  local err = string.match(st, "error=(.*)$") or st
+  if string.find(err, "not running", 1, true) then return T("steam_norun") end
+  if string.find(err, "not found", 1, true) or not Net.CoopSteam then return T("steam_nodll") end
+  return err
 end
 
 function CoopMenu.stepLevel(step)
@@ -326,6 +358,16 @@ function CoopMenu.openSession()
   if ok ~= 1 then
     CoopMenu.message(T("port_fail") .. " " .. (cfg.port or CoopMenu.PORT))
     return
+  end
+  if cfg.net == "steam" then
+    local s = Net.CoopSteam and Net.CoopSteam("host", tostring(CoopMenu.MAX_PLAYERS - 1))
+    Coop.log("lobby: steam host " .. tostring(s))
+    if s ~= 1 then
+      Net.CoopClose()
+      CoopMenu.message(T("steam_off") .. " " .. CoopMenu.steamError())
+      return
+    end
+    CoopMenu.steamReady = true
   end
   cfg.role = "host"
   cfg.myId = 0
@@ -396,6 +438,76 @@ function CoopMenu.refreshLan()
   end
 end
 
+-- Join through Steam: friends' Steam lobbies (Net.CoopSteam "friends"), refreshed every
+-- second while the screen is open.
+CoopMenu.steamGames = {}
+
+function CoopMenu.SteamJoinSetup()
+  CoopMenu.screen = "steam"
+  local options = {}
+  for i = 1, CoopMenu.LAN_SLOTS do options[#options + 1] = {"", "CoopMenu.JoinSteam" .. i} end
+  options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Root"}
+  Menu.VerticalMenu(T("title_steam"), options, "CoopMenu.Root")
+  local a, b = item("Itm1"), item("Itm2")
+  CoopMenu.rowsTop = a and a.Y
+  CoopMenu.rowsStep = a and b and b.Y - a.Y
+  local st = Net.CoopSteam and Net.CoopSteam("init") or ""
+  CoopMenu.steamReady = string.find(st, "ready", 1, true) ~= nil
+  Coop.log("lobby: steam screen, " .. tostring(st))
+  local hint = CoopMenu.steamReady and T("steam_hint") or (T("steam_off") .. " " .. CoopMenu.steamError())
+  Coop.textBlock("CoopHint", hint, {y = 130, font = Menu.SmallFont, color = Menu.ItemColor, width = 600})
+  CoopMenu.steamNext = 0
+  CoopMenu.refreshSteam()
+end
+
+function CoopMenu.refreshSteam()
+  CoopMenu.steamGames = {}
+  if CoopMenu.steamReady then
+    for entry in string.gmatch(Net.CoopSteam("friends") or "", "[^;]+") do
+      local name, lobby = string.match(entry, "^(.*)|(%d+)$")
+      if lobby then CoopMenu.steamGames[#CoopMenu.steamGames + 1] = {lobby = lobby, nick = name} end
+    end
+  end
+  for i = 1, CoopMenu.LAN_SLOTS do
+    local it = item("Itm" .. i)
+    local g = CoopMenu.steamGames[i]
+    if it then
+      if g then
+        setText(it, "Steam: " .. Coop.cleanNick(g.nick or ""))
+      else
+        setText(it, i == 1 and CoopMenu.steamReady and T("steam_none") or "")
+      end
+    end
+  end
+  CoopMenu.keepRows(CoopMenu.rowsTop, CoopMenu.rowsStep)
+end
+
+function CoopMenu.joinSteam(i)
+  local g = CoopMenu.steamGames[i]
+  if g then CoopMenu.ConnectSteam(g.lobby, g.nick) end
+end
+for i = 1, 4 do CoopMenu["JoinSteam" .. i] = function() CoopMenu.joinSteam(i) end end
+
+-- Join a friend's Steam lobby (from the Steam screen or an invite accepted in Steam).
+function CoopMenu.ConnectSteam(lobby, name)
+  Net.CoopClose()
+  local ok = Net.CoopSteam("join", lobby)
+  Coop.log("lobby: steam join " .. tostring(lobby) .. " -> " .. tostring(ok))
+  cfg.joinLabel = "Steam: " .. Coop.cleanNick(name or "")
+  cfg.net = "steam"
+  cfg.role = "client"
+  cfg.myId = nil
+  CoopMenu.seats = {}
+  CoopMenu.smodPeers = {}
+  CoopMenu.Lobby()
+end
+
+-- Host of a Steam session: Steam's own invite dialog (overlay).
+function CoopMenu.SteamInvite()
+  local ok = Net.CoopSteam and Net.CoopSteam("invite")
+  Coop.log("lobby: steam invite dialog " .. tostring(ok))
+end
+
 function CoopMenu.joinLan(i)
   local g = CoopMenu.lan[i]
   if not g then return end
@@ -415,7 +527,13 @@ function CoopMenu.announce()
   end
   if text ~= CoopMenu.announced then
     CoopMenu.announced = text
-    Net.CoopAnnounce(text)
+    -- (a Steam session is listed to Steam friends only, not on the LAN)
+    if cfg.net == "steam" and Net.CoopSteam then
+      Net.CoopSteam("text", text)
+      Net.CoopAnnounce("")
+    else
+      Net.CoopAnnounce(text)
+    end
   end
 end
 
@@ -423,6 +541,7 @@ function CoopMenu.Connect()
   local addr = item("Itm1") and item("Itm1").Text or "127.0.0.1"
   addr = string.gsub(addr, "%s", "")
   cfg.addr = addr
+  cfg.joinLabel = nil
   Net.CoopClose()
   local ok = Net.CoopJoin(addr, cfg.port or CoopMenu.PORT)
   Coop.log("lobby: join " .. addr .. " -> " .. ok)
@@ -453,6 +572,7 @@ function CoopMenu.Lobby()
     -- bigger menu fonts (SMOD).
     options[#options + 1] = {T("settings"), "CoopMenu.Settings"}
     options[#options + 1] = {T("start"), "CoopMenu.Start"}
+    if cfg.net == "steam" then options[#options + 1] = {T("invite"), "CoopMenu.SteamInvite"} end
     options[#options + 1] = {T("close"), "CoopMenu.Leave"}
   else
     options[#options + 1] = {T("leave"), "CoopMenu.Leave"}
@@ -553,7 +673,7 @@ function CoopMenu.refreshLobby()
   if line0 then
     local status = Net.CoopStatus()
     if Coop.isClient() and not cfg.myId then
-      CoopMenu.setLine(0, T("connecting") .. " " .. tostring(cfg.addr) .. "...")
+      CoopMenu.setLine(0, T("connecting") .. " " .. tostring(cfg.joinLabel or cfg.addr) .. "...")
     else
       local label = (CoopMenu.continueRec or cfg.continuing) and T("continue_from") or T("chapter")
       CoopMenu.setLine(0, label .. ": " .. CoopMenu.levelName(level))
@@ -705,6 +825,7 @@ function CoopMenu.PrevP2() CoopMenu.cycleP2(-1) end
 
 function CoopMenu.myNick()
   local n = Coop.cleanNick(cfg.nick)
+  if n == "" and CoopMenu.steamReady and Net.CoopSteam then n = Coop.cleanNick(Net.CoopSteam("name") or "") end
   if n == "" then n = Coop.isHost() and T("host_name") or T("player") end
   return n
 end
@@ -755,7 +876,8 @@ function CoopMenu.CycleScaling()
   CoopMenu.refreshLobby()
 end
 
-CoopMenu.QTE_MODES = {"normal", "auto"}
+-- shared: every player gets the scene's QTE, one success is enough (coop_scenes.lua)
+CoopMenu.QTE_MODES = {"normal", "auto", "shared"}
 CoopMenu.AI_SQUAD = {"normal", "tough", "very"}
 local function cycle(list, cur)
   for i, m in ipairs(list) do
@@ -1048,6 +1170,16 @@ function CoopMenu.update()
   if CoopMenu.screen == "join" and Coop.frame >= (CoopMenu.lanNext or 0) then
     CoopMenu.lanNext = Coop.frame + 10
     CoopMenu.refreshLan()
+  end
+  if CoopMenu.screen == "steam" and Coop.frame >= (CoopMenu.steamNext or 0) then
+    CoopMenu.steamNext = Coop.frame + 20
+    CoopMenu.refreshSteam()
+  end
+  -- An invite accepted in Steam (or "Join game" in the friends list) while the co-op menus
+  -- are open and Steam runs for the mod: that lobby is joined.
+  if CoopMenu.steamReady and Net.CoopSteam and CoopMenu.screen and CoopMenu.screen ~= "lobby" and Coop.frame % 20 == 0 then
+    local pending = Net.CoopSteam("pending")
+    if pending and pending ~= "" and pending ~= 0 then CoopMenu.ConnectSteam(pending) end
   end
   CoopMenu.announce()
 end

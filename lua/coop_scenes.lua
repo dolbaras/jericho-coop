@@ -191,6 +191,10 @@ function S.povAllowed(class)
 end
 
 function S.update(dt)
+  if S.sharedInstalled then
+    local ok, err = pcall(S.updateShared)
+    if not ok then Coop.log("shared QTE error: " .. tostring(err)) end
+  end
   if not Scene or not Scene.IsPlaying or not Scene.SceneName then
     if S.pov then S.stop() end
     S.stopExtras()
@@ -909,6 +913,8 @@ end
 
 -- Peer id that decides the scene `name` (Scene.SceneName).
 function S.decider(name)
+  -- (shared QTEs: the host collects every player's result and takes every branch)
+  if S.sharedMode and S.sharedMode() then return 0 end
   local owner = CoopEnemies and CoopEnemies.FP_OWNER[string.lower(tostring(S.sceneClass(name)))]
   local peer = owner and Coop.ownerOf(owner)
   return Coop.peerOf(peer) or 0   -- (a split screen player 2's scene: its machine decides)
@@ -930,6 +936,11 @@ S.ALT_EARLY = 1.5
 function S.installQTE()
   if S.qteInstalled or not QTE or not QTE.LaunchSequence or not Scene or not Scene.PlayAlternate then return end
   S.qteInstalled = true
+  -- The game's own functions, for the shared mode (S.installSharedQTE).
+  S.qteOrig = {}
+  for _, fn in ipairs({"LaunchSequence", "LaunchRndSequence", "WrongAction", "RightAction", "ValidateSequence"}) do
+    S.qteOrig[fn] = QTE[fn]
+  end
   for _, fn in ipairs({"LaunchSequence", "LaunchRndSequence", "WrongAction", "RightAction"}) do
     local orig = QTE[fn]
     QTE[fn] = function(...)
@@ -960,9 +971,11 @@ function S.installQTE()
     if Coop.inSession() then Net.CoopSend(-1, 1, "qalt|" .. tostring(name) .. "|" .. tostring(sufix)) end
     return S.origAlternate(sufix, sceneName)
   end
+  S.installSharedQTE()
 end
 
 function S.onMessage(peer, f)
+  if S.onSharedMessage(peer, f) then return true end
   if f[1] ~= "qalt" then return false end
   local name, sufix = f[2], f[3]
   if Coop.isHost() then Net.CoopSend(-1, 1, "qalt|" .. name .. "|" .. sufix) end
@@ -975,6 +988,277 @@ function S.onMessage(peer, f)
     Coop.log("scene branch " .. sufix .. " for " .. name .. " ignored: playing " .. tostring(Scene.SceneName))
   end
   return true
+end
+
+------------------------------------------------------------------------------
+-- Shared story QTEs: session setting "QTE: all players, one success is enough" (cfg.qte =
+-- "shared"). From the fork MAK-PIVO/jericho-coop (MIT; scheme of the earlier JerichoCoop mod,
+-- 92_shared_qte.lua, checked there for the five outcome combinations). Every player sees the
+-- prompt and presses keys on their own machine; any success is a success for the squad; it
+-- fails when every player failed or the authored time ran out. The host takes every branch.
+--   qs|<id>|<sequence>|<prefix>|<scene tag>   host -> clients: the host's prompt starts
+--   qr|<id>|1/0                               client -> host: this player's result
+--   qf|<id>|1/0                               host -> clients: the squad's result
+-- The host launches the sequence (random ones too), clients launch the same one when it
+-- arrives and never their own. A wrong key does not end the QTE at once
+-- (QTE.InterruptOnFail): another player may still make it. At the authored check
+-- (QTE.ValidateSequence) the host waits up to 0.3 s for the last results, then runs the
+-- game's own check with the squad's result; its branch reaches clients as qalt.
+-- In-game grabs (QTE.InGame.Blocked) are one player's own and keep their own path.
+------------------------------------------------------------------------------
+S.shared = S.shared or {serial = 0, seen = 0}
+S.SHARED_GRACE = 0.3
+
+function S.sharedMode()
+  return Coop.inSession() and Coop.cfg.qte == "shared"
+end
+
+local function grabActive()
+  local ok, blocked = pcall(function() return QTE.InGame and QTE.InGame.Blocked end)
+  return ok and blocked
+end
+
+local function storyQTE()
+  return S.sharedMode() and Scene and Scene.IsPlaying and Scene.SceneName and not grabActive()
+end
+
+local function sceneTag()
+  local h, n = 0, Scene.SceneName or ""
+  for i = 1, #n do h = (h * 33 + string.byte(n, i)) % 16777213 end
+  return h
+end
+
+function S.resetShared()
+  local P = S.shared
+  if P.active and Scorer and Scorer.QTEClearSequence then pcall(Scorer.QTEClearSequence) end
+  P.active, P.deferred = nil, nil
+end
+
+local function report(q, ok)
+  if q.localResult ~= nil then return end
+  q.localResult = ok
+  if Coop.isClient() then Net.CoopSend(0, 1, "qr|" .. q.id .. "|" .. (ok and 1 or 0)) end
+  Coop.log("shared QTE " .. q.id .. ": this player " .. (ok and "made it" or "failed"))
+end
+
+-- The engine applies a launch or a clear on its next update: a success left over from the
+-- previous prompt must not count, so the first sample only arms.
+local function sample(q)
+  if not q.armed then
+    q.armed = Scorer.QTEIsSequenceOK() == false
+    return
+  end
+  if q.localResult == nil and Scorer.QTEIsSequenceOK() then report(q, true) end
+end
+
+local function finish(q, success)
+  local P = S.shared
+  if P.active ~= q or not q.validation then return end
+  P.active = nil
+  P.lastResult = {id = q.id, success = success, scene = q.scene}
+  Net.CoopSend(-1, 1, "qf|" .. q.id .. "|" .. (success and 1 or 0))
+  -- The game's own check with the squad's result: its failure counters, statements and
+  -- branch (Scene.PlayAlternate, sent to everyone as qalt) stay the original ones.
+  local query, errors, prefix = Scorer.QTEIsSequenceOK, Scorer.QTEGetErrorsCurrentSequence, QTE.AlternatePrefix
+  QTE.AlternatePrefix = q.prefix or prefix
+  Scorer.QTEIsSequenceOK = function() return success end
+  if errors and not success then
+    Scorer.QTEGetErrorsCurrentSequence = function() return math.max(1, q.errors or 0) end
+  end
+  local ok, err = pcall(q.validator, unpack(q.validation))
+  Scorer.QTEIsSequenceOK, Scorer.QTEGetErrorsCurrentSequence = query, errors
+  if success then QTE.AlternatePrefix = prefix end
+  Coop.log("shared QTE " .. q.id .. ": squad " .. (success and "success" or "failure"))
+  if not ok then Coop.log("shared QTE check error: " .. tostring(err)) end
+end
+
+-- Every frame (S.update).
+function S.updateShared()
+  local P = S.shared
+  local pend = P.pendingStart
+  if pend and Coop.isClient() then
+    if storyQTE() then S.onSharedStart(pend.f)
+    elseif Net.CoopTime() > pend.untilT then P.pendingStart = nil end
+  end
+  local q = P.active
+  if not q then return end
+  if not storyQTE() or q.scene ~= Scene.SceneName then S.resetShared() return end
+  if not q.closed then sample(q) end
+  if Coop.isHost() and q.validation then
+    local any, failed = q.localResult == true, q.localResult == false and 1 or 0
+    for _, r in pairs(q.remote) do
+      if r then any = true else failed = failed + 1 end
+    end
+    local players = CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() or 1
+    if any then finish(q, true)
+    elseif failed >= players or Net.CoopTime() >= q.replyUntil then finish(q, false) end
+  end
+  local d = P.deferred
+  if d and not P.active then
+    P.deferred = nil
+    if P.lastResult and P.lastResult.success and storyQTE() and d.scene == Scene.SceneName then
+      Scorer.QTELaunchSequence(d.sequence, unpack(d.args))
+    end
+  end
+end
+
+-- Client: the host's prompt.
+function S.onSharedStart(f)
+  local P = S.shared
+  local id, seq, prefix, tag = tonumber(f[2]), f[3] or "", f[4] or "", tonumber(f[5])
+  if not id or id <= P.seen or #seq > 40 or not string.match(seq, "^[UDLR]+$") or #prefix > 12 then return end
+  -- The scene may start here a moment after the host's prompt (first-person scenes walk to
+  -- their camera first): the prompt is kept up to 2 s until this machine's scene plays.
+  if not storyQTE() then
+    P.pendingStart = {f = f, untilT = Net.CoopTime() + 2}
+    return
+  end
+  P.pendingStart = nil
+  if tag ~= sceneTag() then Coop.log("shared QTE " .. id .. ": scene name differs here (" .. tostring(Scene.SceneName) .. ")") end
+  S.resetShared()
+  P.seen = id
+  P.active = {id = id, scene = Scene.SceneName, sequence = seq, startedAt = Net.CoopTime(), remote = {}}
+  P.receiving = true
+  local ok, err = pcall(S.origLaunchSequence or QTE.LaunchSequence, "", seq .. "|" .. prefix, 0)
+  P.receiving = false
+  if not ok then
+    S.resetShared()
+    Coop.log("shared QTE launch error: " .. tostring(err))
+  end
+end
+
+-- Wrapped on top of S.installQTE's wrappers (they decide when the setting is off).
+function S.installSharedQTE()
+  if S.sharedInstalled or not S.qteInstalled or not Scorer or not Scorer.QTELaunchSequence then return end
+  S.sharedInstalled = true
+  local P = S.shared
+  local function clientWatches() return Coop.isClient() and storyQTE() end
+  -- Clients play the host's prompts only.
+  for _, fn in ipairs({"LaunchSequence", "LaunchRndSequence"}) do
+    local orig = QTE[fn]
+    if fn == "LaunchSequence" then S.origLaunchSequence = S.qteOrig and S.qteOrig.LaunchSequence or orig end
+    QTE[fn] = function(...)
+      if S.sharedMode() then
+        if clientWatches() and not P.receiving then return end
+        local raw = S.qteOrig and S.qteOrig[fn]
+        if raw then return raw(...) end
+      end
+      return orig(...)
+    end
+  end
+  local origRight = QTE.RightAction
+  QTE.RightAction = function(...)
+    -- every player presses (the decider-only check is off in this mode)
+    if S.sharedMode() and S.qteOrig and S.qteOrig.RightAction then return S.qteOrig.RightAction(...) end
+    return origRight(...)
+  end
+  local origLaunch = Scorer.QTELaunchSequence
+  Scorer.QTELaunchSequence = function(sequence, ...)
+    if storyQTE() and Coop.isHost() then
+      local previous = P.active
+      if previous and previous.validation then
+        -- The previous prompt is still being decided: launched after it, if it succeeded.
+        S.updateShared()
+        if P.active == previous then
+          P.deferred = {sequence = sequence, args = {...}, scene = Scene.SceneName}
+          return
+        end
+        if P.lastResult and not P.lastResult.success then return end
+      end
+      S.resetShared()
+      P.serial = P.serial + 1
+      local prefix = tostring(QTE.AlternatePrefix or "_A")
+      if type(sequence) == "string" and string.match(sequence, "^[UDLR]+$") and #sequence <= 40 then
+        P.active = {id = P.serial, scene = Scene.SceneName, prefix = prefix, sequence = sequence,
+                    startedAt = Net.CoopTime(), remote = {}}
+        Net.CoopSend(-1, 1, "qs|" .. P.serial .. "|" .. sequence .. "|" .. prefix .. "|" .. sceneTag())
+      end
+    end
+    local r = origLaunch(sequence, ...)
+    if P.active then P.active.armed = Scorer.QTEIsSequenceOK() == false end
+    return r
+  end
+  if Scorer.QTESequenceFailed then
+    local origFailed = Scorer.QTESequenceFailed
+    Scorer.QTESequenceFailed = function(...)
+      if P.active then report(P.active, false) end
+      return origFailed(...)
+    end
+  end
+  if QTE.GenericFail then
+    local origGeneric = QTE.GenericFail
+    QTE.GenericFail = function(...)
+      if P.active then return end
+      return origGeneric(...)
+    end
+  end
+  local origWrong = QTE.WrongAction
+  QTE.WrongAction = function(...)
+    if not S.sharedMode() then return origWrong(...) end
+    local raw = S.qteOrig and S.qteOrig.WrongAction or origWrong
+    local q = P.active
+    if not q then
+      if clientWatches() then return end
+      return raw(...)
+    end
+    if q.closed or q.localResult ~= nil then return end
+    sample(q)
+    if q.localResult then return end
+    local interrupt = QTE.InterruptOnFail
+    QTE.InterruptOnFail = false
+    local ok, err = pcall(raw, ...)
+    QTE.InterruptOnFail = interrupt
+    if not ok then Coop.log("shared QTE wrong key error: " .. tostring(err)) end
+  end
+  local origValidate = QTE.ValidateSequence
+  QTE.ValidateSequence = function(...)
+    if not S.sharedMode() then return origValidate(...) end
+    local raw = S.qteOrig and S.qteOrig.ValidateSequence or origValidate
+    local q = P.active
+    if not q then
+      if clientWatches() then
+        if Scorer.QTEClearSequence then Scorer.QTEClearSequence() end
+        return
+      end
+      return raw(...)
+    end
+    if q.closed then return end
+    sample(q)
+    report(q, false)   -- no success by the authored time
+    q.closed = true
+    if Scorer.QTEGetErrorsCurrentSequence then q.errors = Scorer.QTEGetErrorsCurrentSequence() end
+    if Coop.isHost() then
+      q.validation, q.validator = {...}, raw
+      q.replyUntil = Net.CoopTime() + S.SHARED_GRACE
+      Scorer.QTEClearSequence()
+      S.updateShared()
+    else
+      Scorer.QTEClearSequence()
+    end
+  end
+  Coop.log("shared QTE ready")
+end
+
+function S.onSharedMessage(peer, f)
+  if f[1] == "qs" then
+    if Coop.isClient() then S.onSharedStart(f) end
+    return true
+  elseif f[1] == "qr" then
+    local q = S.shared.active
+    if Coop.isHost() and q and tonumber(f[2]) == q.id then
+      if f[3] == "1" then q.remote[peer] = true elseif q.remote[peer] == nil then q.remote[peer] = false end
+    end
+    return true
+  elseif f[1] == "qf" then
+    local q = S.shared.active
+    if Coop.isClient() and q and tonumber(f[2]) == q.id then
+      S.shared.lastResult = {id = q.id, success = f[3] == "1", scene = q.scene}
+      Coop.log("shared QTE " .. q.id .. ": squad " .. (f[3] == "1" and "success" or "failure"))
+      S.resetShared()
+    end
+    return true
+  end
+  return false
 end
 
 ------------------------------------------------------------------------------
