@@ -2031,6 +2031,200 @@ if cfg.jonestest and Coop.isClient() and Coop.level ~= "levels/menu" then
   end
 end
 
+-- 'jonesreal' (client playing Jones with a real or virtual gamepad, 'fight' on the host): at
+-- tick 400 Jones is put 500 units from the nearest active enemy, facing it ("jonesreal: ready");
+-- everything after that is the player's input (the test's pad). Logged: the astral bindings,
+-- the action set, the astral camera's selection and CanTK/CanBurn/CanProject every 10 ticks
+-- while projecting, and each call of the game's own telekinesis/pyrokinesis callbacks.
+if cfg.jonesreal and Coop.level ~= "levels/menu" then
+  local prevJr = Coop.dev
+  local function can(cam, m)
+    local ok, v = pcall(function() return cam[m](cam) end)
+    return ok and tostring(v) or "?"
+  end
+  function Coop.dev()
+    if prevJr then prevJr() end
+    local u = Game.UsrEntity(0)
+    if not u then return end
+    if not Coop.jrHooked and Jones and AstralCamera then
+      Coop.jrHooked = true
+      for _, a in ipairs({"Return", "GoTo", "Telekinesis", "Pyrokinesis", "BloodRune"}) do
+        local ok, v = pcall(Input.GetDefinedList, 0, "Astral", a)
+        Coop.log("jonesreal: binding " .. a .. " = " .. tostring(ok and v or "?"))
+      end
+      local sel = AstralCamera.ChangeSelectedEntity
+      AstralCamera.ChangeSelectedEntity = function(a, b)
+        Coop.log("jonesreal: selected '" .. tostring(b) .. "'")
+        return sel(a, b)
+      end
+      for _, k in ipairs({"PressTelekinesis", "PressPyrokinesis"}) do
+        local f = Jones[k]
+        Jones[k] = function(o, l, tg)
+          local cam = Game.GetEntity("AstralCam")
+          Coop.log("jonesreal: " .. k .. " owner " .. tostring(o) .. " linked " .. tostring(l) .. " target " ..
+            tostring(tg) .. " CanTK " .. (cam and can(cam, "CanTK") or "-") .. " CanBurn " .. (cam and can(cam, "CanBurn") or "-"))
+          return f(o, l, tg)
+        end
+      end
+    end
+    if Coop.frame == 400 then
+      -- the nearest enemy that has another one close by (the second is the telekinesis target
+      -- once the projection is in the first)
+      local list = {}
+      local e = Game.GetFirst()
+      while e ~= nil do
+        if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then list[#list + 1] = e end
+        e = Game.GetEntity(e.NextInSlot)
+      end
+      for _, a in ipairs(list) do Coop.log("jonesreal: enemy " .. a.Name .. " at " .. Coop.v3(a.Pos)) end
+      local best, bd
+      for _, a in ipairs(list) do
+        for _, b in ipairs(list) do
+          if a ~= b and (a.Pos - b.Pos):mod() < 450 then
+            local d = (a.Pos - u.Pos):mod()
+            if not bd or d < bd then best, bd = a, d end
+          end
+        end
+      end
+      if not best then
+        for _, a in ipairs(list) do
+          local d = (a.Pos - u.Pos):mod()
+          if not bd or d < bd then best, bd = a, d end
+        end
+      end
+      -- jrobj='<entity>': an object to try telekinesis on instead, 300 units away
+      local obj = cfg.jrobj and Game.GetEntity(cfg.jrobj)
+      if obj then best, bd = obj, (obj.Pos - u.Pos):mod() end
+      if best then
+        local v = best.Pos - u.Pos
+        local k = (obj and 300 or 500) / math.max(bd, 1)
+        u.Pos = best.Pos - V3D(v.x * k, 0, v.z * k)
+        pcall(Game.SetOnFloor, u.Name)
+        local d = best.Pos + V3D(0, 60, 0) - (u.Pos + V3D(0, 120, 0))
+        local yaw = math.deg(math.atan2(-d.x, -d.z))
+        local pitch = -math.deg(math.atan2(d.y, math.sqrt(d.x * d.x + d.z * d.z)))
+        u.Ang = V3D(0, yaw, 0)
+        u.ViewAng = V3D(pitch, yaw, 0)
+        Coop.jrTarget = best.Name
+        Coop.log("jonesreal: ready, facing " .. best.Name .. " life " .. tostring(best.Life))
+      end
+    end
+    -- jtsend: at tick 450 the message coop_powers sends for a telekinesis push that acted
+    -- (pw|jt, the same vector as Jones.PressTelekinesis) on the faced enemy; its position is
+    -- logged as the host's snapshots move it
+    local J = Game.GetEntity(Coop.jrTarget or "")
+    if cfg.jtsend and J and Coop.isClient() then
+      if Coop.frame == 450 then
+        local f = 1 - (J.Pos - u.Pos):mod() / Jones.TKRange
+        local v = (J.Pos - u.Pos):norm() * (Jones.TKPower * 5 * f)
+        Net.CoopSend(0, 1, string.format("pw|jt|%s|%s|%.1f|%.1f|%.1f|0", u.Name, J.Name, v.x, v.y, v.z))
+        Coop.log("jonesreal: jt sent on " .. J.Name .. " at " .. Coop.v3(J.Pos) .. " push " .. Coop.v3(v))
+      elseif Coop.frame == 440 or Coop.frame == 460 or Coop.frame == 480 or Coop.frame == 520 then
+        Coop.log("jonesreal: " .. J.Name .. " at " .. Coop.v3(J.Pos) .. " life " .. tostring(J.Life))
+      end
+    end
+    local set = Input.GetActionSet()
+    if set ~= Coop.jrSet then Coop.jrSet = set; Coop.log("jonesreal: action set " .. tostring(set)) end
+    local cam = Game.GetEntity("AstralCam")
+    -- once the projection has gone into an enemy (CanProject 0, CanBurn 1), the view is turned to
+    -- the nearest other enemy for 30 ticks ("aimed at"), as a player would aim; the buttons stay
+    -- the pad's
+    if set == "Astral" and cam and not Coop.jrAim and can(cam, "CanProject") == "0" and can(cam, "CanBurn") == "1" then
+      Coop.jrAim = {at = Coop.frame, linked = AstralCamera.LastSelectedEntity}
+    end
+    local function aim(ent)
+      local d = ent.Pos + V3D(0, 60, 0) - cam.Pos
+      local yaw = math.deg(math.atan2(-d.x, -d.z))
+      local pitch = -math.deg(math.atan2(d.y, math.sqrt(d.x * d.x + d.z * d.z)))
+      cam.SphereRot = V3D(pitch, yaw, 0)
+      cam.Ang = V3D(-pitch, yaw, 0)
+    end
+    -- before that, the view is kept on the enemy Jones faced until the camera selects an enemy
+    local T = Game.GetEntity(Coop.jrTarget or "")
+    if cfg.jraim and set == "Astral" and cam and not Coop.jrAim and T then
+      local s = Game.GetEntity(AstralCamera.LastSelectedEntity or "")
+      if cfg.jrobj then
+        if s ~= T then aim(T) end
+      elseif not (s and s:IsType("WalkChar") and s.TgType == "red") then aim(T) end
+    end
+    local A = Coop.jrAim
+    -- (each tick) the moment the selection can be moved by telekinesis, for the pad driver
+    local tkNow = set == "Astral" and cam and can(cam, "CanTK") or "0"
+    if tkNow ~= Coop.jrTK then
+      Coop.jrTK = tkNow
+      Coop.log("jonesreal: CanTK " .. tkNow .. " on '" .. tostring(AstralCamera.LastSelectedEntity) .. "'")
+      -- the first time: telekinesis on that selection right away, the call the astral camera
+      -- makes for the pad's button (a pad press comes too late for a selection that lasts a
+      -- few ticks while the view turns)
+      local sel = AstralCamera.LastSelectedEntity
+      if cfg.jrtk and tkNow == "1" and sel and sel ~= "" and not Coop.jrTKDone then
+        Coop.jrTKDone = true
+        local linked = (A and A.linked) or u.Name
+        local tg = Game.GetEntity(sel)
+        Coop.log("jonesreal: telekinesis call on " .. sel .. " from " .. linked .. " type " ..
+          tostring(tg and tg.Type) .. " useOnTK " .. tostring(tg and tg.bUseOnTK) .. " pos " .. Coop.v3(tg and tg.Pos))
+        local ok, err = pcall(Jones.PressTelekinesis, u.Name, linked, sel)
+        Coop.log("jonesreal: telekinesis " .. (ok and "done" or tostring(err)) .. ", pos now " .. Coop.v3(tg and tg.Pos))
+      end
+    end
+    if cfg.jraim and A and set == "Astral" and cam and Coop.frame >= A.at + 30 and Coop.frame < A.at + 60 then
+      -- (what Jones.PressTelekinesis can act on: a living enemy or a physics body, within
+      -- Jones.TKRange of the body the projection is in; an enemy first)
+      local best, bd, kind
+      local L = Game.GetEntity(A.linked or "") or cam
+      local e = Game.GetFirst()
+      while e ~= nil do
+        local k = (e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive and 1) or
+          (e:IsType("PxBodyPhysics") and 2) or nil
+        if k and e.Name ~= A.linked and not (k == 2 and string.find(e.Name, "^Bip ")) then
+          local dd = (e.Pos - L.Pos):mod()
+          if dd > 50 and dd < Jones.TKRange * 0.9 and (not bd or k < kind or (k == kind and dd < bd)) then
+            best, bd, kind = e, dd, k
+          end
+        end
+        e = Game.GetEntity(e.NextInSlot)
+      end
+      if best then
+        aim(best)
+        if not A.logged then
+          A.logged = true
+          Coop.log("jonesreal: aimed at " .. best.Name .. " " .. string.format("%.0f", bd) .. " (in " .. tostring(A.linked) .. ")")
+        end
+      end
+    end
+    if set == "Astral" and cam and Coop.frame % 10 == 0 then
+      Coop.log("jonesreal: astral sel '" .. tostring(AstralCamera.LastSelectedEntity) .. "' CanTK " .. can(cam, "CanTK") ..
+        " CanBurn " .. can(cam, "CanBurn") .. " CanProject " .. can(cam, "CanProject") .. " cam " .. Coop.v3(cam.Pos))
+    end
+  end
+end
+
+-- 'jtwatch' (host): every power message's target is logged for 2 s after it came (position,
+-- action, life), to see what a client's telekinesis push did in the host's world.
+if cfg.jtwatch and Coop.level ~= "levels/menu" then
+  local prevJw = Coop.dev
+  function Coop.dev()
+    if prevJw then prevJw() end
+    if not Coop.jwHooked and CoopPowers and CoopPowers.onPower then
+      Coop.jwHooked = true
+      local orig = CoopPowers.onPower
+      CoopPowers.onPower = function(peer, f, data)
+        local t = Game.GetEntity(f[4] or "")
+        if t then Coop.jw = {name = t.Name, at = Coop.frame}; Coop.log("jtwatch: " .. tostring(f[2]) .. " on " .. t.Name .. " at " .. Coop.v3(t.Pos)) end
+        return orig(peer, f, data)
+      end
+    end
+    local w = Coop.jw
+    if w and (Coop.frame - w.at) % 5 == 0 and Coop.frame - w.at <= 60 then
+      local t = Game.GetEntity(w.name)
+      if t then
+        Coop.log("jtwatch: +" .. (Coop.frame - w.at) .. " " .. w.name .. " at " .. Coop.v3(t.Pos) .. " action " ..
+          tostring(t.oActCtrl and t.oActCtrl.Action) .. " life " .. tostring(t.Life))
+      end
+    end
+  end
+end
+
 -- 'xinprobe': every 15 ticks the four XInput slots as the game reads them (Net.CoopKey(-3):
 -- -1 = not connected, else buttons + packet * 65536), to see what Steam's overlay does to pads.
 if cfg.xinprobe then

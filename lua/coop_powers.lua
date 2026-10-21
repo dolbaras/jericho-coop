@@ -249,7 +249,8 @@ function P.installWorldPowers()
     return cam ~= nil and cam:CanTK() ~= 0
   end)
   wrapPower("Jones", "PressPyrokinesis", function(ownerName, linkedName, targetName)
-    if Coop.isLocalPlayer(ownerName) and targetName then send("jp", ownerName, targetName) end
+    -- (no target: the body the projection is in burns, and the burn report carries that)
+    if Coop.isLocalPlayer(ownerName) and targetName and targetName ~= "" then send("jp", ownerName, targetName) end
   end, function()
     local cam = Game.GetEntity("AstralCam")
     return cam ~= nil and cam:CanBurn() ~= 0
