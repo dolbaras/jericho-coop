@@ -69,5 +69,8 @@ if ($wait -gt 0 -and -not $p.HasExited) { Start-Sleep -Seconds $wait }
     Wait-Process -Id $p.Id -Timeout 30 -ErrorAction SilentlyContinue
 }
 if ($Record) { & (Join-Path $PSScriptRoot "record.ps1") -Dir $run }
+# Engine errors and textures the engine did not find, beyond the game's own (log_check.py).
+$py = Get-Command python -ErrorAction SilentlyContinue
+if ($py -and (Test-Path (Join-Path $run "game.log"))) { & $py.Source -I (Join-Path $PSScriptRoot "log_check.py") $run }
 "--- coop.txt"
 if (Test-Path (Join-Path $run "coop.txt")) { Get-Content (Join-Path $run "coop.txt") | Select-Object -Last 15 }
