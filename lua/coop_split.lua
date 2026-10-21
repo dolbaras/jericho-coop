@@ -334,15 +334,10 @@ end
 -- power puts it back with Menu.ShowScorer when it ends, often from an entity callback or a
 -- thread, i.e. as user 0: player 2's half would stay without HUD. Back when player 2 is
 -- again in their body with their camera.
-Sp.MSG_Y = 114   -- below the HUD's top band, whose corners split.c moves out to the sides
+-- (The message line stays where the game puts it, in its box: split.c draws each HUD batch in
+-- its own player's half since 0.2.1; it was moved down while player 1's text came out over
+-- the whole screen.)
 function Sp.checkHud()
-  -- The message line (hints, notices) is wide: kept whole over the picture.
-  if not Sp.wide() then
-    for id = 0, 1 do
-      local m = Scorer.GetItem(id, "Msg")
-      if m and (m.Y or 0) < Sp.MSG_Y then m.Y = Sp.MSG_Y end
-    end
-  end
   if Scorer.GetItem(1, "Selector") then return end
   local b = not Sp.waiting and Sp.body()
   local c = Game.GetEntity(Sp.CAM)
@@ -1240,7 +1235,14 @@ function Sp.showFor(u)
   if f0 and f0.bObjectVisible ~= (u == 0) then f0.bObjectVisible = u == 0 end
   if f1 and f1.bObjectVisible ~= (u == 1) then f1.bObjectVisible = u == 1 end
   if cfg.splitbodies ~= false then
-    bodyFor(b0, u == 1)
+    -- Act 1: player 1's Ross is shown by his stand-in (coop_ross.lua), his own model unseen.
+    local ross = b0 and b0.Name == "Ross" and CoopRoss and CoopRoss.body()
+    if ross then
+      local ok, err = pcall(CoopRoss.update, u)
+      if not ok then Coop.log("split: ross error " .. tostring(err)) end
+    else
+      bodyFor(b0, u == 1)
+    end
     bodyFor(b1, u == 0)
   end
   Sp.shownFor = u

@@ -202,6 +202,15 @@ static int icons_mode = 4;
 static int hud_halves;     /* half viewports seen in this HUD pass (2 = both users' HUDs are done) */
 static int bottom_draws;   /* draws since user 1's half viewport was set */
 static int whole_draws;    /* icon-like draws on the whole screen after user 1's half */
+/* The engine's 2D batcher (sprites and text, one vertex buffer) draws a batch when the next item
+   has another texture, not when the viewport changes: what a user's HUD pass queued last (the
+   message line's text, the power icons) was drawn first thing in the next viewport, i.e. in the
+   other player's half or over the whole screen (split trace 0.2.1). The batcher's buffer
+   written since its last draw is such a batch: at a viewport change it goes to the old one. */
+static int hud_pending;    /* the HUD vertex buffer was written since the last HUD draw */
+static int hud_tracked;    /* its writes are seen (its shadow exists): the icon guesses are off */
+static int carry;          /* the next draw is the previous viewport's batch */
+static D3DVIEWPORT9 carry_vp;
 static D3DVIEWPORT9 cur_vp;
 
 static void trace_draw(IDirect3DDevice9 *dev, const char *what, UINT count, const void *v, UINT stride)
@@ -328,6 +337,8 @@ static HRESULT WINAPI hook_VBLock(IDirect3DVertexBuffer9 *vb, UINT off, UINT siz
 static HRESULT WINAPI hook_VBUnlock(IDirect3DVertexBuffer9 *vb)
 {
     vb_shadow *s = shadow_of(vb);
+    if (s && in_hud)
+        hud_pending = 1;
     if (s && s->ptr) {
         memcpy(s->mem + s->off, s->ptr, s->len);
         memset(s->valid + s->off / 64, 1, (s->off + s->len + 63) / 64 - s->off / 64);
@@ -531,7 +542,7 @@ static int hud_target(IDirect3DDevice9 *dev, const hud_draw *g, D3DVIEWPORT9 *ou
     bottom.X = 0; bottom.Width = bbw; bottom.Y = mid; bottom.Height = bbh - mid;
     /* two quads per icon, plus one when a power glows (trace: 8 or 10 triangles) */
     int icons = !g->indexed && g->t == D3DPT_TRIANGLELIST && g->n >= 4 && g->n <= 16 && g->n % 2 == 0;
-    if (icons_mode == 4 && icons && hud_halves >= 2) {
+    if (icons_mode == 4 && icons && hud_halves >= 2 && !hud_tracked) {
         IDirect3DBaseTexture9 *tex = bound_texture(dev);
         /* user 0's: the first draw of user 1's pass, with the icons' texture once it is known
            (user 0 may have no icons this frame: then it is user 1's own first draw) */
@@ -554,9 +565,97 @@ static int hud_target(IDirect3DDevice9 *dev, const hud_draw *g, D3DVIEWPORT9 *ou
     return 0;
 }
 
+/* Trace (JERICHO_SPLITTRACE): where a vertex-buffer HUD draw lands (projected x/y of its
+   vertices, -1..1) and its texture. */
+static void trace_extent(IDirect3DDevice9 *dev, const hud_draw *g)
+{
+    if (!in_hud || trace_frames <= 0 || g->indexed != 0 || g->t != D3DPT_TRIANGLELIST)
+        return;
+    IDirect3DVertexBuffer9 *vb = NULL;
+    UINT off = 0, stride = 0;
+    if (FAILED(IDirect3DDevice9_GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb)
+        return;
+    vb_shadow *s = shadow_of(vb);
+    UINT nverts = g->n * 3, from = off + g->start * stride;
+    D3DMATRIX w, v, pr;
+    if (s && stride >= 12 && shadow_has(s, from, nverts * stride) &&
+        SUCCEEDED(IDirect3DDevice9_GetTransform(dev, D3DTS_WORLD, &w)) &&
+        SUCCEEDED(IDirect3DDevice9_GetTransform(dev, D3DTS_VIEW, &v)) &&
+        SUCCEEDED(IDirect3DDevice9_GetTransform(dev, D3DTS_PROJECTION, &pr))) {
+        const D3DMATRIX *m[3] = {&w, &v, &pr};
+        float minx = 1e9f, maxx = -1e9f, miny = 1e9f, maxy = -1e9f;
+        for (UINT i = 0; i < nverts; i++) {
+            const float *q = (const float *)(s->mem + from + i * stride);
+            float in[4] = {q[0], q[1], q[2], 1}, a[4];
+            for (int k = 0; k < 3; k++) {
+                for (int j = 0; j < 4; j++)
+                    a[j] = in[0] * m[k]->m[0][j] + in[1] * m[k]->m[1][j] + in[2] * m[k]->m[2][j] + in[3] * m[k]->m[3][j];
+                for (int j = 0; j < 4; j++)
+                    in[j] = a[j];
+            }
+            float x = in[3] != 0 ? in[0] / in[3] : in[0], y = in[3] != 0 ? in[1] / in[3] : in[1];
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+            if (y < miny) miny = y;
+            if (y > maxy) maxy = y;
+        }
+        coop_log("split trace:   n=%u tex %p x %.2f..%.2f y %.2f..%.2f", g->n, (void *)bound_texture(dev),
+                 minx, maxx, miny, maxy);
+    }
+    IDirect3DVertexBuffer9_Release(vb);
+}
+
+static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g);
+
+/* The batcher's vertex buffer: kept (shadow) as soon as the HUD pass draws from it, so its
+   writes are seen. */
+static void track_hud_vb(IDirect3DDevice9 *dev, const hud_draw *g)
+{
+    if (!in_hud || g->indexed != 0 || mode != 2)
+        return;
+    IDirect3DVertexBuffer9 *vb = NULL;
+    UINT off = 0, stride = 0;
+    D3DVERTEXBUFFER_DESC desc;
+    if (FAILED(IDirect3DDevice9_GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb)
+        return;
+    /* (again for a new buffer, e.g. after a device reset) */
+    if (SUCCEEDED(IDirect3DVertexBuffer9_GetDesc(vb, &desc)) && (desc.Usage & D3DUSAGE_DYNAMIC) &&
+        shadow_for(vb, &desc) && !hud_tracked) {
+        hud_tracked = 1;
+        coop_log("split: HUD batches drawn in the viewport they were made for");
+    }
+    IDirect3DVertexBuffer9_Release(vb);
+}
+
+/* A batch left over from the previous viewport, drawn there. */
+static HRESULT draw_carried(IDirect3DDevice9 *dev, const hud_draw *g)
+{
+    D3DVIEWPORT9 now = cur_vp;
+    DWORD mid = (bbh + 1) / 2;
+    carry = 0;
+    if (trace_frames > 0)
+        coop_log("split trace:   carried to %lu,%lu %lux%lu", carry_vp.X, carry_vp.Y, carry_vp.Width, carry_vp.Height);
+    cur_vp = carry_vp;
+    real_SetViewport(dev, &cur_vp);
+    HRESULT hr = hud_or_plain(dev, g);
+    cur_vp = now;
+    if (now.Y == mid)
+        bottom_draws = 1;
+    D3DVIEWPORT9 f = mode == 2 && in_hud ? fit_vp(&now) : now;
+    real_SetViewport(dev, &f);
+    return hr;
+}
+
 static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g)
 {
     D3DVIEWPORT9 pic;
+    trace_extent(dev, g);
+    if (in_hud) {
+        track_hud_vb(dev, g);
+        hud_pending = 0;
+        if (carry)
+            return draw_carried(dev, g);
+    }
     if (!hud_target(dev, g, &pic))
         return do_draw(dev, g);
     if (mode == 1) {   /* wide halves: the icons into their half, as drawn */
@@ -574,6 +673,8 @@ static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g)
 static HRESULT WINAPI hook_DrawPrimitive(IDirect3DDevice9 *dev, D3DPRIMITIVETYPE t, UINT start, UINT n)
 {
     trace_draw(dev, "DrawPrimitive", n, NULL, 0);
+    if (in_hud && trace_frames > 0)
+        coop_log("split trace:   from %p", __builtin_return_address(0));
     if (mode && in_hud && hud_halves >= 2 && icons_mode > 0 && icons_mode < 4 && t == D3DPT_TRIANGLELIST && n >= 4 &&
         n % 4 == 0 && cur_vp.Height == bbh) {
         if (icons_mode == 1)
@@ -620,6 +721,14 @@ static HRESULT WINAPI hook_DrawIndexedPrimitiveUP(IDirect3DDevice9 *dev, D3DPRIM
 
 static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *vp)
 {
+    if (in_hud && trace_frames > 0 && vp)
+        coop_log("split trace: SetViewport %lu,%lu %lux%lu from %p", vp->X, vp->Y, vp->Width, vp->Height,
+                 __builtin_return_address(0));
+    if (in_hud && mode == 2 && hud_tracked && hud_pending && vp && !carry &&
+        (vp->Y != cur_vp.Y || vp->Height != cur_vp.Height)) {
+        carry = 1;
+        carry_vp = cur_vp;
+    }
     if (vp)
         cur_vp = *vp;
     if (in_hud && vp && vp->X == 0 && vp->Width == bbw && vp->Y > 0 && vp->Y + vp->Height == bbh)
@@ -671,6 +780,7 @@ static HRESULT WINAPI hook_Present(IDirect3DDevice9 *dev, const RECT *s, const R
     if (in_hud && trace_frames > 0)
         trace_frames--;
     in_hud = 0;
+    carry = hud_pending = 0;
     /* A frame without the HUD (menus, scenes, HUD off): put it in its half anyway. */
     if (mode && !done_this_frame && cw)
         compose(dev);

@@ -191,6 +191,18 @@ function Coop.isMine(owner)
   return owner ~= nil and Coop.myId() ~= nil and Coop.peerOf(owner) == Coop.myId()
 end
 
+-- A body this machine plays: its player's, or its split screen player's (coop_split.lua).
+function Coop.isLocalBody(name)
+  return name ~= nil and (name == Coop.localChar() or Coop.isMine(Coop.owners[name]))
+end
+
+-- True when a message from this peer may act for this body: its own, or its machine's split
+-- screen player's (that one's owner id is peer + P2, its messages come from the peer).
+function Coop.heldBy(name, peer)
+  local o = Coop.owners[name or ""]
+  return o ~= nil and Coop.peerOf(o) == peer
+end
+
 -- True when another human controls this body.
 function Coop.isRemoteOwned(name)
   local o = Coop.owners[name]
@@ -549,7 +561,7 @@ end
 function Coop.onLeave(peer)
   Coop.log("peer " .. peer .. " left")
   for name, p in pairs(Coop.owners) do
-    if p == peer then
+    if Coop.peerOf(p) == peer then   -- (its split screen player 2 too: owner peer + Coop.P2)
       Coop.owners[name] = nil
       local e = Game.GetEntity(name)
       if e then Coop.releasePuppet(e) end
@@ -561,7 +573,8 @@ function Coop.onLeave(peer)
     if cfg.seats then
       local seats = {}
       for item in string.gmatch(cfg.seats, "[^;]+") do
-        if not string.find(item, "^" .. peer .. ":") then seats[#seats + 1] = item end
+        -- (with the player's split screen player 2, peer + Coop.P2)
+        if Coop.peerOf(tonumber(string.match(item, "^(%d+):"))) ~= peer then seats[#seats + 1] = item end
       end
       cfg.seats = table.concat(seats, ";")
       Net.CoopSend(-1, 1, "seats|" .. cfg.seats)
@@ -839,6 +852,14 @@ end
 
 function Coop.update()
   Coop.frame = Coop.frame + 1
+  -- (in split screen coop_split.lua runs it per view, unless the screen is whole for a scene)
+  if CoopRoss and not (CoopSplit and CoopSplit.on and CoopSplit.shownFor ~= nil) and Coop.level ~= "levels/menu" then
+    local ok, err = pcall(CoopRoss.update)
+    if not ok and (Coop.rossErrors or 0) < 5 then
+      Coop.rossErrors = (Coop.rossErrors or 0) + 1
+      Coop.log("ross error: " .. tostring(err))
+    end
+  end
   if CoopSplit and not CoopSplit.on and Coop.frame >= 10 then
     local ok, err = pcall(CoopSplit.autoStart)
     if not ok then Coop.log("split start error: " .. tostring(err)) end
@@ -1019,6 +1040,9 @@ do
   -- Split screen in one game: off at every load, on again in a level with a player 2.
   ok, err = pcall(dofile, COOP_DIR .. "coop_split.lua")
   if not ok then Coop.log("split load error: " .. tostring(err)) end
+  -- Act 1: Ross's body for the other players (split screen and session alike).
+  ok, err = pcall(dofile, COOP_DIR .. "coop_ross.lua")
+  if not ok then Coop.log("ross load error: " .. tostring(err)) end
 end
 if cfg.dev then pcall(dofile, COOP_DIR .. "dev.lua") end
 -- Test sessions start without the lobby: protect the profile from the first level on.

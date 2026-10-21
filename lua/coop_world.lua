@@ -103,7 +103,7 @@ end
 -- If it is the local player using an object, the host must run it.
 function W.onLocalCallback(name, ...)
   local usr = select(1, ...)
-  if type(usr) == "string" and usr == Coop.localChar() then
+  if type(usr) == "string" and Coop.isLocalBody(usr) then
     local parts = {"use", name}
     local args = {...}
     for i = 1, math.max(#args, 3) do parts[#parts + 1] = encode(args[i]) end
@@ -146,7 +146,7 @@ function W.onMessage(peer, f, data)
     local args = {n = #t - 2}
     for i = 3, #t do args[i - 2] = decode(t[i]) end
     -- Only the body this peer holds may use objects in its name.
-    if f2 and type(args[1]) == "string" and Coop.ownerOf(args[1]) == peer then
+    if f2 and type(args[1]) == "string" and Coop.heldBy(args[1], peer) then
       Coop.log("world: " .. args[1] .. " (peer " .. peer .. ") uses " .. t[2])
       f2(unpack(args, 1, args.n))
     end

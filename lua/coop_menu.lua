@@ -483,6 +483,17 @@ function CoopMenu.layoutRows()
   end
 end
 
+-- The settings rows drift the same way (0.2.1: the cutscene row, and "Back", over their
+-- neighbour): one step apart from where the menu put the first row.
+function CoopMenu.keepRows(top, step)
+  if not top or not step or step <= 0 then return end
+  local i = 1
+  while item("Itm" .. i) do
+    item("Itm" .. i).Y = top + (i - 1) * step
+    i = i + 1
+  end
+end
+
 -- Host: the session's rules (lobby sub-screen; the lobby keeps running underneath).
 function CoopMenu.Settings()
   CoopMenu.sub = "settings"
@@ -504,6 +515,9 @@ function CoopMenu.Settings()
   if CoopMenu.hostSmod() then options[#options + 1] = {"", "CoopMenu.ToggleSmodRules"} end
   options[#options + 1] = {Menu.GetBackText(), "CoopMenu.Lobby"}
   Menu.VerticalMenu(T("title_settings"), options, "CoopMenu.Lobby", nil, 160, 35)
+  local a, b = item("Itm1"), item("Itm2")
+  CoopMenu.settingsTop = a and a.Y
+  CoopMenu.settingsStep = a and b and b.Y - a.Y
   CoopMenu.refreshLobby()
 end
 
@@ -524,6 +538,7 @@ function CoopMenu.refreshLobby()
       local v = cfg.smodrules == false and "rules_game" or (CoopMenu.smodRules() and "rules_smod" or "rules_notall")
       setText(item("Itm7"), T("rules") .. ": " .. T(v))
     end
+    CoopMenu.keepRows(CoopMenu.settingsTop, CoopMenu.settingsStep)
     return
   end
   CoopMenu.layoutRows()

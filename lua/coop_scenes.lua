@@ -911,7 +911,7 @@ end
 function S.decider(name)
   local owner = CoopEnemies and CoopEnemies.FP_OWNER[string.lower(tostring(S.sceneClass(name)))]
   local peer = owner and Coop.ownerOf(owner)
-  return peer or 0
+  return Coop.peerOf(peer) or 0   -- (a split screen player 2's scene: its machine decides)
 end
 
 function S.decides(name)
@@ -1255,7 +1255,7 @@ function S.beginIdle(a, e)
   if body.oAI then body.oAI.bEnable = false end
   body.InCtrl_Walk, body.InCtrl_Str = 0, 0
   -- Our own body, active again in the scene's background, must not walk or shoot on our keys.
-  if Coop.ownerOf(a.char) == Coop.myId() then
+  if Coop.isMine(Coop.ownerOf(a.char)) then
     a.ignoreCtrl = body.IgnoreUsrControl or 0
     body.IgnoreUsrControl = 1
   end

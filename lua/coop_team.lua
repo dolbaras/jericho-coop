@@ -54,7 +54,7 @@ function T.install()
     local r = T.origRevive(obj, ...)
     if r and obj and not Coop.fromHost and not T.isLocallyOwned(obj.Name) then
       local owner = Coop.ownerOf(obj.Name)
-      local to = Coop.isHost() and owner or 0
+      local to = Coop.isHost() and Coop.peerOf(owner) or 0   -- (a split screen player 2: its machine)
       Net.CoopSend(to, 1, "revive|" .. obj.Name)
       Coop.log("revive of " .. obj.Name .. " sent to peer " .. tostring(to))
     end

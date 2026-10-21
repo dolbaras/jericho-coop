@@ -1152,7 +1152,7 @@ function Sp.G4onSoul(what, peer)
     return
   end
   if Coop.isHost() then
-    if peer ~= 0 and Coop.ownerOf("Rawlings") ~= peer then return end
+    if peer ~= 0 and not Coop.heldBy("Rawlings", peer) then return end
     Net.CoopSend(-1, 1, "spsoul|" .. what)
   end
   if what == "arrived" then
@@ -1372,7 +1372,7 @@ Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp
 
 function Sp.onMessage(peer, f)
   if f[1] == "g6hold" and Coop.isHost() then
-    if Coop.ownerOf(f[2] or "") == peer then Sp.G6onHold(f[2], f[3] == "1") end
+    if Coop.heldBy(f[2], peer) then Sp.G6onHold(f[2], f[3] == "1") end
     return true
   elseif f[1] == "spsoul" then
     Sp.G4onSoul(f[2], peer)
@@ -1389,7 +1389,7 @@ function Sp.onMessage(peer, f)
   elseif f[1] == "spfree" then
     -- From the holder (to the host, which tells everyone) or from the host.
     if Coop.isHost() then
-      if Coop.ownerOf(f[2] or "") ~= peer then return true end
+      if not Coop.heldBy(f[2], peer) then return true end
       Net.CoopSend(-1, 1, "spfree|" .. f[2])
     end
     if f[2] ~= Coop.localChar() then Sp.G15onFree(f[2]) end

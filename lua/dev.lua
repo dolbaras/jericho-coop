@@ -1622,3 +1622,39 @@ if cfg.bindprobe and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'rossprobe': what Ross is made of in a view (act 1): his entity, his FP arms, his class's actions.
+if cfg.rossprobe and Coop.level ~= "levels/menu" then
+  local prev = Coop.dev
+  function Coop.dev()
+    if prev then prev() end
+    local r = Game.GetEntity("Ross")
+    if Coop.frame % 15 == 0 and r then
+      local s = Game.GetEntity("CoopRossBody")
+      if r.Life ~= Coop.rossLastLife or (s and s.Life ~= Coop.rossBodyLife) then
+        Coop.rossLastLife, Coop.rossBodyLife = r.Life, s and s.Life
+        Coop.log("rossprobe: life Ross " .. tostring(r.Life) .. " stand-in " .. tostring(s and s.Life) ..
+          " jones " .. tostring(Game.GetEntity("Jones") and Game.GetEntity("Jones").Life))
+      end
+    end
+    if Coop.frame % 150 ~= 60 then return end
+    if not r then return end
+    local function f(k) local ok, v = pcall(function() return r[k] end) return ok and tostring(v) or "?" end
+    Coop.log("rossprobe: vis " .. f("bObjectVisible") .. " active " .. f("bActive") .. " action " .. f("Action") ..
+      " fps " .. f("FPSEntity") .. " usr0 " .. tostring(Game.UsrEntity(0) and Game.UsrEntity(0).Name))
+    for _, n in ipairs({"0FP_Ross", "FP_Ross", "1FP_Ross", "0FP_Jones", "FPRoss"}) do
+      local e = Game.GetEntity(n)
+      if e then Coop.log("rossprobe: entity " .. n .. " vis " .. tostring(e.bObjectVisible)) end
+    end
+    local c = Act.GetClass("Ross")
+    if c and not Coop.rossActsLogged then
+      Coop.rossActsLogged = true
+      local have = {}
+      for _, n in ipairs({"Relax", "relax", "Walk", "walk", "DuckWalk", "WalkDuck", "Relax0", "DuckRelax", "Sprint", "Run"}) do
+        local a = c:GetAct(n)
+        if a then have[#have + 1] = n .. "=" .. tostring(a.AnmFilePath) end
+      end
+      Coop.log("rossprobe: class model " .. tostring(c.ModelFilePath) .. " acts " .. table.concat(have, " "))
+    end
+  end
+end

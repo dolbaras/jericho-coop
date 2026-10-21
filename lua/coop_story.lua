@@ -102,7 +102,7 @@ function St.onMessage(peer, f)
   end
   if f[1] == "gv" and Coop.isHost() then
     local char = St.VARS[f[2] or ""]
-    if char and Coop.ownerOf(char) == peer then Game.Set(f[2], tonumber(f[3]) or f[3]) end
+    if char and Coop.heldBy(char, peer) then Game.Set(f[2], tonumber(f[3]) or f[3]) end
     return true
   end
   if f[1] == "evict" and Coop.isClient() then
@@ -116,18 +116,19 @@ function St.onMessage(peer, f)
   if f[1] ~= "sdrive" or not Coop.isClient() or peer ~= 0 then return false end
   local name, on = f[2], f[3] == "1"
   Coop.storyDriven[name] = on or nil
-  if name == Coop.localChar() then
-    local usr = Game.UsrEntity(0)
+  if Coop.isLocalBody(name) then   -- (its split screen player's too)
+    local usr = Game.GetEntity(name)
     if usr then
       usr.IgnoreUsrControl = on and 1 or 0
       -- The player cannot fight back while the story walks their body (vanilla walks happen
       -- between fights, but leftovers or a fast player can still be around).
+      St.walkInvul = St.walkInvul or {}
       if on then
-        St.walkInvul = St.walkInvul or usr.Invulnerable or 0
+        St.walkInvul[name] = St.walkInvul[name] or usr.Invulnerable or 0
         usr.Invulnerable = 1
-      elseif St.walkInvul then
-        usr.Invulnerable = St.walkInvul
-        St.walkInvul = nil
+      elseif St.walkInvul[name] then
+        usr.Invulnerable = St.walkInvul[name]
+        St.walkInvul[name] = nil
       end
     end
     Coop.log("story: my body " .. (on and "walked by the host" or "back to me"))
@@ -333,7 +334,7 @@ function St.installEvents()
         if Coop.inSession() and not St.fromNet then
           local args = {n = select("#", ...), ...}
           -- Only the machine of the character's holder reports it.
-          if St.eventChar(spec, args) == Coop.localChar() then St.sendEvent(i, Coop.myId(), args) end
+          if Coop.isLocalBody(St.eventChar(spec, args)) then St.sendEvent(i, Coop.myId(), args) end
         end
         return orig(...)
       end
@@ -351,7 +352,7 @@ function St.onEvent(peer, f)
   for k = 4, #f do args[k - 3] = dec(f[k]) end
   if Coop.isHost() then
     -- From a client: only the holder of the character may report its power.
-    if Coop.ownerOf(St.eventChar(spec, args) or "") ~= peer then return end
+    if not Coop.heldBy(St.eventChar(spec, args), peer) then return end
     St.sendEvent(i, origin, args)   -- to every client (the origin skips it)
   end
   local tbl = _G[spec[1]]
@@ -372,7 +373,7 @@ function St.watchVars()
     local v = Game.Get(name)
     if v ~= St.varSeen[name] then
       St.varSeen[name] = v
-      if Coop.localChar() == char then Net.CoopSend(0, 1, "gv|" .. name .. "|" .. tostring(v)) end
+      if Coop.isLocalBody(char) then Net.CoopSend(0, 1, "gv|" .. name .. "|" .. tostring(v)) end
     end
   end
 end
@@ -387,7 +388,7 @@ end
 
 -- This machine controls the body: it is its own, or it is AI-held and this is the host.
 function St.controls(name)
-  if name == Coop.localChar() then return true end
+  if Coop.isLocalBody(name) then return true end
   return Coop.isHost() and Coop.ownerOf(name) == nil
 end
 

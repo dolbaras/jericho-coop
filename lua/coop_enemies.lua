@@ -510,9 +510,16 @@ function E.expectedAll()
     for _ in string.gmatch(Coop.cfg.instIds or "", "%d+") do n = n + 1 end
     return math.max(0, n - 1)
   end
-  local n = 0
-  for item in string.gmatch(Coop.cfg.seats or "", "[^;]+") do
-    if not string.find(item, "^0:") then n = n + 1 end
+  -- Machines, not seats: a split screen player (owner id peer + Coop.P2) loads with its
+  -- machine and sends no ready of its own (0.2.1: a session made in the lobby with a host's
+  -- player 2 waited the whole GATE_TIMEOUT on every level).
+  local n, seen = 0, {}
+  for peer in string.gmatch(Coop.cfg.seats or "", "(%d+):[^;]*") do
+    peer = Coop.peerOf(tonumber(peer))
+    if peer ~= 0 and not seen[peer] then
+      seen[peer] = true
+      n = n + 1
+    end
   end
   return n
 end
