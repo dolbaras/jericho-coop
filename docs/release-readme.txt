@@ -23,7 +23,10 @@ Install
    Running it again updates the mod or removes it.
 2. Start the game as usual. The main menu has a "Co-op" entry.
 Uninstall: "Uninstall Co-op.bat" in the game folder - removes the mod and puts the replaced
-files back. The mod does not change game files or single-player saves.
+files back. What the installer changes in the game: it marks the game's exe as able to use
+4 GB of memory instead of 2 (large address aware; only the retail exe, the original is kept and
+put back on uninstall) and builds Pack1.packed (cutscene animations, Ross's model) from your
+game files. Single-player saves are not touched.
 By hand: copy the contents of the "files" folder into the game folder (back up bin\dinput8.dll
 if there is one).
 
@@ -141,7 +144,10 @@ previous run).
    установит мод. Повторный запуск обновляет мод или удаляет его.
 2. Запустите игру как обычно. В главном меню появится пункт «Совместная игра».
 Удаление: «Uninstall Co-op.bat» в папке игры — удаляет мод и возвращает заменённые файлы.
-Файлы игры и одиночные сохранения мод не меняет.
+Что установщик меняет в игре: помечает exe игры как способный использовать 4 ГБ памяти вместо 2
+(large address aware; только розничный exe, оригинал сохраняется и возвращается при удалении) и
+собирает Pack1.packed (анимации катсцен, модель Росса) из файлов вашей игры. Одиночные сохранения
+не затрагиваются.
 Вручную: скопируйте содержимое папки «files» в папку игры (если в bin уже был dinput8.dll,
 сохраните его копию).
 

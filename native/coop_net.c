@@ -943,5 +943,9 @@ int coop_net_install(void)
     InitializeCriticalSection(&lock);
     enet_initialize();
     coop_log("coop_net installed %d functions", done);
+    /* 4096 MB once the installer marked the exe large-address-aware (2048 without). */
+    MEMORYSTATUSEX ms = {sizeof ms};
+    if (GlobalMemoryStatusEx(&ms))
+        coop_log("memory: address space %llu MB, %llu MB free", ms.ullTotalVirtual >> 20, ms.ullAvailVirtual >> 20);
     return done;
 }

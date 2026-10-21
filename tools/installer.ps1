@@ -226,6 +226,30 @@ function Do-Install($g) {
     $un = "Uninstall Co-op.bat"
     Set-Content -Path (Join-Path $g $un) -Encoding ASCII -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-installer.ps1" -Uninstall -Game "%~dp0."'
     if ($files -notcontains $un) { $files.Add($un) }
+    # The game's exe made large-address-aware (4 GB of address space instead of 2: SMOD, the
+    # recordings and the co-op bodies all add memory). Only the retail exe this mod is tested
+    # with (SMOD runs it as bin\anselintegrationtestapp.exe); the original is kept and put back
+    # on uninstall. The game started and played with it (0.2.1 tests).
+    foreach ($exe in "bin\Jericho.exe", "bin\anselintegrationtestapp.exe") {
+        $p = Join-Path $g $exe
+        if (-not (Test-Path $p) -or (Get-Item $p).Length -ne 31141888) { continue }
+        $bytes = [IO.File]::ReadAllBytes($p)
+        $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+        $ch = [BitConverter]::ToUInt16($bytes, $pe + 22)
+        if ($ch -band 0x20) { continue }
+        $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes)) -replace "-", ""
+        if ($sha -ne "7FB5B759823283A83B685ADC4848289A149F520DDBAB6DBC7F9E6131B15D2A62") { continue }
+        $bk = Join-Path $g "coop-backup\$exe"
+        if (-not (Test-Path $bk)) {
+            New-Item -ItemType Directory -Force (Split-Path $bk -Parent) | Out-Null
+            Copy-Item $p $bk -Force
+        }
+        if ($backups -notcontains $exe) { $backups.Add($exe) }
+        $ch = $ch -bor 0x20
+        $bytes[$pe + 22] = [byte]($ch -band 0xff)
+        $bytes[$pe + 23] = [byte]($ch -shr 8)
+        [IO.File]::WriteAllBytes($p, $bytes)
+    }
     $script:builtFiles = New-Object System.Collections.Generic.List[string]
     $anims = Build-Anims $g
     if ($anims -eq "ok" -and $files -notcontains "Pack1.packed") { $files.Add("Pack1.packed") }
