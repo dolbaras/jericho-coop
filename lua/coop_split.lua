@@ -555,7 +555,10 @@ end
 function Sp.freeBody(except)
   -- Player 1 without a body (a spirit, coop_spirit.lua) gets the next free one first.
   if CoopSpirit and CoopSpirit.active then return nil end
-  for _, other in ipairs(Sp.ORDER) do
+  -- the seat's own body first (back from a wait: a scene's hidden characters shown again)
+  local order = {Sp.seatChar and Sp.seatChar() or nil}
+  for _, n in ipairs(Sp.ORDER) do order[#order + 1] = n end
+  for _, other in ipairs(order) do
     local e = Game.GetEntity(other)
     if other ~= except and e and e.Life > 0 and e.bActive ~= false and e.Active ~= 0 and
        not Sp.isPlayer1s(other) and Coop.ownerOf(other) == nil and

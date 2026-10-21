@@ -730,6 +730,53 @@ function Coop.startChar()
   end
 end
 
+-- A player left without a body: a first-person scene skipped in its first moments (the host
+-- skips the opening of the desert at once in tests; a fast unanimous skip can too) ended on a
+-- client now and then (1 run in 15 before 0.2.1, a few more since the client keeps its own
+-- scene chains) with the characters the scene hid (Scene.HideChars: Active 0, TimeSpeed 0)
+-- never shown again, the player's body among them. Once no scene or scene camera is up for
+-- 2 s: the game's own Scene.UnhideChars, and the body taken back as the game's switch does.
+Coop.NOBODY_WAIT = 2
+function Coop.reclaimBody()
+  if Coop.level == "levels/menu" or Game.UsrEntity(0) ~= nil then Coop.noBodySince = nil return end
+  if (Scene and Scene.IsPlaying) or Game.GetEntity("InterpolusCamera") or Game.GetEntity("Cameraman") then
+    Coop.noBodySince = nil
+    return
+  end
+  local now = Net.CoopTime()
+  Coop.noBodySince = Coop.noBodySince or now
+  if now - Coop.noBodySince < Coop.NOBODY_WAIT then return end
+  Coop.noBodySince = nil
+  if Scene and Scene.UnhideChars and Scene.HidenChars and next(Scene.HidenChars) then
+    pcall(Scene.UnhideChars)
+    Scene.HidenChars = {}
+    Coop.log("no body after a scene: the scene's hidden characters shown again")
+  end
+  local name = cfg.char
+  if not name or (Coop.owners[name] ~= nil and not Coop.isMine(Coop.owners[name])) then
+    for n, p in pairs(Coop.owners) do
+      if p == Coop.myId() then name = n break end
+    end
+  end
+  local t = name and Game.GetEntity(name)
+  if not t or (t.Life or 0) <= 0 or t.UsrControl == 1 then return end
+  if t.Active == 0 then t.Active = 1 end
+  if t.TimeSpeed == 0 then t.TimeSpeed = 1 end
+  t.UsrControl = 0
+  t.InCtrl_UseFPS = 1
+  t.InCtrl_ResetSlot = 1
+  if t.oAI then t.oAI.bEnable = false end
+  pcall(t.ResetControl, t)
+  local cam = Game.GetEntity("MainCam")
+  if cam then
+    Game.SetCam(0, "MainCam")
+    cam.MainTarget, cam.Target = name, name
+  end
+  if Input.GetActionSet() ~= "Walk" then Input.SetActionSet("Walk") end
+  if Team and Team.ResetUsrAnim then pcall(Team.ResetUsrAnim, t) end
+  Coop.log("no body after a scene: " .. name .. " taken back")
+end
+
 function Coop.updateLocalOwnership()
   local mine = Coop.localChar()
   if not mine then return end
@@ -852,6 +899,13 @@ end
 
 function Coop.update()
   Coop.frame = Coop.frame + 1
+  if Coop.inSession() then
+    local ok, err = pcall(Coop.reclaimBody)
+    if not ok and (Coop.reclaimErrors or 0) < 3 then
+      Coop.reclaimErrors = (Coop.reclaimErrors or 0) + 1
+      Coop.log("reclaim error: " .. tostring(err))
+    end
+  end
   -- (in split screen coop_split.lua runs it per view, unless the screen is whole for a scene)
   if CoopRoss and not (CoopSplit and CoopSplit.on and CoopSplit.shownFor ~= nil) and Coop.level ~= "levels/menu" then
     local ok, err = pcall(CoopRoss.update)

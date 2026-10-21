@@ -1658,3 +1658,43 @@ if cfg.rossprobe and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'faceross': player 2 (split screen) turns toward Ross from tick 200 (act 1: his stand-in in view).
+if cfg.faceross and Coop.level ~= "levels/menu" then
+  local prevFace = Coop.dev
+  function Coop.dev()
+    if prevFace then prevFace() end
+    if Coop.frame < 200 then return end
+    local b = CoopSplit and CoopSplit.on and CoopSplit.body and CoopSplit.body()
+    local r = Game.GetEntity("Ross")
+    if not b or not r then return end
+    local d = r.Pos - b.Pos
+    local yaw = math.deg(math.atan2(-d.x, -d.z))
+    b.IgnoreUsrControl = 1
+    b.Ang = V3D(0, yaw, 0)
+    b.ViewAng = V3D(0, yaw, 0)
+    if Coop.frame % 100 == 0 then
+      local s = Game.GetEntity("CoopRossBody")
+      Coop.log(string.format("faceross: Ross at %s (%.0f away), stand-in %s active %s", Coop.v3(r.Pos),
+        math.sqrt(d.x * d.x + d.z * d.z), s and Coop.v3(s.Pos) or "-", tostring(s and s.Active)))
+    end
+  end
+end
+
+-- 'hidetest': at tick 250 the characters are hidden as a scene hides them (Scene.HideChars) and
+-- left so, as an interrupted scene leaves them (Coop.reclaimBody should bring the player back).
+if cfg.hidetest and Coop.level ~= "levels/menu" then
+  local prevHide = Coop.dev
+  function Coop.dev()
+    if prevHide then prevHide() end
+    if Coop.frame == 250 and Scene and Scene.HideChars then
+      Scene.HideChars()
+      local u = Game.UsrEntity(0)
+      Coop.log("hidetest: characters hidden, user " .. tostring(u and u.Name))
+    end
+    if Coop.frame > 250 and Coop.frame % 30 == 0 and Coop.frame < 600 then
+      local u = Game.UsrEntity(0)
+      Coop.log("hidetest: user " .. tostring(u and u.Name))
+    end
+  end
+end
