@@ -20,8 +20,13 @@ function Show-Msg($text, $icon = "Information") {
     [System.Windows.Forms.MessageBox]::Show($text, "Jericho Co-op", "OK", $icon) | Out-Null
 }
 
+# (Join-Path throws on a drive that does not exist: the D:\Games candidate on a PC without D:)
 function Test-Game($dir) {
-    [bool]$dir -and ((Test-Path (Join-Path $dir "bin\Jericho.exe")) -or (Test-Path (Join-Path $dir "bin\anselintegrationtestapp.exe")))
+    if (-not $dir) { return $false }
+    try {
+        (Test-Path -LiteralPath ([IO.Path]::Combine($dir, "bin\Jericho.exe"))) -or
+            (Test-Path -LiteralPath ([IO.Path]::Combine($dir, "bin\anselintegrationtestapp.exe")))
+    } catch { $false }
 }
 
 # Candidate game folders, most likely first.
@@ -188,7 +193,12 @@ function Do-Install($g) {
     # Files of an older version that this one no longer has.
     foreach ($rel in $old.files) { if ($files -notcontains $rel -and $rel -ne "Pack1.packed") { Remove-Item (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue } }
     # The uninstaller stays in the game folder.
-    foreach ($f in "coop-installer.ps1") { Copy-Item (Join-Path $here $f) (Join-Path $g $f) -Force; if ($files -notcontains $f) { $files.Add($f) } }
+    # (not onto itself when the archive was extracted into the game folder)
+    foreach ($f in "coop-installer.ps1") {
+        $src, $dst = (Join-Path $here $f), (Join-Path $g $f)
+        if ([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($dst)) { Copy-Item $src $dst -Force }
+        if ($files -notcontains $f) { $files.Add($f) }
+    }
     $un = "Uninstall Co-op.bat"
     Set-Content -Path (Join-Path $g $un) -Encoding ASCII -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-installer.ps1" -Uninstall -Game "%~dp0."'
     if ($files -notcontains $un) { $files.Add($un) }
