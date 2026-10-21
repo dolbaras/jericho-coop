@@ -1458,37 +1458,120 @@ if cfg.fpslog and Coop.level ~= "levels/menu" then
   end
 end
 
--- 'p2aim' = '<entity>' (split screen): player 2's body faces that entity and fires in bursts
--- from tick 300; its life is logged every 100 ticks (does player 2 hurt a boss?).
+-- 'p2aim' = '<entity>' (split screen): player 2's body (aimwho = 'p1': player 1's, the
+-- baseline) stands where it sees the boss's weak spot (aimnode, a bone) and fires at it in
+-- bursts from tick 300. Every hit on the boss is logged: attacker, damage, life before and
+-- after its OnDamage (the boss scripts count hits only from "the player").
 if cfg.p2aim and Coop.level ~= "levels/menu" then
   local prevAim = Coop.dev
+  local function shooter()
+    if cfg.aimwho == "p1" then return Game.UsrEntity(0) end
+    return CoopSplit and CoopSplit.on and CoopSplit.body and CoopSplit.body()
+  end
+  local function aimPoint(t)
+    local ok, v = pcall(function() return cfg.aimnode and t["NodePosHierarchy_" .. cfg.aimnode] end)
+    if ok and v then return v end
+    if not Coop.aimNodeMissing then
+      Coop.aimNodeMissing = true
+      Coop.log("p2aim: no node " .. tostring(cfg.aimnode) .. ", aiming " .. tostring(cfg.aimh or 120) .. " above the feet")
+    end
+    return t.Pos + V3D(0, cfg.aimh or 120, 0)
+  end
   function Coop.dev()
     if prevAim then prevAim() end
-    if Coop.frame < 300 then return end
-    -- (aimwho = 'p1': the same with player 1's body, the baseline)
-    local b
-    if cfg.aimwho == "p1" then b = Game.UsrEntity(0)
-    elseif CoopSplit and CoopSplit.on and CoopSplit.body then b = CoopSplit.body() end
     local t = Game.GetEntity(cfg.p2aim)
+    -- the hit log, outermost (after the co-op story wrapper)
+    if t and not Coop.aimHooked then
+      -- (aimhook: the boss class's damage callback, e.g. 'Gladiador.OnDamage')
+      local fname = cfg.aimhook
+      local tname, f
+      if type(fname) == "string" then tname, f = string.match(fname, "^([%w_]+)%.([%w_]+)$") end
+      local tbl = tname and _G[tname]
+      if tbl and type(tbl[f]) == "function" then
+        Coop.aimHooked = true
+        local orig = tbl[f]
+        tbl[f] = function(me, attacker, dmg, ...)
+          local e = Game.GetEntity(me)
+          local before = e and e.Life
+          -- the body part the engine says was hit (the bosses count only their weak spot)
+          local part = "-"
+          pcall(function()
+            local pc = e.oWeapHit.oBodyPiece
+            if pc and pc.bIsRagdollPart then part = pc.oRagDollDamagePart.Name end
+          end)
+          local listed = e and e.uData and e.uData.DamagedParts ~= nil
+          local r = {orig(me, attacker, dmg, ...)}
+          if me == cfg.p2aim then
+            local u = Game.UsrEntity(0)
+            Coop.log(string.format("p2aim hit: %s by %s, part %s%s, damage %.1f, life %.1f -> %.1f (player 0 outside: %s)",
+              tostring(me), tostring(attacker), part, listed and " (explosion list)" or "", tonumber(dmg) or -1,
+              before or -1, e and e.Life or -1, u and u.Name or "-"))
+          end
+          return unpack(r)
+        end
+        Coop.log("p2aim: hit log on " .. fname)
+      end
+    end
+    -- the boss fight on (aimgroup: the boss's enemy group, as the level's arena trigger does)
+    if cfg.aimgroup and Coop.frame == 250 then
+      Coop.log("p2aim: fight on, group " .. cfg.aimgroup .. ": " .. tostring(pcall(NPC.ActivateEnemyGroup, cfg.aimgroup)))
+    end
+    -- (aimprobe: a hit coming later, outside player 2's own calls - a mine, an explosion:
+    -- the boss's damage callback called with player 2 as the attacker and no damage; the hit
+    -- log shows who the boss sees as "the player" then)
+    if cfg.aimprobe and Coop.frame == 400 and Coop.aimHooked then
+      local p2 = CoopSplit and CoopSplit.body and CoopSplit.body()
+      local tname, f = string.match(cfg.aimhook or "", "^([%w_]+)%.([%w_]+)$")
+      if p2 and tname and _G[tname] then
+        Coop.log("p2aim: probe, " .. cfg.aimhook .. " for " .. p2.Name .. " from outside its calls")
+        local ok, err = pcall(_G[tname][f], cfg.p2aim, p2.Name, 0)
+        if not ok then Coop.log("p2aim: probe error " .. tostring(err)) end
+      end
+    end
+    if Coop.frame < 300 then return end
+    local b = shooter()
     if not b or not t then
-      if Coop.frame % 300 == 0 then Coop.log("p2aim: no " .. (b and cfg.p2aim or "player 2 body")) end
+      if Coop.frame % 300 == 0 then Coop.log("p2aim: no " .. (b and cfg.p2aim or "shooter")) end
       return
     end
-    local d = t.Pos - b.Pos
+    local tgt = aimPoint(t)
+    -- a spot 300 units out with a clear line to the weak spot, tried around the boss
+    if not Coop.aimSpot or Coop.frame % 120 == 0 then
+      Coop.aimSpot = nil
+      for k = 0, 11 do
+        local a = (k / 12) * 2 * math.pi
+        -- (eyes level with the weak spot: a player body's view pitch follows its camera, not
+        -- ViewAng, so the shot goes straight ahead)
+        local spot = V3D(tgt.x + math.cos(a) * 300, tgt.y - 120, tgt.z + math.sin(a) * 300)
+        local eye = spot + V3D(0, 120, 0)
+        local hit = Game.TestLine(eye, tgt, "")
+        if not hit or (hit - tgt):mod() < 40 then Coop.aimSpot = spot break end
+      end
+      Coop.aimSpot = Coop.aimSpot or (tgt + V3D(0, 0, 300))
+    end
+    b.Pos = Coop.aimSpot   -- held there every frame (in the air if need be)
+    local eye = b.Pos + V3D(0, 120, 0)
+    local d = tgt - eye
     local yaw = math.deg(math.atan2(-d.x, -d.z))
     local flat = math.sqrt(d.x * d.x + d.z * d.z)
-    local pitch = -math.deg(math.atan2(d.y + 80, flat))
+    local pitch = -math.deg(math.atan2(d.y, flat))
     b.IgnoreUsrControl = 1
+    b.Invulnerable = 1
     b.Ang = V3D(0, yaw, 0)
     b.ViewAng = V3D(pitch, yaw, 0)
-    if flat > 400 then
-      b.Pos = t.Pos + V3D(d.x / flat * -250, 0, d.z / flat * -250)
-      pcall(Game.SetOnFloor, b.Name)
+    if b.owc then
+      if cfg.aimfire2 then
+        -- the secondary weapon (Cole's mine launcher): held 1 s of every 3 s
+        b.owc.Shot = 0
+        b.owc.SecondWeaponTrigger = (Coop.frame % 90 < 30) and 1 or 0
+      else
+        b.owc.Shot = (Coop.frame % 40 < 25) and 1 or 0
+      end
     end
-    if b.owc then b.owc.Shot = (Coop.frame % 40 < 25) and 1 or 0 end
     if Coop.frame % 100 == 0 then
-      Coop.log(string.format("p2aim: %s life %.0f (active %s, ai %s, invulnerable %s), %s at %.0f units", t.Name, t.Life or -1,
-        tostring(t.bActive), tostring(t.oAI and t.oAI.bEnable), tostring(t.Invulnerable), b.Name, flat))
+      Coop.log(string.format("p2aim: %s life %.0f (active %s), %s at %.0f units; target %s, boss at %s, shooter at %s, view %s",
+        t.Name, t.Life or -1, tostring(t.bActive), b.Name, flat, Coop.v3(tgt), Coop.v3(t.Pos), Coop.v3(b.Pos),
+        tostring(b.ViewAng and Coop.v3(b.ViewAng))))
     end
   end
 end

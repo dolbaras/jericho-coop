@@ -267,30 +267,168 @@ static HRESULT draw_scissored(IDirect3DDevice9 *dev, const hud_draw *g, LONG l, 
     return do_draw(dev, g);
 }
 
+static void *patch(void **vt, int slot, void *hook);
+static DWORD last_vb_usage;     /* the vertex buffer is_overlay looked at last (trace) */
+static int last_vb_pool = -1;
+
+/* Review 0.2 #5: the HUD's quads come from a dynamic write-only vertex buffer (trace 0.2.1:
+   usage 0x208, default pool), and reading such a buffer back is not guaranteed by Direct3D. The
+   engine's own writes are kept instead: Lock/Unlock of those buffers are hooked and the range
+   the engine just wrote is copied at Unlock (its fresh data, not the buffer's old contents). */
+#define VT_VB_LOCK 11
+#define VT_VB_UNLOCK 12
+#define SHADOW_MAX_COPY (256 * 1024)
+typedef HRESULT (WINAPI *VBLock_t)(IDirect3DVertexBuffer9 *, UINT, UINT, void **, DWORD);
+typedef HRESULT (WINAPI *VBUnlock_t)(IDirect3DVertexBuffer9 *);
+static VBLock_t real_VBLock;
+static VBUnlock_t real_VBUnlock;
+typedef struct {
+    IDirect3DVertexBuffer9 *vb;   /* compared only, no reference */
+    UINT size;
+    unsigned char *mem;
+    unsigned char *valid;          /* one byte per 64-byte block: written since the last discard */
+    void *ptr;                     /* the engine's pointer while locked */
+    UINT off, len;
+} vb_shadow;
+static vb_shadow shadows[8];
+static int shadow_traced;
+
+static vb_shadow *shadow_of(IDirect3DVertexBuffer9 *vb)
+{
+    for (int i = 0; i < 8; i++)
+        if (shadows[i].vb == vb)
+            return &shadows[i];
+    return NULL;
+}
+
+static HRESULT WINAPI hook_VBLock(IDirect3DVertexBuffer9 *vb, UINT off, UINT size, void **pp, DWORD flags)
+{
+    HRESULT hr = real_VBLock(vb, off, size, pp, flags);
+    vb_shadow *s = shadow_of(vb);
+    if (!s)
+        return hr;
+    s->ptr = NULL;
+    if (flags & D3DLOCK_DISCARD)
+        memset(s->valid, 0, (s->size + 63) / 64);
+    if (SUCCEEDED(hr) && pp && *pp && off < s->size) {
+        UINT len = size ? size : s->size - off;
+        if (len > s->size - off)
+            len = s->size - off;
+        if (len <= SHADOW_MAX_COPY)
+            s->ptr = *pp, s->off = off, s->len = len;
+        if (trace_frames > 0 && shadow_traced < 40) {
+            shadow_traced++;
+            coop_log("split trace: hud vb lock off %u size %u flags 0x%lx%s", off, size, (unsigned long)flags,
+                     len > SHADOW_MAX_COPY ? " (too big to keep)" : "");
+        }
+    }
+    return hr;
+}
+
+static HRESULT WINAPI hook_VBUnlock(IDirect3DVertexBuffer9 *vb)
+{
+    vb_shadow *s = shadow_of(vb);
+    if (s && s->ptr) {
+        memcpy(s->mem + s->off, s->ptr, s->len);
+        memset(s->valid + s->off / 64, 1, (s->off + s->len + 63) / 64 - s->off / 64);
+        s->ptr = NULL;
+    }
+    return real_VBUnlock(vb);
+}
+
+/* The shadow of a dynamic write-only buffer, made on first sight (its Lock/Unlock hooked then). */
+static vb_shadow *shadow_for(IDirect3DVertexBuffer9 *vb, const D3DVERTEXBUFFER_DESC *desc)
+{
+    vb_shadow *s = shadow_of(vb);
+    if (s && s->size == desc->Size)
+        return s;
+    if (!s) {
+        for (int i = 0; i < 8 && !s; i++)
+            if (!shadows[i].vb)
+                s = &shadows[i];
+        if (!s)
+            return NULL;
+    }
+    unsigned char *mem = (unsigned char *)realloc(s->mem, desc->Size);
+    if (mem)
+        s->mem = mem;
+    unsigned char *valid = (unsigned char *)realloc(s->valid, (desc->Size + 63) / 64);
+    if (valid)
+        s->valid = valid;
+    if (!mem || !valid) {
+        s->vb = NULL;
+        return NULL;
+    }
+    s->size = desc->Size, s->vb = vb, s->ptr = NULL;
+    memset(s->valid, 0, (desc->Size + 63) / 64);
+    if (!real_VBLock) {
+        void **vt = *(void ***)vb;
+        real_VBLock = (VBLock_t)patch(vt, VT_VB_LOCK, (void *)hook_VBLock);
+        real_VBUnlock = (VBUnlock_t)patch(vt, VT_VB_UNLOCK, (void *)hook_VBUnlock);
+        coop_log("split: HUD vertex buffer kept from the engine's writes (usage 0x%lx, %u bytes)",
+                 (unsigned long)desc->Usage, desc->Size);
+    }
+    return s;
+}
+
+static int shadow_has(const vb_shadow *s, UINT from, UINT len)
+{
+    if (!len || from + len > s->size)
+        return 0;
+    for (UINT b = from / 64; b <= (from + len - 1) / 64; b++)
+        if (!s->valid[b])
+            return 0;
+    return 1;
+}
+
 /* A single quad (2 triangles) across most of the HUD: a fade or a full-screen overlay, drawn
-   as it is over the picture. Read from the vertex buffer (the position comes first). */
+   as it is over the picture. The position comes first in each vertex. */
 static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
 {
     if ((g->indexed != 0 && g->indexed != 2) || g->n != 2 ||
         (g->t != D3DPT_TRIANGLELIST && g->t != D3DPT_TRIANGLESTRIP && g->t != D3DPT_TRIANGLEFAN))
         return 0;
     UINT nverts = g->t == D3DPT_TRIANGLELIST ? 6 : 4;
-    IDirect3DVertexBuffer9 *vb = NULL;
-    UINT off = 0, stride = g->stride;
+    UINT stride = g->stride;
     const void *p = g->v;
+    last_vb_usage = 0, last_vb_pool = -1;
     if (g->indexed == 0) {
+        IDirect3DVertexBuffer9 *vb = NULL;
+        UINT off = 0;
+        p = NULL;
         if (FAILED(IDirect3DDevice9_GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb)
             return 0;
-        void *lp = NULL;
-        if (stride < 12 || FAILED(IDirect3DVertexBuffer9_Lock(vb, off + g->start * stride, nverts * stride, &lp,
-                                                               D3DLOCK_READONLY)))
-            lp = NULL;
-        p = lp;
+        D3DVERTEXBUFFER_DESC desc;
+        if (stride >= 12 && SUCCEEDED(IDirect3DVertexBuffer9_GetDesc(vb, &desc))) {
+            last_vb_usage = desc.Usage, last_vb_pool = (int)desc.Pool;
+            UINT from = off + g->start * stride, len = nverts * stride;
+            if ((desc.Usage & D3DUSAGE_WRITEONLY) || desc.Pool == D3DPOOL_DEFAULT) {
+                /* never read back: the engine's writes, kept */
+                vb_shadow *s = shadow_for(vb, &desc);
+                if (s && shadow_has(s, from, len))
+                    p = s->mem + from;
+            } else {
+                /* a buffer in system or managed memory reads back as written */
+                static unsigned char copy[16 * 64];
+                void *lp = NULL;
+                if (len <= sizeof copy &&
+                    SUCCEEDED(IDirect3DVertexBuffer9_Lock(vb, from, len, &lp, D3DLOCK_READONLY)) && lp) {
+                    memcpy(copy, lp, len);
+                    p = copy;
+                    IDirect3DVertexBuffer9_Unlock(vb);
+                }
+            }
+        }
+        IDirect3DVertexBuffer9_Release(vb);
+        if (!p)
+            return 0;
     }
+    if (stride < 12)
+        return 0;
     DWORD fvf = 0;
     IDirect3DDevice9_GetFVF(dev, &fvf);
     int full = 0;
-    if (p && stride >= 12 && (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW) {
+    if ((fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW) {
         float minx = 1e9f, maxx = -1e9f;
         for (UINT i = 0; i < nverts; i++) {
             float x = *(const float *)((const char *)p + i * stride);
@@ -298,11 +436,12 @@ static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
             if (x > maxx) maxx = x;
         }
         full = maxx - minx > 0.6f * cur_vp.Width;
-    } else if (p && stride >= 12) {
+    } else {
         D3DMATRIX w, v, pr;
-        IDirect3DDevice9_GetTransform(dev, D3DTS_WORLD, &w);
-        IDirect3DDevice9_GetTransform(dev, D3DTS_VIEW, &v);
-        IDirect3DDevice9_GetTransform(dev, D3DTS_PROJECTION, &pr);
+        if (FAILED(IDirect3DDevice9_GetTransform(dev, D3DTS_WORLD, &w)) ||
+            FAILED(IDirect3DDevice9_GetTransform(dev, D3DTS_VIEW, &v)) ||
+            FAILED(IDirect3DDevice9_GetTransform(dev, D3DTS_PROJECTION, &pr)))
+            return 0;
         const D3DMATRIX *m[3] = {&w, &v, &pr};
         float minx = 1e9f, maxx = -1e9f;
         for (UINT i = 0; i < nverts; i++) {
@@ -320,10 +459,6 @@ static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
         }
         full = maxx - minx > 1.2f;
     }
-    if (vb) {
-        if (p) IDirect3DVertexBuffer9_Unlock(vb);
-        IDirect3DVertexBuffer9_Release(vb);
-    }
     return full;
 }
 
@@ -332,7 +467,9 @@ static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hu
     real_SetViewport(dev, pic);
     int overlay = hud_edges && mode == 2 && is_overlay(dev, g);
     if (trace_frames > 0 && g->n == 2)
-        coop_log("split trace: 2-triangle draw, overlay %d, texture %p", overlay, (void *)bound_texture(dev));
+        coop_log("split trace: 2-triangle draw (%s), overlay %d, texture %p, vb usage 0x%lx pool %d",
+                 g->indexed == 0 ? "vb" : g->indexed == 2 ? "up" : "indexed", overlay, (void *)bound_texture(dev),
+                 (unsigned long)last_vb_usage, last_vb_pool);
     if (!hud_edges || mode != 2 || overlay)
         return do_draw(dev, g);
     DWORD sc = FALSE;
