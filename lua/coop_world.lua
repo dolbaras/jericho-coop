@@ -184,8 +184,10 @@ function W.report()
   local doors, dead = 0, 0
   for _ in pairs(W.doors or {}) do doors = doors + 1 end
   for _ in pairs(W.dead or {}) do dead = dead + 1 end
-  return string.format("world: sent=%d replayed=%d doors=%d dead=%d digest_misses=%d", W.sent or 0, W.replayed or 0,
-    doors, dead, W.digestMisses or 0)
+  local props = 0
+  for _ in pairs(W.props or {}) do props = props + 1 end
+  return string.format("world: sent=%d replayed=%d doors=%d dead=%d digest_misses=%d props=%d moved_sent=%d moved_set=%d prop_errors=%d",
+    W.sent or 0, W.replayed or 0, doors, dead, W.digestMisses or 0, props, W.propsSent or 0, W.propsSet or 0, W.propErrors or 0)
 end
 
 ------------------------------------------------------------------------------
@@ -202,6 +204,9 @@ end
 --   wdneed                 client -> host after two differing digests in a row
 --   wstate|D:name+;K:name  host -> one client: every door and dead object (catch-up, resend)
 --   blk|<name>|1/0         host -> clients: an invisible blocker's collision (B: in wstate)
+--   mv|name,x,y,z,ax,ay,az;...  map props moved (pushed, thrown, knocked over) that came to
+--                          rest: from the machine that moved them to the host, which sets
+--                          them and sends them on; also to a peer that joins
 ------------------------------------------------------------------------------
 W.doors = {}      -- name -> true open / false closed, as set on this machine
 W.objects = {}    -- name -> last seen alive (physics objects created with Life)
@@ -217,10 +222,17 @@ W.OBJECT_POLL = 0.25
 
 local function now() return Net.CoopTime() end
 
+-- A map prop, not a part of a character's ragdoll ("Bip ..." bones are PxBodyPhysics too; setting
+-- their Life killed a squad member's body part in a test) nor a piece a break leaves (each
+-- machine makes its own).
+function W.isProp(name)
+  return type(name) == "string" and #name < 64 and not string.find(name, "Bip", 1, true) and
+         not string.find(string.lower(name), "piece", 1, true)
+end
+
 function W.trackObject(o)
   local ok, name, life = pcall(function() return o.Name, tonumber(o.Life) end)
-  -- "Bip ..." are the bones of characters' ragdolls (PxBodyPhysics too), not props.
-  if ok and type(name) == "string" and life and life > 0 and #name < 64 and string.sub(name, 1, 4) ~= "Bip " then
+  if ok and W.isProp(name) and life and life > 0 then
     W.objects[name] = true
   end
 end
@@ -254,14 +266,21 @@ function W.installObjects()
     -- an error per read (coop_enemies.lua isEnemy). Physics props are PxBodyPhysics.
     -- Only the map's props ("OB_..."): other physics bodies are parts of characters
     -- (ragdolls); setting their Life killed a squad member's body part in a test.
+    -- Any name: the levels' crates, barrels, bottles, chairs, lamps are "Pedro548" and the
+    -- like, and only "OB_..." ones were tracked before 0.2.3 (a box broken on one machine
+    -- stayed whole on the other, owner's report).
     local ok, body = pcall(function() return e:IsType("PxBodyPhysics") end)
-    if ok and body and string.sub(tostring(e.Name), 1, 3) == "OB_" then
+    if ok and body and W.isProp(e.Name) then
+      local before = W.objects[e.Name]
       W.trackObject(e)
-      n = n + 1
+      if W.objects[e.Name] and not before then n = n + 1 end
+      W.trackProp(e)
     end
     e = Game.GetEntity(e.NextInSlot)
   end
-  Coop.log("world: doors and objects tracked (" .. n .. " objects found on the map)")
+  local m = 0
+  for _ in pairs(W.props) do m = m + 1 end
+  Coop.log("world: doors and objects tracked (" .. n .. " breakable, " .. m .. " movable props on the map)")
   W.findBlockers()
 end
 
@@ -460,6 +479,104 @@ function W.pollObjects()
   end
 end
 
+-- Map props that can be moved (pushed, thrown, knocked over): where the host has them once
+-- they rest. Before 0.2.3 each machine moved its own copies (a crate one player pushed stood
+-- elsewhere for the others). Not kinematic ones (animated, doors) nor jointed ones (chains,
+-- hanging lamps): those go back to where they hang.
+W.props = {}       -- name -> {x, y, z} where the host last said (or where it started)
+W.PROP_POLL = 1
+W.PROP_MOVED = 30  -- units from where it was said before
+W.PROP_REST = 2    -- units it may move between two polls and still be at rest
+function W.trackProp(e)
+  local ok, kin, pos = pcall(function() return tonumber(e.Kinematic) or 0, e.Pos end)
+  if not ok or kin ~= 0 or not pos or W.doors[e.Name] ~= nil then return end
+  W.props[e.Name] = {pos.x, pos.y, pos.z}
+end
+
+local function propLine(name, e)
+  local p, a = e.Pos, e.Ang
+  return string.format("%s,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f", name, p.x, p.y, p.z, a.x, a.y, a.z)
+end
+
+local function sendLines(peer, lines)
+  local part, size = {}, 0
+  for _, l in ipairs(lines) do
+    part[#part + 1] = l
+    size = size + #l + 1
+    if size > 900 then
+      Net.CoopSend(peer, 1, "mv|" .. table.concat(part, ";"))
+      part, size = {}, 0
+    end
+  end
+  if #part > 0 then Net.CoopSend(peer, 1, "mv|" .. table.concat(part, ";")) end
+end
+
+-- Every second: props that moved here away from where they were said to be and now rest (a
+-- client's own player pushes props on its machine only: the host's copy of that body passes
+-- through them).
+function W.pollProps()
+  if now() < (W.nextPropPoll or 0) then return end
+  W.nextPropPoll = now() + W.PROP_POLL
+  W.lastPropPos = W.lastPropPos or {}
+  local lines = {}
+  for name, said in pairs(W.props) do
+    local e = Game.GetEntity(name)
+    local ok, p = pcall(function() return e and e.Pos end)
+    if not e or W.dead[name] then
+      W.props[name], W.lastPropPos[name] = nil, nil
+    elseif ok and p then
+      local last = W.lastPropPos[name]
+      W.lastPropPos[name] = {p.x, p.y, p.z}
+      local dx, dy, dz = p.x - said[1], p.y - said[2], p.z - said[3]
+      if last and dx * dx + dy * dy + dz * dz > W.PROP_MOVED * W.PROP_MOVED then
+        local rx, ry, rz = p.x - last[1], p.y - last[2], p.z - last[3]
+        if rx * rx + ry * ry + rz * rz < W.PROP_REST * W.PROP_REST then
+          W.props[name] = {p.x, p.y, p.z, moved = true}
+          lines[#lines + 1] = propLine(name, e)
+        end
+      end
+    end
+  end
+  if #lines > 0 then
+    sendLines(Coop.isHost() and -1 or 0, lines)
+    W.propsSent = (W.propsSent or 0) + #lines
+  end
+end
+
+-- Every prop the host has moved, to a peer that joins.
+function W.sendProps(peer)
+  local lines = {}
+  for name, said in pairs(W.props) do
+    local e = said.moved and Game.GetEntity(name)
+    if e then lines[#lines + 1] = propLine(name, e) end
+  end
+  if #lines > 0 then sendLines(peer, lines) end
+end
+
+-- Another machine's places for props, where they are not already; they are where they were
+-- said to be from now on (not sent back as moved here).
+function W.applyProps(text)
+  for item in string.gmatch(text or "", "[^;]+") do
+    local name, x, y, z, ax, ay, az = string.match(item, "^(.-),(%-?[%d%.]+),(%-?[%d%.]+),(%-?[%d%.]+),(%-?[%d%.]+),(%-?[%d%.]+),(%-?[%d%.]+)$")
+    local e = name and not W.dead[name] and Game.GetEntity(name)
+    if e then
+      x, y, z = tonumber(x), tonumber(y), tonumber(z)
+      if W.props[name] then W.props[name] = {x, y, z, moved = true} end
+      if W.lastPropPos then W.lastPropPos[name] = nil end
+      local ok = pcall(function()
+        local p = e.Pos
+        local dx, dy, dz = p.x - x, p.y - y, p.z - z
+        if dx * dx + dy * dy + dz * dz > W.PROP_MOVED * W.PROP_MOVED then
+          e.Pos = V3D(x, y, z)
+          e.Ang = V3D(tonumber(ax), tonumber(ay), tonumber(az))
+          W.propsSet = (W.propsSet or 0) + 1
+        end
+      end)
+      if not ok then W.propErrors = (W.propErrors or 0) + 1 end
+    end
+  end
+end
+
 function W.entries()
   local t = {}
   for name, open in pairs(W.doors) do
@@ -489,6 +606,7 @@ end
 function W.sendState(peer)
   local t = W.entries()
   Net.CoopSend(peer, 1, "wstate|" .. table.concat(t, ";"))
+  W.sendProps(peer)
   Coop.log("world: state sent to peer " .. peer .. " (" .. #t .. " entries)")
 end
 
@@ -521,6 +639,7 @@ function W.update()
   W.installFPAnm()
   W.pollObjects()
   if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
+  if Coop.cfg.syncprops ~= false then W.pollProps() end
   local okr, errr = pcall(W.updateRejoin)
   if not okr and (W.rejoinErrors or 0) < 3 then
     W.rejoinErrors = (W.rejoinErrors or 0) + 1
@@ -540,7 +659,19 @@ function W.onObjectMessage(peer, f)
   local kind = f[1]
   -- Messages queued while this machine loaded the level are handled before the first tick:
   -- the door wrappers must exist first, or a door would be recorded open but stay shut.
-  if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" or kind == "blk" then W.installObjects() end
+  if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" or kind == "blk" or kind == "mv" then W.installObjects() end
+  if kind == "mv" then
+    if Coop.cfg.syncprops ~= false then
+      local text = string.sub(table.concat(f, "|"), 4)
+      if Coop.isClient() and peer == 0 then
+        W.applyProps(text)
+      elseif Coop.isHost() and peer ~= 0 then
+        W.applyProps(text)
+        Net.CoopSend(-1, 1, "mv|" .. text)
+      end
+    end
+    return true
+  end
   if kind == "door" and Coop.isClient() then
     W.setDoor(f[2], f[3] == "1")
     if f[3] ~= "1" then W.onShut(f[2]) end
