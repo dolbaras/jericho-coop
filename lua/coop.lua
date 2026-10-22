@@ -688,6 +688,24 @@ function Coop.mirrorArms(e, name, st)
   end
 end
 
+-- Crouching (the game has it standing still only: a step stands up): the puppet stood upright
+-- (0.2.2 check). Its crouch input alone does not take (the body here is placed, not walked):
+-- the owner's Duck action is played as it comes, and standing up when it ends.
+function Coop.syncCrouch(e, name, st)
+  local act = tostring(st.action)
+  local duck = string.find(act, "^Duck") ~= nil
+  local now = string.find(tostring(e.Action), "^Duck") ~= nil
+  local v = duck and 1 or 0
+  if e.InCtrl_Crouch ~= v then e.InCtrl_Crouch = v end
+  if duck == now then return end
+  local cls = Act.GetClass(e.ActCtrl ~= "" and e.ActCtrl or name)
+  local want = duck and act or "Relax"
+  if cls and cls:GetAct(want) then
+    e.ForceAction = want
+    if Coop.cfg.mirrorlog then Coop.log("crouch: " .. name .. " -> " .. want) end
+  end
+end
+
 function Coop.drivePuppets(dt)
   -- Scenes freeze and hide the squad (Scene.HideChars); puppets resume afterwards.
   if Scene and Scene.IsPlaying then return end
@@ -736,10 +754,7 @@ function Coop.drivePuppets(dt)
         e.InCtrl_Walk = tg.st.walk
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
-        -- Crouching (the game has it standing still only: a step stands up), held while the
-        -- owner's body plays a Duck action; the puppet stood upright before (0.2.2 check).
-        local duck = string.find(tostring(tg.st.action), "^Duck") and 1 or 0
-        if e.InCtrl_Crouch ~= duck then e.InCtrl_Crouch = duck end
+        Coop.syncCrouch(e, name, tg.st)
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1

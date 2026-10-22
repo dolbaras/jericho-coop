@@ -10,8 +10,8 @@
 # the longest step, building the cutscene animations from the game's files, reports file by file.
 # -Quiet: no window, the same steps written to the console (test scripts, the SMOD bundle).
 # -Game without -Uninstall starts installing into that folder right away.
-# Usage: coop-installer.ps1 [-Game <folder>] [-Uninstall] [-Quiet]
-param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $IgnoreRunning)
+# Usage: coop-installer.ps1 [-Game <folder>] [-Uninstall] [-Quiet] [-Lang en|ru|de|fr|es|it]
+param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $IgnoreRunning, [string] $Lang = "")
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $payload = Join-Path $here "files"
@@ -440,7 +440,7 @@ $S = @{
 }
 # Windows' own language when there is a translation, else English; the window has a list too.
 $script:langs = [ordered]@{ en = "English"; ru = "Русский"; de = "Deutsch"; fr = "Français"; es = "Español"; it = "Italiano" }
-$script:lang = (Get-UICulture).TwoLetterISOLanguageName
+$script:lang = if ($Lang) { $Lang.ToLower() } else { (Get-UICulture).TwoLetterISOLanguageName }
 if (-not $script:langs.Contains($script:lang)) { $script:lang = (Get-Culture).TwoLetterISOLanguageName }
 if (-not $script:langs.Contains($script:lang)) { $script:lang = "en" }
 function L($key) {
