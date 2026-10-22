@@ -317,6 +317,12 @@ function Coop.sendStates()
         Net.CoopSend(-1, 0, Coop.stateOf(e))
       end
     end
+    -- Act 1's Ross is not one of the six: his state was never sent, so the other machines'
+    -- stand-in stood where he appeared and his flashlight never showed (owner's Steam test, 0.2.1).
+    if Coop.actOne() and not Coop.isRemoteOwned("Ross") then
+      local r = Game.GetEntity("Ross")
+      if r and r.bActive ~= false then Net.CoopSend(-1, 0, Coop.stateOf(r)) end
+    end
     -- Relay remote players' latest states to the other clients.
     for name, st in pairs(Coop.remote) do
       if Coop.isRemoteOwned(name) and not Coop.storyDriven[name] and st.raw then
@@ -527,10 +533,10 @@ function Coop.drivePuppets(dt)
     if e and e.Life and e.Life > 0 then
       local tg = Coop.isPuppet(name) and st and Coop.puppetTarget(name, now)
       if tg then
-        if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+        if e.oAI and e.oAI.bEnable and not cfg.puppetai then e.oAI.bEnable = false end
         -- The network places this body: colliding with the local player or other soldiers
         -- made them shove each other and the body shook (fork MAK-PIVO/jericho-coop).
-        if Coop.puppetNoCollide[name] == nil then
+        if Coop.puppetNoCollide[name] == nil and cfg.puppetcollide ~= true then
           local ok, was = pcall(function() return e.bIgnoreCollision end)
           Coop.puppetNoCollide[name] = ok and was or false
           pcall(function() e.bIgnoreCollision = true end)
@@ -582,16 +588,24 @@ end
 -- with a projector texture (else it lights all around); bLightOverShoot adds a second spot
 -- the opposite way; Del takes effect on the next frame.
 Coop.FLASH_NODE = "NodePosHierarchy_DF_Burst_A"
+Coop.LIGHT_BODIES = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black", "Ross"}
 
 function Coop.puppetLights()
   if cfg.puppetlights == false then return end
   local scene = Scene and Scene.IsPlaying
-  for _, name in ipairs(Coop.SQUAD) do
+  for _, name in ipairs(Coop.LIGHT_BODIES) do
     local id = "CoopFlash" .. name
     -- Looked up only once made (the engine logs every lookup of a missing entity).
     Coop.flashLights = Coop.flashLights or {}
     local light = Coop.flashLights[name] and Game.GetEntity(id)
-    local e = Coop.squadEnt(name)
+    local e
+    if name == "Ross" then
+      -- Act 1: another machine's Ross is shown by his stand-in (coop_ross.lua).
+      e = CoopRoss and Coop.actOne() and CoopRoss.body()
+      if e and e.Active == 0 then e = nil end
+    else
+      e = Coop.squadEnt(name)
+    end
     local st = Coop.remote[name]
     -- A split screen player's body (coop_split.lua) is driven here, its flashlight too.
     local p2 = CoopSplit and CoopSplit.on and CoopSplit.char == name

@@ -2598,3 +2598,40 @@ if cfg.splitface and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'targetprobe' (host, with 'fight'): every 100 ticks, whether coop_enemies.lua's target hook is
+-- still in place, how often the game asked for a target, and whom each active enemy attacks
+-- (AI_ObjectiveDin) - do enemies ever go for a network player's body?
+if cfg.targetprobe and Coop.isHost() and Coop.level ~= "levels/menu" then
+  local prevTp = Coop.dev
+  Coop.tpCalls = 0
+  function Coop.dev()
+    if prevTp then prevTp() end
+    if not Coop.tpWrapped and AIEnemy and AIEnemy.FindMemb then
+      Coop.tpWrapped = true
+      for _, fn in ipairs({"FindMemb", "FindMembVisNear", "FindMembRandom", "BehavAttackGen", "DoAttack"}) do
+        local orig = AIEnemy[fn]
+        if type(orig) == "function" then
+          AIEnemy[fn] = function(...)
+            Coop.tpCalls = Coop.tpCalls + 1
+            Coop.tpLast = fn
+            return orig(...)
+          end
+        end
+      end
+    end
+    if Coop.frame % 100 ~= 0 then return end
+    local hooked = CoopEnemies and AIMemberSquad and CoopEnemies.targetingInstalled and
+                   debug.getinfo(AIMemberSquad.IsEnable, "S").source
+    local targets = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 and e.oAI and e.oAI.bEnable then
+        targets[#targets + 1] = e.Name .. ">" .. tostring(e.AI_ObjectiveDin)
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    Coop.log(string.format("targetprobe: IsEnable from %s calls %d last %s rtargets %s | %s", tostring(hooked),
+      Coop.tpCalls, tostring(Coop.tpLast), tostring(CoopEnemies.stats.remoteTargets), table.concat(targets, " ")))
+  end
+end

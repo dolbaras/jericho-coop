@@ -1020,9 +1020,67 @@ function E.onMessage(peer, f)
   return true
 end
 
+-- The engine itself hands enemies their targets, among squad bodies whose AI is on (the Lua
+-- target functions above are not even called in fights: dev 'targetprobe', 0.2.2). A network
+-- player's body has its AI off (the network drives it), so enemies never went for the other
+-- players: the host's squad took every attack, the clients none (owner's Steam test, 0.2.1:
+-- 0 remote targets all game, 2 damage events a level). Every second, an enemy whose target is
+-- clearly farther than a human player's body it can see goes for that body, the game's own
+-- way (AIEnemy.DoAttack); then it keeps its target for a few seconds.
+E.RETARGET_EVERY = 20       -- ticks
+E.RETARGET_HOLD = 4         -- seconds an enemy keeps a target it was given
+E.RETARGET_NEARER = 0.8     -- the human must be at most this share of the current target's distance
+E.RETARGET_RANGE = 3000
+E.retargetAt = {}
+function E.retarget()
+  if Coop.cfg.retarget == false or not (AIEnemy and AIEnemy.DoAttack) then return end
+  local humans = {}
+  for name in pairs(Coop.owners or {}) do
+    if Coop.isRemoteOwned(name) and not (Coop.storyDriven and Coop.storyDriven[name]) then
+      local b = Game.GetEntity(name)
+      if b and (b.Life or 0) > 0 and b.bActive ~= false and b.Active ~= 0 then humans[#humans + 1] = b end
+    end
+  end
+  if #humans == 0 then return end
+  local now = Game.GetTime()
+  local e = Game.GetFirst()
+  while e ~= nil do
+    if isEnemy(e) and (e.Life or 0) > 0 and e.oAI and e.oAI.bEnable and (E.retargetAt[e.Name] or 0) <= now then
+      local cur = e.AI_ObjectiveDin or ""
+      if not Coop.isRemoteOwned(cur) then
+        local curEnt = cur ~= "" and Game.GetEntity(cur)
+        local curD = curEnt and (curEnt.Pos - e.Pos):mod2D() or math.huge
+        local best, bestD
+        for _, h in ipairs(humans) do
+          local d = (h.Pos - e.Pos):mod2D()
+          if d < E.RETARGET_RANGE and d < curD * E.RETARGET_NEARER and (not bestD or d < bestD) then
+            local ok, vis = pcall(AI.IsVisibleEntityChar, e.Name, h.Name, math.pi)
+            if ok and vis then best, bestD = h, d end
+          end
+        end
+        if best then
+          local ok, err = pcall(AIEnemy.DoAttack, e, best)
+          E.retargetAt[e.Name] = now + E.RETARGET_HOLD
+          if ok then
+            E.stats.remoteTargets = (E.stats.remoteTargets or 0) + 1
+          elseif not E.retargetError then
+            E.retargetError = true
+            Coop.log("retarget error: " .. tostring(err))
+          end
+        end
+      end
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+end
+
 function E.update()
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
+    if Coop.frame % E.RETARGET_EVERY == 0 then
+      local ok, err = pcall(E.retarget)
+      if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
+    end
     E.flushHeldScenes()
   elseif Coop.isClient() then
     -- Tell the host this level is loaded so it sends the current enemy state.
