@@ -15,7 +15,7 @@
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
 Coop = {}
-Coop.VERSION = "0.2.2"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.2.3"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
@@ -192,16 +192,33 @@ function Coop.detectLang()
   return (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
 end
 
+-- A change in the options while a level runs reaches every table added (Coop.addLangs) at once,
+-- not only the menu's (0.2.2: hints stayed in the old language until the next level).
+Coop.langTables = {}
 function Coop.lang()
   if cfg.lang then return cfg.lang end   -- tests: another language on this install
-  return Coop.detectLang()
+  local lang = Coop.detectLang()
+  if lang ~= Coop.langSeen then
+    local changed = Coop.langSeen ~= nil
+    Coop.langSeen = lang
+    if changed then
+      for tbl, path in pairs(Coop.langTables) do Coop.fillLang(tbl, path, lang) end
+      Coop.log("language now " .. lang)
+    end
+  end
+  return lang
 end
 
 -- Texts of the other languages (lang_<code>.lua: {["CoopMenu.TEXT"] = {...}, ...}) put into a
 -- module's own table under that code, so its lookups find them like en and ru.
 function Coop.addLangs(tbl, path)
-  local lang = Coop.lang()
-  if lang == "en" or lang == "ru" or type(tbl) ~= "table" then return end
+  if type(tbl) ~= "table" then return end
+  Coop.langTables[tbl] = path
+  Coop.fillLang(tbl, path, Coop.lang())
+end
+
+function Coop.fillLang(tbl, path, lang)
+  if lang == "en" or lang == "ru" then return end
   Coop.langTexts = Coop.langTexts or {}
   if Coop.langTexts[lang] == nil then
     local ok, t = pcall(dofile, COOP_DIR .. "lang_" .. lang .. ".lua")
@@ -954,10 +971,12 @@ function Coop.onMessage(peer, data)
     cfg.myId = tonumber(f[2])
     cfg.char = f[4]
     Coop.log("welcome id=" .. f[2] .. " level=" .. f[3] .. " char=" .. f[4])
-    if string.lower("levels/" .. f[3]) ~= Coop.level then
+    -- (a welcome again during a slow load does not start the same load twice)
+    if string.lower("levels/" .. f[3]) ~= Coop.level and Coop.loadingLevel ~= string.lower(f[3]) then
       Coop.log("following host to " .. f[3])
       Coop.rearm()   -- carry myId/char into the next level
       Coop.levelLoading = Net.CoopTime()
+      Coop.loadingLevel = string.lower(f[3])
       Game.LoadLevel("Levels/" .. f[3])
     end
   elseif kind == "seats" and Coop.isClient() then
@@ -1610,8 +1629,17 @@ function Coop.checkOwnModel(u)
     if e and e.bObjectVisible == false then e.bObjectVisible = true end
     Coop.ownModelHidden = nil
   end
+  local fpView = Game.GetCam(0) == "MainCam" and u.InCtrl_UseFPS == 1 and (u.Life or 0) > 0
+  -- Out of the first-person view (astral projection, SMOD's third person, death): the body it
+  -- hid is shown again (it stayed invisible there, review 0.2.2). Scenes show and hide it
+  -- themselves.
+  if Coop.ownModelHidden == u.Name and not fpView and not (Scene and Scene.IsPlaying) then
+    if u.bObjectVisible == false then u.bObjectVisible = true end
+    Coop.ownModelHidden = nil
+    Coop.log("own model of " .. u.Name .. " shown again (out of first person)")
+  end
   if cfg.fpbodyfix == false or (CoopSplit and CoopSplit.on) or (Scene and Scene.IsPlaying) then return end
-  if Game.GetCam(0) ~= "MainCam" or u.InCtrl_UseFPS ~= 1 or (u.Life or 0) <= 0 then return end
+  if not fpView then return end
   local fp = u.FPSEntity and u.FPSEntity ~= "" and Game.GetEntity(u.FPSEntity)
   if not fp or u.bObjectVisible ~= true then
     Coop.ownModelSeen = nil

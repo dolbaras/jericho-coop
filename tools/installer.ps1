@@ -452,6 +452,16 @@ function L($key) {
     $text
 }
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+# Started hidden ("Install Co-op.bat"): an error outside the install's own steps (before the
+# window shows, in building it) would leave the player with nothing on screen. Said and logged.
+trap {
+    $why = "Jericho Co-op installer: " + $_.Exception.Message
+    try { Add-Content -LiteralPath (Join-Path ([IO.Path]::GetTempPath()) "jericho-coop-install.log") -Value $why } catch { }
+    if ($Quiet) { Write-Host $why } else {
+        try { [System.Windows.Forms.MessageBox]::Show($why, "Jericho Co-op", "OK", "Error") | Out-Null } catch { }
+    }
+    exit 1
+}
 # This version: the payload's, or (the uninstaller in the game folder) the installed one's.
 $version = ""
 foreach ($v in (Join-Path $payload "coop\version.txt"), (Join-Path $here "coop\version.txt")) {

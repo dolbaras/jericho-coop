@@ -259,9 +259,12 @@ St.AS = {
       local e = Game.GetEntity(n[1])
       if e and (e.Life or 0) > 0 then
         TeamTalk.RadioTalkDelayed(n[1], "View_EnemyHigh", nil, n[2], 0, 1, 5)
-        return
+        break
       end
     end
+    -- (what the rest of the level's script reads, without the lock and the AI walk)
+    MapInit.EPlayer = Game.UsrEntity(0)
+    MapInit.EBitch = Game.GetEntity("Bitch")
   end},
   -- sum_ziggurat_01: Jones is possessed; vanilla switches "the player" out of Jones on every
   -- machine a few seconds later (outside the replay). The host moves Jones's player out.

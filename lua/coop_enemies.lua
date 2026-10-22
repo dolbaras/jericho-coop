@@ -905,6 +905,7 @@ function E.installClient()
 end
 
 function E.onSnapshot(body, rt)
+  E.snapSeen = true
   local now = Net.CoopTime()
   for item in string.gmatch(body, "[^;]+") do
     local name, x, y, z, yaw, action, flags = string.match(item, "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+)$")
@@ -973,7 +974,9 @@ E.ORPHAN_TIME = 2.5
 E.orphanSince = {}
 function E.freezeLocalEnemies()
   local now = Net.CoopTime()
-  local gate = E.gateOpen == nil or E.gateOpen()
+  -- (not before the host's first snapshot here: a client that loads first switched the
+  -- level's own enemies off while the host was still loading, review 0.2.2)
+  local gate = (E.gateOpen == nil or E.gateOpen()) and E.snapSeen
   local e = Game.GetFirst()
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and not E.targets[e.Name] then
@@ -1107,7 +1110,19 @@ function E.retarget()
       local cur = e.AI_ObjectiveDin or ""
       if not Coop.isRemoteOwned(cur) then
         local curEnt = cur ~= "" and Game.GetEntity(cur)
-        local curD = curEnt and (curEnt.Pos - e.Pos):mod2D() or math.huge
+        local curD = curEnt and (curEnt.Pos - e.Pos):mod2D()
+        if not curD then
+          -- An enemy with no target yet (waiting, sometimes for a story trigger): only a player
+          -- nearer than every squad member here, who the game would see it react to (it
+          -- woke waiting enemies as soon as a joining player was in sight, review 0.2.2).
+          curD = math.huge
+          for _, n in ipairs(Coop.SQUAD) do
+            local s = not Coop.isRemoteOwned(n) and Coop.squadEnt(n)
+            if s and (s.Life or 0) > 0 and s.bActive ~= false then
+              curD = math.min(curD, (s.Pos - e.Pos):mod2D())
+            end
+          end
+        end
         local best, bestD
         for _, h in ipairs(humans) do
           local d = (h.Pos - e.Pos):mod2D()

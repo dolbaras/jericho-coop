@@ -300,4 +300,5 @@ Steamworks API (STEAM-NOTICE.txt). coop\python: Python 3.12.10's embeddable buil
 python.org (PSF license, coop\python\LICENSE.txt), used only by the installer. No game files
 are included.
 Credits: the Steam option, shared QTEs, smoother movement, door/object and power sync come
-from MAK-PIVO's fork (https://github.com/MAK-PIVO/jericho-coop, MIT), adapted and tested here.
+from MAK-PIVO's fork (MAK-PIVO/jericho-coop, MIT; no longer public since 2026-10-22), adapted and
+tested here.
