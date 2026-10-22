@@ -595,6 +595,7 @@ function E.installSceneHost()
       local now = Net.CoopTime()
       local repeated = class == E.lastSceneClass and now - (E.lastSceneTime or 0) < 15
       if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
+      E.sceneStartT = Net.CoopTime()
       E.skip = nil   -- skip votes count for one showing of a scene
       if not E.inEndOfScene and not E.inReplay and not repeated then
         Net.CoopSend(-1, 1, "scene|" .. mode .. "|" .. tostring(class))
@@ -686,6 +687,7 @@ function E.installSceneClient()
             tostring(Coop.fromHost), tostring(E.inEndOfScene), tostring(E.inReplay), tostring(continues), tostring(skipped)))
         end
         if mode ~= "play" then E.beforeFpScene(class) else E.labelPlayScene(class) end
+        if mode ~= "play" or not continues then E.sceneStartT = Net.CoopTime() end
         return orig(class, ...)
       end
       E.stats.dropped = E.stats.dropped + 1
@@ -711,7 +713,24 @@ function E.onScene(mode, class)
   Coop.log("scene " .. mode .. " " .. tostring(class))
   if mode == "abort" then
     E.lastAbort = Net.CoopTime()
-    if Scene.IsPlaying then fromHost(Scene.AbortScene) end
+    -- Not while the scene is still being built here (a skip right as TheRescue started after
+    -- the Lost Patrol's merge crashed the game: objref.h "!Refs", branch test 0.2.3): later.
+    if Scene.IsPlaying and Net.CoopTime() - (E.sceneStartT or 0) < E.ABORT_SETTLE then
+      E.abortAt = (E.sceneStartT or Net.CoopTime()) + E.ABORT_SETTLE
+      Coop.log("scene abort held until the scene has settled")
+    elseif Scene.IsPlaying then
+      fromHost(Scene.AbortScene)
+    end
+    return
+  end
+  -- Already started here (this machine's own level script got there first: a player back
+  -- from the Lost Patrol's side branch loads the chapel as the host's TheRescue plays): a
+  -- second start made the scene twice ("Already exists"), and skipping it then crashed the
+  -- game (objref.h "!Refs", branch test 0.2.3).
+  local playing = Scene.IsPlaying and tostring(Scene.SceneName or "")
+  local recent = class == E.lastSceneClass and Net.CoopTime() - (E.lastSceneTime or 0) < 10
+  if playing == tostring(class) or playing == "DM_Scene_" .. tostring(class) or recent then
+    Coop.log("scene " .. tostring(class) .. " already started here: the host's start not repeated")
     return
   end
   local fname = E.SCENE_FUNCS[mode]
@@ -1147,7 +1166,13 @@ function E.retarget()
   end
 end
 
+E.ABORT_SETTLE = 1.5   -- s after a scene's start before a skip is carried out
+
 function E.update()
+  if E.abortAt and Net.CoopTime() >= E.abortAt then
+    E.abortAt = nil
+    if Scene.IsPlaying then fromHost(Scene.AbortScene) end
+  end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
     if Coop.frame % E.RETARGET_EVERY == 0 then

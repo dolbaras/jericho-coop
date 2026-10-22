@@ -75,6 +75,15 @@ How it works
   the QTE and it passes when at least one player succeeds.
 - Character-only actions: the players are offered to take that character; if nobody does
   within 30 s, the AI does it (lobby setting).
+- Squad orders ("Follow me" / "Hold position"): each fire team follows one player. Act 1, while
+  Ross lives: Ross's player leads everyone. Otherwise Alpha (Jones, Cole, Delgado) and Omega
+  (Church, Rawlings, Black) are each led by the first player (host, then the first client, then
+  the others) whose character is in it; a team without a player in it goes to the first player
+  who leads nothing yet. So two players lead a team each; a third and fourth lead none. When
+  the squad is split up (a story split, a branch), AI members follow the player they are with.
+  An order for a team someone else leads says who leads it.
+- Breakable and movable objects (crates, barrels, bottles, lamps...) are the same for everyone:
+  broken by anyone, broken everywhere; pushed or thrown, at rest in the same place.
 - A story action of a character a player holds (Black's telekinesis on the prologue's rubble,
   for example) is that player's: a hint shows where to go; use a power there (or just stand
   there a moment). If they do not within 25 s, the AI walks the character there and does it.
@@ -224,6 +233,16 @@ game draws, in memory, and writes nothing until F11.
   игроки, и оно пройдено, если справился хотя бы один.
 - Действия, которые может сделать только определённый персонаж: игрокам предлагают взять
   этого персонажа, если никто не взял за 30 с — делает ИИ (настраивается в лобби).
+- Приказы отряду («За мной» / «Стоять»): каждая группа следует за одним игроком. В акте 1,
+  пока жив Росс, всем отрядом командует игрок за Росса. Иначе «Альфой» (Джонс, Коул,
+  Дельгадо) и «Омегой» (Чёрч, Роулингс, Блэк) командует первый игрок (хост, затем первый
+  клиент, затем остальные), чей персонаж в этой группе; группа без игроков достаётся первому
+  игроку, у которого группы ещё нет. Так двое игроков командуют каждый своей группой, третий
+  и четвёртый — никакой. Когда отряд разделён (сюжетное разделение, ответвление), бойцы ИИ
+  следуют за игроком, с которым они рядом. Приказ группе, которой командует другой, подскажет,
+  кто ею командует.
+- Разрушаемые и двигаемые предметы (ящики, бочки, бутылки, лампы...) одинаковы у всех: сломан
+  кем угодно — сломан везде; сдвинут или брошен — лежит в одном и том же месте.
 - Сюжетное действие персонажа, которого держит игрок (например, телекинез Блэк на завале в
   прологе), — за этим игроком: подсказка покажет, куда подойти; там примените способность (или
   просто постойте секунду). Если за 25 с игрок этого не сделал, персонажа доводит и действует ИИ.
