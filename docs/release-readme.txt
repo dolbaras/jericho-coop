@@ -93,6 +93,18 @@ the players who have it with [SMOD].
   without SMOD).
 SMOD's own texts follow the game language.
 
+Upscaled textures (Clive Upscaler's Jericho)
+"Clive Upscaler's Jericho" (nexusmods.com/clivebarkersjericho/mods/8, 2x textures) works with
+the co-op mod. It needs SMOD and DXVK: put x32\d3d9.dll of DXVK (the Windows build; 3.1.1
+checked) into the game's bin folder. Ross's model for the other players in Act 1 gets the
+upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
+
+Ultrawide screens
+On a screen wider than 16:9 (2560x1080, 3440x1440...) the mod sets the game's aspect ratio from
+the screen resolution: the game's own option has only 4:3, 16:9 and 16:10, and its player profile
+puts that value back at the main menu, so editing game.cfg does not hold. Do not change "Aspect
+ratio" in the game's options there. Split screen fills each half on such a screen.
+
 Split screen
 A second player on the same PC, in the same game: the screen is split top and bottom, each
 player with their own view and HUD. In the lobby pick "Player 2 (gamepad)" and their
@@ -216,6 +228,18 @@ SMOD
 - Ваш прыжок SMOD видят остальные (даже без SMOD).
 - Фонарь каждого игрока виден на экранах остальных как луч от его оружия (со SMOD и без).
 Надписи SMOD показываются на языке игры.
+
+Увеличенные текстуры (Clive Upscaler's Jericho)
+«Clive Upscaler's Jericho» (nexusmods.com/clivebarkersjericho/mods/8, текстуры x2) работает с
+кооперативом. Ему нужны SMOD и DXVK: положите x32\d3d9.dll из DXVK (сборка для Windows;
+проверена 3.1.1) в папку bin игры. Модель Росса для других игроков в акте 1 тоже получает
+увеличенные текстуры. Проверено: все 33 уровня загружены подряд, сплитскрин, клипы F11.
+
+Ультраширокие мониторы
+На экране шире 16:9 (2560x1080, 3440x1440...) мод сам выставляет соотношение сторон по
+разрешению экрана: в настройках игры есть только 4:3, 16:9 и 16:10, а профиль игрока при входе в
+меню возвращает своё значение, поэтому правка game.cfg не держится. Пункт «Соотношение сторон» в
+настройках игры там не меняйте. Сплитскрин на таком экране заполняет каждую половину.
 
 Сплитскрин
 Второй игрок на том же ПК, в той же игре: экран делится на верх и низ, у каждого игрока свой
