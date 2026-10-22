@@ -2752,7 +2752,7 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     local e = Game.GetFirst()
     while e ~= nil do
       local n = e.Name
-      if n and isTrigger(n) and not A.visited[n] and prop(e, "bActive") ~= false then
+      if n and isTrigger(n) and not A.visited[n] and (A.retryAt[n] or 0) < Net.CoopTime() and prop(e, "bActive") ~= false then
         local p = prop(e, "Pos")
         if p then
           local d = (p - from):mod()
@@ -2782,6 +2782,27 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     return table.concat(list, " ")
   end
 
+  A.usedGates, A.retryAt = {}, {}
+  -- The nearest usable gate of this player's character (CoopClaim.gates), within reach.
+  local function myGate(u)
+    if not (CoopClaim and CoopClaim.gates) then return end
+    local best, bestD
+    for name, g in pairs(CoopClaim.gates) do
+      local o = g.char == u.Name and not A.usedGates[name] and Game.GetEntity(name)
+      if o and o.bActive ~= false and o.bArrowCanUse ~= false then
+        local d = (o.Pos - u.Pos):mod()
+        if d < 6000 and (not bestD or d < bestD) then best, bestD = g, d end
+      end
+    end
+    if best then
+      if A.gateLogged ~= best.name then
+        A.gateLogged = best.name
+        Coop.log(string.format("autoplay: %s goes to %s (%.0f units)", u.Name, best.name, bestD))
+      end
+      return best, Game.GetEntity(best.name).Pos
+    end
+  end
+
   local function nearestEnemy(p)
     local best, bestD
     local e = Game.GetFirst()
@@ -2805,7 +2826,7 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     if Coop.isHost() and s and Coop.frame % 20 == 0 then
       if A.walking and now - A.walkT > 45 then
         Coop.log("autoplay: scout gave up on " .. A.walking)
-        A.visited[A.walking] = true
+        A.retryAt[A.walking] = now + 30
         A.walking = nil
       end
       if not A.walking then
@@ -2815,10 +2836,15 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
           local name = t.Name
           local tpos = t.Pos
           local ok, err = pcall(AIGen.GoAndAction, s.Name, tpos, tpos + V3D(0, 0, 50), function(ent)
-            A.visited[name] = true
             if A.walking == name then A.walking = nil end
             local left = ent and (ent.Pos - tpos):mod() or -1
-            if left >= 0 and left < 400 then A.reached = A.reached + 1 end
+            if left >= 0 and left < 400 then
+              A.reached = A.reached + 1
+              A.visited[name] = true
+            else
+              -- (a door or a story action may open the way: tried again later)
+              A.retryAt[name] = Net.CoopTime() + 30
+            end
             Coop.log(string.format("autoplay: scout %s %s (%.0f units left)", left >= 0 and left < 400 and "reached" or "stopped short of",
               name, left))
           end)
@@ -2853,9 +2879,27 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
       return
     end
     u.owc.Shot = 0
+    -- A use object only this player's character may use (CoopClaim's gates: Black's
+    -- telekinesis, Church's blood seal...): go there and use it, as its player would; the use
+    -- goes through the game's own callback (on a client to the host, as a real one does).
+    local gate, gatePos = myGate(u)
+    if gate then
+      local o = Game.GetEntity(gate.name)
+      local dg = o.Pos - u.Pos
+      if math.sqrt(dg.x * dg.x + dg.z * dg.z) < math.max(120, (gate.radius or 300) * 0.7) then
+        A.usedGates[gate.name] = true
+        local f = loadstring("return " .. gate.func)
+        local okf, fn = pcall(f)
+        local okc, err = false, "no function"
+        if okf and type(fn) == "function" then okc, err = pcall(fn, u.Name, gate.name, "Use", "") end
+        Coop.log("autoplay: " .. u.Name .. " uses " .. gate.name .. " (" .. gate.func .. ")" .. (okc and "" or (" error " .. tostring(err))))
+        u.InCtrl_Walk = 0
+        return
+      end
+    end
     while A.trail[A.idx] and (A.trail[A.idx] - u.Pos):mod() < 150 and A.idx < #A.trail do A.idx = A.idx + 1 end
-    local tp = A.trail[A.idx]
-    if not tp or (tp - u.Pos):mod() < 150 then
+    local tp = gatePos or A.trail[A.idx]
+    if not tp or (not gatePos and (tp - u.Pos):mod() < 150) then
       u.InCtrl_Walk = 0
       A.lastMoveT, A.lastPos = now, u.Pos
       return
