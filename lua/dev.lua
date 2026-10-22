@@ -2689,3 +2689,21 @@ if cfg.actlog and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'turntp' (the machine of a body that gets a story turn, coop_story.lua): 3 s after the turn
+-- comes the body is moved to the spot (as if its player walked there), then stands.
+if cfg.turntp and Coop.level ~= "levels/menu" then
+  local prevTurn = Coop.dev
+  function Coop.dev()
+    if prevTurn then prevTurn() end
+    local turn = CoopStory and CoopStory.myTurn
+    if not turn then Coop.turnSeen = nil return end
+    Coop.turnSeen = Coop.turnSeen or Net.CoopTime()
+    if Net.CoopTime() - Coop.turnSeen > 3 and not turn.tp then
+      turn.tp = true
+      local u = Game.GetEntity(turn.name)
+      if u then u.Pos = turn.pos pcall(Game.SetOnFloor, u.Name) end
+      Coop.log("turntp: " .. turn.name .. " moved to its turn's spot")
+    end
+  end
+end

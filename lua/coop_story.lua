@@ -41,13 +41,18 @@ function St.installWalks()
     if not Coop.inSession() then return orig(nameEnt, pos, posEnd, funcExec, velocity) end
     if Coop.isHost() then
       local remote = Coop.isRemoteOwned(nameEnt)
-      if remote then St.drive(nameEnt, true) end
-      local done = function(ent, ...)
-        if remote then St.drive(nameEnt, false) end
-        Net.CoopSend(-1, 1, "sdone|" .. nameEnt)
-        if funcExec then return funcExec(ent, ...) end
+      local walk = function()
+        if remote then St.drive(nameEnt, true) end
+        local done = function(ent, ...)
+          if remote then St.drive(nameEnt, false) end
+          Net.CoopSend(-1, 1, "sdone|" .. nameEnt)
+          if funcExec then return funcExec(ent, ...) end
+        end
+        return orig(nameEnt, pos, posEnd, done, velocity)
       end
-      return orig(nameEnt, pos, posEnd, done, velocity)
+      -- A body a human holds: its player's turn first (St.startTurn), the walk if they do not.
+      if (remote or nameEnt == Coop.localChar()) and St.startTurn(nameEnt, pos, posEnd, funcExec, walk) then return end
+      return walk()
     end
     -- Client (story code replayed, or run by MapInit): the arrival function waits for the
     -- host's sdone. This machine's own body walks here only if the host does not walk it
@@ -111,6 +116,19 @@ function St.onMessage(peer, f)
   end
   if f[1] == "sdone" and Coop.isClient() then
     St.onDone(f[2])
+    return true
+  end
+  if f[1] == "sturn" and Coop.isClient() then
+    local x, y, z, secs = tonumber(f[3]), tonumber(f[4]), tonumber(f[5]), tonumber(f[6]) or 0
+    St.myTurn = nil
+    if secs > 0 and x and Coop.isLocalBody(f[2]) then
+      St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs}
+    end
+    if secs <= 0 then St.clearTurnText() end
+    return true
+  end
+  if f[1] == "sturndone" and Coop.isHost() then
+    if St.turns[f[2] or ""] and Coop.heldBy(f[2], peer) then St.finishTurn(f[2], "its player") end
     return true
   end
   if f[1] ~= "sdrive" or not Coop.isClient() or peer ~= 0 then return false end
@@ -484,13 +502,135 @@ function St.installChapel()
   end
 end
 
+------------------------------------------------------------------------------
+-- A story action of a body a human holds (Black's telekinesis on the prologue's rubble...):
+-- the story walked that body there by the host's AI and did it for the player, whose own
+-- power did nothing (owner's Steam test, 0.2.1). Now its player gets the turn: go to the spot
+-- and use a power there (or just stand there a moment); the story then goes on as after the
+-- AI's walk. Only if they do not within TURN_TIME does the AI walk the body as before.
+-- Lobby option "character actions" = "ai" keeps the old way.
+--   sturn|<char>|x|y|z|<seconds>   host -> all (0 seconds: over)
+--   sturndone|<char>               the body's machine -> host
+------------------------------------------------------------------------------
+St.TURN_TIME = 25
+St.TURN_NEAR = 320
+St.TURN_STAND = 2
+St.turns = {}
+St.TEXT = {
+  en = {turn = "%s: go to the marked place (%d m) and use your power there\nor wait - the squad does it in %d s",
+        here = "%s: use your power now (or wait a moment)"},
+  ru = {turn = "%s: подойдите к месту (%d м) и примените там способность\nили ждите - отряд сделает это через %d с",
+        here = "%s: примените способность (или подождите секунду)"},
+}
+
+function St.startTurn(name, pos, posEnd, funcExec, walk)
+  if (Coop.cfg.actmode or "players") == "ai" or Coop.cfg.storyturn == false then return false end
+  St.turns[name] = {pos = pos, posEnd = posEnd, func = funcExec, walk = walk,
+                    deadline = Net.CoopTime() + St.TURN_TIME}
+  Net.CoopSend(-1, 1, string.format("sturn|%s|%.0f|%.0f|%.0f|%d", name, pos.x, pos.y, pos.z, St.TURN_TIME))
+  if name == Coop.localChar() then
+    St.myTurn = {name = name, pos = pos, deadline = Net.CoopTime() + St.TURN_TIME}
+  end
+  Coop.log("story: " .. name .. "'s player gets the turn")
+  return true
+end
+
+-- Host: the player did it (who), or the time is up (nil: the AI walks).
+function St.finishTurn(name, who)
+  local turn = St.turns[name]
+  if not turn then return end
+  St.turns[name] = nil
+  Net.CoopSend(-1, 1, "sturn|" .. name .. "|0|0|0|0")
+  if name == Coop.localChar() then
+    St.myTurn = nil
+    St.clearTurnText()
+  end
+  if who then
+    Coop.log("story: " .. name .. "'s action done by " .. who)
+    local ent = Game.GetEntity(name)
+    Net.CoopSend(-1, 1, "sdone|" .. name)
+    if turn.func and ent then
+      local ok, err = pcall(turn.func, ent)
+      if not ok then Coop.log("story turn error: " .. tostring(err)) end
+    end
+  else
+    Coop.log("story: " .. name .. "'s player did not come, the AI walks")
+    turn.walk()
+  end
+end
+
+function St.clearTurnText()
+  if St.turnText then
+    St.turnText = nil
+    pcall(Scorer.SetMsgText, "", 0)
+  end
+end
+
+local function turnText(key, ...)
+  local lang = Coop.lang()
+  local s = string.format((St.TEXT[lang] or St.TEXT.en)[key], ...)
+  return lang == "ru" and Coop.cp1251(s) or s
+end
+
+-- The body's own machine: the hint, and done once the body is there and uses a power (or
+-- stands there a moment).
+function St.updateMyTurn()
+  local turn = St.myTurn
+  if not turn then return end
+  local now = Net.CoopTime()
+  local u = Game.GetEntity(turn.name)
+  if now > turn.deadline + 1 or not u or (u.Life or 0) <= 0 or Coop.storyDriven[turn.name] then
+    St.myTurn = nil
+    St.clearTurnText()
+    return
+  end
+  local d = (u.Pos - turn.pos):mod2D()
+  local who = Coop.charName and Coop.charName(turn.name) or turn.name
+  if d > St.TURN_NEAR then
+    turn.since = nil
+    if Coop.frame % 10 == 0 then
+      St.turnText = true
+      pcall(Scorer.SetMsgText, turnText("turn", who, math.floor(d / 100 + 0.5),
+        math.max(0, math.floor(turn.deadline - now))), Game.GetTime() + 2)
+    end
+    return
+  end
+  turn.since = turn.since or now
+  if Coop.frame % 10 == 0 then
+    St.turnText = true
+    pcall(Scorer.SetMsgText, turnText("here", who), Game.GetTime() + 2)
+  end
+  local fp = u.FPSEntity and u.FPSEntity ~= "" and Game.GetEntity(u.FPSEntity)
+  local fpa = fp and tostring(fp.Action) or ""
+  local power = string.find(fpa, "Special") or string.find(fpa, "Spell") or string.find(fpa, "Hack") or
+                string.find(fpa, "Ababanili") or string.find(fpa, "TK")
+  if power or now - turn.since > St.TURN_STAND then
+    St.myTurn = nil
+    St.clearTurnText()
+    if Coop.isHost() then
+      St.finishTurn(turn.name, "its player")
+    else
+      Net.CoopSend(0, 1, "sturndone|" .. turn.name)
+    end
+  end
+end
+
 function St.update()
   St.installWalks()
   St.installAs()
   St.installEvents()
   St.installFire()
   St.installChapel()
+  St.updateMyTurn()
   if Coop.isHost() then
+    local now = Net.CoopTime()
+    for name, turn in pairs(St.turns) do
+      local e = Game.GetEntity(name)
+      if now > turn.deadline or not e or (e.Life or 0) <= 0 or
+         not (Coop.isRemoteOwned(name) or name == Coop.localChar()) then
+        St.finishTurn(name, nil)
+      end
+    end
     St.installFirstBorn()
     if Coop.frame % 20 == 0 then St.evictCheck() end
   end
