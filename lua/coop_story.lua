@@ -53,6 +53,18 @@ function St.installWalks()
         end
         return orig(nameEnt, pos, posEnd, done, velocity)
       end
+      -- A step that only turns a human's body toward something (its destination is where the
+      -- body stands: wwii_pillboxes' conversation looks at each speaker) is no turn for its
+      -- player and no AI drive: the player looks themselves, the story goes on at once.
+      if remote and St.isLookAt(nameEnt, pos) then
+        Coop.log("story: " .. nameEnt .. " looks (left to its player)")
+        Net.CoopSend(-1, 1, "sdone|" .. nameEnt)
+        if funcExec then
+          local ok, err = pcall(funcExec, Game.GetEntity(nameEnt))
+          if not ok then Coop.log("story: arrival of " .. nameEnt .. " error: " .. tostring(err)) end
+        end
+        return
+      end
       -- A body a human holds: its player's turn first (St.startTurn), the walk if they do not.
       -- (only another machine's body: a step that walks "the player" runs on every machine for
       -- its own body, and the host's own body walks as before)
@@ -62,6 +74,15 @@ function St.installWalks()
     -- Client (story code replayed, or run by MapInit): the arrival function waits for the
     -- host's sdone. This machine's own body walks here only if the host does not walk it
     -- (a "the player walks" step, run on every machine): decided after WAIT seconds.
+    if nameEnt == Coop.localChar() and St.isLookAt(nameEnt, pos) then
+      -- (its own body only turns: no AI walk under the player, owner's Steam test)
+      St.orient(nameEnt, posEnd)
+      if funcExec then
+        local ok, err = pcall(funcExec, Game.GetEntity(nameEnt))
+        if not ok then Coop.log("story: arrival of " .. nameEnt .. " error: " .. tostring(err)) end
+      end
+      return
+    end
     St.pending[nameEnt] = {func = funcExec, args = {nameEnt, pos, posEnd, funcExec, velocity},
                            t = Net.CoopTime(), mine = nameEnt == Coop.localChar()}
   end
@@ -80,6 +101,24 @@ end
 
 St.WAIT = 0.6
 St.pending = {}
+St.LOOK_AT = 120      -- a walk whose destination is this close to the body: a look-at
+St.FAR_WALK = 1500    -- this machine's own body walked by its AI from farther: starts nearer
+
+function St.isLookAt(name, pos)
+  local e = Game.GetEntity(name)
+  if not e or not pos or not pos.x then return false end
+  local dx, dz = pos.x - e.Pos.x, pos.z - e.Pos.z
+  return dx * dx + dz * dz < St.LOOK_AT * St.LOOK_AT
+end
+
+function St.orient(name, target)
+  local e = Game.GetEntity(name)
+  if not e or not target or not target.x then return end
+  local d = target - e.Pos
+  local yaw = math.deg(math.atan2(-d.x, -d.z))
+  e.Ang = V3D(0, yaw, 0)
+  e.ViewAng = V3D(0, yaw, 0)
+end
 
 function St.clientWalks()
   local now = Net.CoopTime()
@@ -89,6 +128,17 @@ function St.clientWalks()
     if p.mine and not p.started and now - p.t > St.WAIT and not Coop.storyDriven[name] then
       p.started = true
       St.pending[name] = nil
+      -- A step that walks "the player" runs on every machine for its own body; this player may
+      -- be anywhere: a long AI drag across the level under them becomes a short walk.
+      local e, dest = Game.GetEntity(name), p.args[2]
+      if e and dest and dest.x then
+        local dx, dz = dest.x - e.Pos.x, dest.z - e.Pos.z
+        if dx * dx + dz * dz > St.FAR_WALK * St.FAR_WALK then
+          e.Pos = dest
+          pcall(Game.SetOnFloor, name)
+          Coop.log(string.format("story: my body put at its walk's end (%.0f away)", math.sqrt(dx * dx + dz * dz)))
+        end
+      end
       St.origWalk(unpack(p.args, 1, 5))
     elseif now - p.t > 120 then
       St.pending[name] = nil   -- the host never finished it (level changed, scene...)
@@ -136,6 +186,13 @@ function St.onMessage(peer, f)
       if p then p.started = true end
       St.turnFor = St.turnFor or {}
       St.turnFor[f[2]] = Net.CoopTime()
+      -- A replayed step may have locked this body ("the player" stands still for the walk):
+      -- the turn is the player's to walk (rom_chamber, sum_ziggurat_04, alk_bunker_01...).
+      local u = Game.GetEntity(f[2])
+      if u and u.IgnoreUsrControl == 1 and not Coop.storyDriven[f[2]] then
+        u.IgnoreUsrControl = 0
+        Coop.log("story: lock on my body lifted for my turn")
+      end
     end
     if secs <= 0 then St.clearTurnText() end
     return true
@@ -177,6 +234,7 @@ end
 --   pick = function   custom choice
 -- clientNoop: do nothing on clients (story steps the host decides and replicates);
 -- clientNoSwitch: on clients run it without its forced Team.SwitchSoldier.
+-- clientRun: on clients run this function instead (given the original and the arguments).
 ------------------------------------------------------------------------------
 
 local function humanBody(name)
@@ -189,6 +247,34 @@ St.AS = {
   {"MapInit", "TestWard", char = "Church", level = "wwii_biggates"},
   -- wwii_pillboxes: Rawlings tutorial group.
   {"MapInit", "ActivateBigFuckerGroup", char = "Rawlings", level = "wwii_pillboxes"},
+  -- wwii_pillboxes: the player who came to the vantage point is walked until they see the
+  -- psychic commander, then the enemies come. Replayed on a client it locked the client's own
+  -- body and dragged it there wherever it was (re-steered every 0.1 s): only the radio line.
+  {"MapInit", "StartLichtScene", level = "wwii_pillboxes", clientRun = function()
+    for _, n in ipairs({{"Church", "0"}, {"Delgado", "2"}, {"Rawlings", "0"}}) do
+      local e = Game.GetEntity(n[1])
+      if e and (e.Life or 0) > 0 then
+        TeamTalk.RadioTalkDelayed(n[1], "View_EnemyHigh", nil, n[2], 0, 1, 5)
+        return
+      end
+    end
+  end},
+  -- sum_ziggurat_01: Jones is possessed; vanilla switches "the player" out of Jones on every
+  -- machine a few seconds later (outside the replay). The host moves Jones's player out.
+  {"MapInit", "StartJonesPossession", level = "sum_ziggurat_01", clientNoSwitch = true},
+  -- alk_bunker_01: Ross walks to Rawlings with "the player" locked until he arrives; on a
+  -- client that locked its own body. And Rawlings is put at his start, a client's too.
+  {"MapInit", "GoToRawlings", level = "alk_bunker_01", clientRun = function()
+    AIGen.GoAndAction("Ross", V3D(500, 130, -1000), V3D(652, 33, -850), MapInit.OnRossArrived, 0.5)
+  end},
+  {"MapInit", "OnRossArrived", level = "alk_bunker_01", clientRun = function(orig, ...)
+    local r = Coop.isLocalBody("Rawlings") and Game.GetEntity("Rawlings")
+    local keep = r and r.Pos
+    local res = {pcall(orig, ...)}
+    if keep then r.Pos = keep end
+    if not res[1] then error(res[2], 0) end
+    return unpack(res, 2)
+  end},
   -- rom_outskirts: CenturiansTale starts as soon as a human holds Rawlings.
   {"MapInit", "BeginPlayScene", char = "Rawlings", level = "rom_outskirts", clientNoop = true},
   -- cru_labyrinth: the last speech plays when Black looks at the prisoner; the bridge hitter
@@ -256,6 +342,7 @@ function St.installAs()
       local w = function(...)
         if not Coop.inSession() then return orig(...) end
         if spec.clientNoop and Coop.isClient() then return end
+        if spec.clientRun and Coop.isClient() then return spec.clientRun(orig, ...) end
         if spec.clientNoSwitch and Coop.isClient() then
           local sw = Team.SwitchSoldier
           Team.SwitchSoldier = function() return false end
