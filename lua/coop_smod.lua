@@ -1,7 +1,7 @@
 -- SMOD (SkacikPL's mod pack, loose scripts + autoexec.lua) next to co-op.
 --
 -- Found at run time (one build for both). What it changes and why it matters here is in
--- work\smod-analysis.md; in short:
+-- the private notes (games\jericho\notes\smod-analysis.md); in short:
 --   * Its new texts are hard-coded English: shown in the game's language here (menu
 --     labels in the option tables themselves, since debug entries find their action by
 --     matching the item's text with the table).
