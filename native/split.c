@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "split.h"
 #include "coop_net.h"
@@ -875,4 +876,56 @@ int split_set(int m)
         display_hooks_pads_split(1, 0);
     InterlockedExchange(&mode, m);
     return (int)cam;
+}
+
+/* A first-person model hidden from one view gets the id of a user that does not exist (3,
+ * coop_split.lua Sp.showFor). The engine's code that takes the user of an entity at 0x478a70
+ * (melee attacks, a sabre hit's update...) looks that user up with no check and read +0x7d8 of
+ * NULL: the game crashed in split screen (4 runs in 6, 0.2.1 and 0.2.2 tests). That one call
+ * goes through fp_user_lookup: a user that is not there is the hidden model's own (Lua says
+ * which), else user 0. Only on the retail exe this is made for (the call's bytes checked), in
+ * memory; the exe on disk is not changed. */
+#define USER_LOOKUP 0x00427470
+#define USER_LOOKUP_CALL 0x00478a82
+typedef void *(__thiscall *user_lookup_t)(void *mgr, int idx);
+static volatile LONG hidden_fp_user = -1;
+static LONG fix_state;   /* 0 not tried, 1 in place, 2 not this exe */
+
+static void *__thiscall fp_user_lookup(void *mgr, int idx)
+{
+    user_lookup_t real = (user_lookup_t)USER_LOOKUP;
+    void *u = (idx >= 0 && idx < 4) ? real(mgr, idx) : NULL;
+    if (!u) {
+        int h = (int)hidden_fp_user;
+        if (h >= 0 && h < 4 && h != idx)
+            u = real(mgr, h);
+        if (!u && idx != 0)
+            u = real(mgr, 0);
+    }
+    return u;
+}
+
+static void split_fix_user(void)
+{
+    unsigned char *at = (unsigned char *)USER_LOOKUP_CALL;
+    static const unsigned char want[5] = {0xe8, 0xe9, 0xe9, 0xfa, 0xff};   /* call 0x427470 */
+    DWORD old;
+    if (memcmp(at, want, 5) != 0 || !VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &old)) {
+        fix_state = 2;
+        coop_log("split: user lookup fix not applied (not the expected exe)");
+        return;
+    }
+    LONG rel = (LONG)((unsigned char *)fp_user_lookup - (at + 5));
+    memcpy(at + 1, &rel, 4);
+    VirtualProtect(at, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), at, 5);
+    fix_state = 1;
+    coop_log("split: user lookup fix in place");
+}
+
+void split_hidden_fp_user(int user)
+{
+    if (fix_state == 0)
+        split_fix_user();
+    InterlockedExchange(&hidden_fp_user, user);
 }

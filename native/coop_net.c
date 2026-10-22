@@ -787,6 +787,10 @@ static int l_key(lua_State *L)
             lua_pushnumber(L, v[i]);
         return 4;
     }
+    if (vk == -4) {   /* Net.CoopKey(-4, user): the hidden first-person model's user (split.c) */
+        split_hidden_fp_user(lua_tointeger(L, 2));
+        return 0;
+    }
     if (vk == -2) {   /* Net.CoopKey(-2): split screen pads plugged in or out -> 1 on a change */
         lua_pushnumber(L, display_hooks_pads_rescan());
         return 1;

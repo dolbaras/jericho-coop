@@ -195,6 +195,8 @@ function Sp.start(char, owner)
   Sp.buildHud()
   Sp.applyFx(true)
   Sp.on, Sp.held = true, false
+  pcall(Sp.installWeaponIds)
+  Sp.sendHiddenUser()
   cfg.splitWasOn = true   -- the next level load resets the engine's split state
   Sp.fxStart()
   Sp.installScreenFx()
@@ -877,12 +879,61 @@ function Sp.logError(where, err)
   if n <= 3 then Coop.log("split: player 2 error in " .. key .. ": " .. tostring(err)) end
 end
 
+-- The first-person models' own users while game code runs. Sp.showFor gives the model hidden
+-- from the view drawn next the id of a user that does not exist (3), and that stays through
+-- the game's update: the engine's own code then took user 3 for it (a melee attack:
+-- DoMeleeAttack -> 0x478a70 reads the model's user, gets none) and the game crashed (split
+-- screen tests 0.2.1 and 0.2.2, 4 runs in 6). Drawing is untouched: the ids are put back after.
+-- The engine's own code looks up the hidden model's user too (0x478a70, during its update):
+-- the dll answers a missing user with this one (split.c split_hidden_fp_user).
+function Sp.sendHiddenUser()
+  local u = Sp.id3User or -1
+  if u ~= Sp.id3Sent then
+    Sp.id3Sent = u
+    pcall(Net.CoopKey, -4, u)
+  end
+end
+
+function Sp.realIds()
+  if Sp.shownFor == nil then return nil end
+  local b0 = Game.UsrEntity(0)
+  local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
+  local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
+  local w0, w1 = f0 and f0.id, f1 and f1.id
+  if f0 and w0 ~= 0 then f0.id = 0 end
+  if f1 and w1 ~= 1 then f1.id = 1 end
+  return f0, w0, f1, w1
+end
+
+function Sp.withRealIds(fn, ...)
+  local f0, w0, f1, w1 = Sp.realIds()
+  local r = {pcall(fn, ...)}
+  if f0 and w0 and f0.id ~= w0 then f0.id = w0 end
+  if f1 and w1 and f1.id ~= w1 then f1.id = w1 end
+  if not r[1] then error(r[2], 0) end
+  return unpack(r, 2)
+end
+
+-- The game's weapon code (both players' melee, shots, reloads) with the models' own users.
+function Sp.installWeaponIds()
+  if not Weapons or Weapons.coopRealIds then return end
+  Weapons.coopRealIds = true
+  for k, f in pairs(Weapons) do
+    if type(f) == "function" then
+      Weapons[k] = function(...)
+        if Sp.on and Sp.shownFor ~= nil then return Sp.withRealIds(f, ...) end
+        return f(...)
+      end
+    end
+  end
+end
+
 function Sp.asUser1(fn, ...)
   if Sp.inUser1 then return fn(...) end
   local list = Sp.buildRemap()
   remapOn(list)
   Sp.inUser1, Sp.remap = true, list
-  local r = {pcall(fn, ...)}
+  local r = {pcall(Sp.withRealIds, fn, ...)}
   Sp.inUser1, Sp.remap = false, nil
   remapOff(list)
   if not r[1] then Sp.logError(Sp.callLabel or "power", r[2]) return end
@@ -1318,6 +1369,7 @@ function Sp.showFor(u)
   if cfg.splitfpflip == false then uf = u end
   local id0, id1 = (uf == 0) and 0 or 3, (uf == 1) and 1 or 3
   Sp.id3User = (f0 and id0 == 3 and 0) or (f1 and id1 == 3 and 1) or nil
+  Sp.sendHiddenUser()
   if f0 and f0.id ~= id0 then f0.id = id0 end
   if f1 and f1.id ~= id1 then f1.id = id1 end
   if cfg.splitbodies ~= false then
@@ -1352,6 +1404,7 @@ function Sp.showAll()
     end
   end
   Sp.id3User = nil
+  Sp.sendHiddenUser()
   for name in pairs(Sp.bodyVis) do
     restoreBody(name, Game.GetEntity(name))
   end
