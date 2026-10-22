@@ -2651,3 +2651,41 @@ if cfg.hoststep and Coop.isHost() and Coop.level ~= "levels/menu" then
     Coop.log(string.format("hoststep: %s at %.0f,%.0f", u.Name, u.Pos.x, u.Pos.z))
   end
 end
+
+-- 'actlog' (any machine): every change of this player's body action (and its weapon slot),
+-- to see which actions a human body plays when it fires, reloads or uses a power.
+if cfg.actlog and Coop.level ~= "levels/menu" then
+  local prevAct = Coop.dev
+  function Coop.dev()
+    if prevAct then prevAct() end
+    if MakeFP and not Coop.actFpWrapped then
+      Coop.actFpWrapped = true
+      for _, fn in ipairs({"LaunchFpsAnm", "LaunchFpsAnm2"}) do
+        local orig = MakeFP[fn]
+        if type(orig) == "function" then
+          MakeFP[fn] = function(id, action, value, ...)
+            Coop.log("actlog: fp " .. fn .. " " .. tostring(id) .. " " .. tostring(action) .. " " .. tostring(value))
+            return orig(id, action, value, ...)
+          end
+        end
+      end
+    end
+    local u = Game.UsrEntity(0)
+    if not u then return end
+    local a = tostring(u.Action)
+    local wc = u.oWeapCtrl
+    local slot = wc and tostring(wc.iSlot) or "-"
+    local shot = u.owc and u.owc.Shot or 0
+    local fp = Game.GetEntity("0FP_" .. u.Name)
+    local fa = fp and tostring(fp.Action) or "-"
+    if fa ~= Coop.actFpLast then
+      Coop.actFpLast = fa
+      Coop.log("actlog: fpaction " .. fa)
+    end
+    local key = a .. "/" .. slot .. "/" .. (shot > 0.5 and 1 or 0)
+    if key ~= Coop.actLast then
+      Coop.actLast = key
+      Coop.log("actlog: " .. u.Name .. " " .. key)
+    end
+  end
+end

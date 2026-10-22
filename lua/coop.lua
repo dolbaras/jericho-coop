@@ -303,10 +303,15 @@ function Coop.stateOf(e)
   -- arm, Church's blade...). The puppet takes the same slot, so it shows and fires that.
   local wc = e.oWeapCtrl
   local slot = wc and tonumber(wc.iSlot) or -1
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d",
+  -- What the player's first-person arms play (a human body's own action stays "Relax" when it
+  -- strikes, reloads or casts: only the arms show it): the other machines mirror it on the body.
+  local fp = e.FPSEntity and e.FPSEntity ~= "" and Game.GetEntity(e.FPSEntity)
+  local fpa = fp and fp.Action
+  if type(fpa) ~= "string" or fpa == "" then fpa = "-" end
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
-    Coop.stateSeq, Net.CoopTime(), slot)
+    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")))
 end
 
 function Coop.sendStates()
@@ -518,6 +523,49 @@ function Coop.syncSlot(e, slot)
   if not ok then Coop.slotErrors = (Coop.slotErrors or 0) + 1 end
 end
 
+-- A network player's strikes, reloads and powers on their body here. The owner sends what
+-- their first-person arms play ("<weapon set>_<action>", e.g. "01_Combo1Hit1", "02_Reload");
+-- the body plays the matching third-person action once, when the class has it (owner's Steam
+-- test, 0.2.1: the host saw nothing of a client's melee or powers; shots already showed).
+Coop.ARM_ACTIONS = {
+  {"^Combo(%d)Hit(%d)$", function(c, cls, a, b) return cls:GetAct("Combo" .. a .. "Hit" .. b) and ("Combo" .. a .. "Hit" .. b) or "Punch" end},
+  {"^Punch", "Punch"}, {"^Reload", "Reload"}, {"^Spell", "Spell"}, {"^Hack", "Hack"},
+  {"^Special_0Init$", "Shot1Init"}, {"^Special_0$", "Shot1"}, {"^Special_0End$", "Shot1End"},
+  {"^Special", "Special1"},
+}
+Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
+Coop.mirrored = {}
+function Coop.mirrorArms(e, name, st)
+  if Coop.cfg.mirrorarms == false then return end
+  local fpa = st.fpa
+  if not fpa or fpa == Coop.mirrored[name] then return end
+  Coop.mirrored[name] = fpa
+  local act = string.match(fpa, "^%d+_(.+)$") or fpa
+  local cls = Act.GetClass(e.ActCtrl ~= "" and e.ActCtrl or name)
+  if not cls then return end
+  local want
+  local own = Coop.ARM_BY_CHAR[name]
+  if own then
+    for pat, a in pairs(own) do if string.find(act, pat) then want = a end end
+  end
+  if not want then
+    for _, m in ipairs(Coop.ARM_ACTIONS) do
+      local caps = {string.match(act, m[1])}
+      if caps[1] then
+        want = type(m[2]) == "function" and m[2](name, cls, caps[1], caps[2]) or m[2]
+        break
+      end
+    end
+  end
+  if not want then return end
+  local crouched = string.find(tostring(st.action), "^Duck") ~= nil
+  if crouched and cls:GetAct("Duck" .. want) then want = "Duck" .. want end
+  if cls:GetAct(want) then
+    e.ForceAction = want
+    if Coop.cfg.mirrorlog then Coop.log("mirror: " .. name .. " " .. fpa .. " -> " .. want) end
+  end
+end
+
 function Coop.drivePuppets(dt)
   -- Scenes freeze and hide the squad (Scene.HideChars); puppets resume afterwards.
   if Scene and Scene.IsPlaying then return end
@@ -562,6 +610,7 @@ function Coop.drivePuppets(dt)
         -- Shots use the newest state (no added delay), movement inputs the drawn one.
         if e.owc then e.owc.Shot = st.shot or 0 end
         Coop.syncSlot(e, st.slot)
+        Coop.mirrorArms(e, name, st)
         e.InCtrl_Walk = tg.st.walk
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
@@ -677,6 +726,7 @@ function Coop.onMessage(peer, data)
       walk = tonumber(f[8]), str = tonumber(f[9]), sprint = tonumber(f[10]),
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
       raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
+      fpa = f[18],
     }
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
@@ -1188,24 +1238,89 @@ function Coop.clipKey()
   Coop.clipHeld = down
 end
 
--- Screens wider than 16:9 (2560x1080, 3440x1440...): the game's aspect ratio option has only
--- 4:3, 16:9 and 16:10, and the player profile (Profile.CBJericho) puts its value back at the main
--- menu over game.cfg, so an ultrawide screen was always stretched. The ratio of the video mode
--- itself is set instead, checked every second (a profile load or the option can change it).
+-- Aspect ratio. The game's option has only 4:3, 16:9 and 16:10, and the player profile
+-- (Profile.CBJericho) puts its stored value back at the main menu over game.cfg, so an
+-- ultrawide screen was always stretched (owner, 0.2.1). The option now offers Auto (the
+-- screen's own ratio, the default) and the common ratios; the choice is kept in the mod's
+-- own file (Coop\display.txt) and put back every second over whatever the profile loaded.
 Coop.WIDE_ASPECT = 1.85
+Coop.ASPECTS = {
+  {0, "Auto", "Авто"}, {4 / 3, "4:3"}, {5 / 4, "5:4"}, {16 / 10, "16:10"}, {16 / 9, "16:9"},
+  {64 / 27, "21:9 (2560x1080)"}, {43 / 18, "21:9 (3440x1440)"}, {32 / 9, "32:9"},
+}
+Coop.DISPLAY_FILE = "display.txt"
+
+function Coop.aspectChoice()
+  if Coop.aspectSel == nil then
+    Coop.aspectSel = 1
+    local text = Net.CoopFile and Net.CoopFile(Coop.DISPLAY_FILE, "r")
+    local v = text and string.match(text, "aspect\t([%d%.]+)")
+    v = tonumber(v)
+    if v then
+      for i, a in ipairs(Coop.ASPECTS) do
+        if math.abs(a[1] - v) < 0.001 then Coop.aspectSel = i end
+      end
+    end
+  end
+  return Coop.aspectSel
+end
+
+function Coop.screenRatio()
+  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
+  if w and h and h > 0 then return w / h, w, h end
+end
+
+-- The ratio the game should use now.
+function Coop.wantedAspect()
+  local a = Coop.ASPECTS[Coop.aspectChoice()]
+  if a[1] > 0 then return a[1] end
+  return (Coop.screenRatio())
+end
+
 function Coop.autoAspect()
   if cfg.aspect == false or Coop.frame % 30 ~= 1 then return end
-  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
-  if not (w and h and h > 0) then return end
-  local r = w / h
-  if r < Coop.WIDE_ASPECT then return end
+  Coop.installAspectMenu()
+  local r = Coop.wantedAspect()
+  if not r then return end
   local cur = tonumber(Game.Get("PhysicalAspectRatio")) or 0
-  if math.abs(cur - r) > 0.01 then
+  if math.abs(cur - r) > 0.005 then
     Game.Set("PhysicalAspectRatio", r)
     if not Coop.aspectLogged then
       Coop.aspectLogged = true
-      Coop.log(string.format("aspect: %dx%d, PhysicalAspectRatio %.4f -> %.4f", w, h, cur, r))
+      local _, w, h = Coop.screenRatio()
+      Coop.log(string.format("aspect: %sx%s, %s, PhysicalAspectRatio %.4f -> %.4f", tostring(w), tostring(h),
+        Coop.ASPECTS[Coop.aspectChoice()][2], cur, r))
     end
+  end
+end
+
+function Coop.aspectLabel()
+  local a = Coop.ASPECTS[Coop.aspectChoice()]
+  local ru = Coop.lang() == "ru"
+  if a[1] > 0 then return a[2] end
+  local r = Coop.screenRatio()
+  local name = ru and Coop.cp1251(a[3]) or a[2]
+  return r and string.format("%s (%.2f:1)", name, r) or name
+end
+
+-- The game's options screen (scripts/menu/menu.lua): its aspect ratio entry steps through
+-- Coop.ASPECTS instead of its three ratios.
+function Coop.installAspectMenu()
+  if not Menu or not Menu.Switch_Aspect_Ratio or Menu.Switch_Aspect_Ratio == Coop.aspectSwitch then return end
+  local function step(id, control, d)
+    local n = #Coop.ASPECTS
+    Coop.aspectSel = (Coop.aspectChoice() - 1 + d) % n + 1
+    if Net.CoopFile then Net.CoopFile(Coop.DISPLAY_FILE, "w", "aspect\t" .. string.format("%.6f", Coop.ASPECTS[Coop.aspectSel][1])) end
+    local r = Coop.wantedAspect()
+    if r then Game.Set("PhysicalAspectRatio", r) end
+    local itm = Scorer.GetItem(id, control)
+    if itm then itm.Text = Menu.Get_Aspect_Ratio_Status() end
+  end
+  Coop.aspectSwitch = function(id, control) step(id, control, 1) end
+  Menu.Switch_Aspect_Ratio = Coop.aspectSwitch
+  Menu.Switch_Aspect_Ratio_Down = function(id, control) step(id, control, -1) end
+  Menu.Get_Aspect_Ratio_Status = function()
+    return Game.GetLangStr("Menu_Aspect_Ratio") .. ": " .. Coop.aspectLabel()
   end
 end
 
