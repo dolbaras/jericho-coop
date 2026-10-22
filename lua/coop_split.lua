@@ -312,8 +312,7 @@ function Sp.frame()
     Sp.nextPadScan = now + 3
     local ok, changed = pcall(Net.CoopKey, -2)
     if ok and changed == 1 then
-      Scorer.SetMsgText(Coop.lang() == "ru" and Coop.cp1251("Геймпады назначены заново") or "Gamepads assigned again",
-        Game.GetTime() + 4)
+      Scorer.SetMsgText(Coop.text("pads"), Game.GetTime() + 4)
     end
   end
   if not hold and now >= (Sp.nextHudCheck or 0) then
@@ -607,6 +606,7 @@ function Sp.syncOwner()
   elseif cfg.myId then
     if Sp.claimed ~= want or (want and Coop.owners[want] ~= Sp.owner) then
       Net.CoopSend(0, 1, "claim2|" .. (want or ""))
+      if Sp.claimed ~= want then Sp.claimedT = Net.CoopTime() end
       Sp.claimed = want
     end
   end
@@ -622,6 +622,22 @@ function Sp.checkBody()
   end
   -- Scenes hide and deactivate the squad: no verdict while one plays.
   if Scene and Scene.IsPlaying then return end
+  -- A body the host gave to another player (two took it at once, claim2 refused): player 2
+  -- moves out, as player 1 does (Coop.checkRefusedClaim); it drove on as a second driver.
+  local held = Coop.isClient() and b and Coop.owners[Sp.char]
+  if held and held ~= Sp.owner and not Coop.storyDriven[Sp.char] and Sp.claimed == Sp.char and
+     Net.CoopTime() - (Sp.claimedT or 0) >= Coop.CLAIM_WAIT then
+    local name = Sp.char
+    Coop.log("split: " .. name .. " is held by owner " .. tostring(held) .. ", player 2 moves out")
+    -- (that body is the other player's puppet here: let go of it with its AI left off)
+    if b.UsrControl == 1 then b.UsrControl = -1 end
+    local t = Sp.freeBody(name)
+    if not (t and Sp.takeBody(t)) then
+      Sp.waiting = true
+      Coop.log("split: player 2 has no body, waits")
+    end
+    return
+  end
   -- Taken by the story (coop_story.lua: the same rule as for the other players); a tutorial
   -- lock on switching (Team.UnavaliablePlayers) does not move a player out of their seat.
   local gone = not b or b.bActive == false or b.Active == 0 or

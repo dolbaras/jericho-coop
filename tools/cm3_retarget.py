@@ -921,7 +921,11 @@ def coop_models(files):
 def cmd_batch(a, files):
     out_dir = os.path.join(a.out, 'out')
     items, reports, errors, cache = [], [], [], {}
-    for p in files.names('levels/*/map/*/*anm/fp_*.cm3'):
+    todo = list(files.names('levels/*/map/*/*anm/fp_*.cm3'))
+    # (the installer's progress bar reads these)
+    print(f'progress 0/{len(todo)}', flush=True)
+    for i, p in enumerate(todo, 1):
+        print(f'progress {i}/{len(todo)}', flush=True)
         try:
             name, data, rep = do_one(files, p, out_dir, cache)
         except (ValueError, AssertionError, m3d.FormatError) as e:

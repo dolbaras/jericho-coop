@@ -76,13 +76,13 @@ function P.storyLine()
   if not t then return nil end
   local lang = Coop.lang()
   local s = t[lang] or t.en
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 function P.text(key)
   local lang = Coop.lang()
   local s = (P.TEXT[lang] or P.TEXT.en)[key]
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 -- True when the local player owns no usable body.
@@ -409,3 +409,7 @@ function P.onMessage(peer, f)
   P.mark(f[2], false)
   return true
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(P.TEXT, "CoopSpirit.TEXT")
+for level, t in pairs(P.STORY) do Coop.addLangs(t, "CoopSpirit.STORY." .. level) end

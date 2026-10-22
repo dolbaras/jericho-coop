@@ -25,7 +25,10 @@ Coop.TICK = 0.05
 Coop.SEND_EVERY = 1        -- ticks between state messages (20 Hz)
 Coop.SNAP_DIST = 250       -- units; puppet is teleported beyond this error
 Coop.FOLLOW = 0.9          -- fraction of the error to the interpolated place removed per 0.05 s
-Coop.FOLLOW_Y = 40         -- units; height is left to the engine (floor) below this error
+-- Height follows the owner's too: a puppet ignores collision, so the engine does not keep it
+-- on the floor, and leaving height to it under 40 units left bodies up to that deep in the
+-- floor or above it on slopes and stairs (owner's report, 0.2.2; measured 20-42 units).
+Coop.FOLLOW_Y = 1          -- units of height error left alone
 -- Other bodies are drawn a little in the past, between two received states (snapshot
 -- interpolation): the delay covers the send interval plus the network's jitter (fork
 -- MAK-PIVO/jericho-coop: 107-201 visible jumps a minute of a running puppet before, 1.5-4.5 after).
@@ -109,6 +112,8 @@ function Coop.textBlock(name, text, opts)
     end
     for _, l in ipairs(split or {part}) do lines[#lines + 1] = l end
   end
+  local step = opts.step or 24
+  local y0 = Coop.blockY(name, opts.y or 240, #lines, step)
   local n = 0
   for k, line in ipairs(lines) do
     n = k
@@ -119,7 +124,7 @@ function Coop.textBlock(name, text, opts)
       it.Font = font
       it.Effect = opts.effect or "Shadow"
     end
-    it.Y = (opts.y or 240) + (k - 1) * (opts.step or 24)
+    it.Y = y0 + (k - 1) * step
     Coop.setCentered(it, line, opts.x)
     if opts.color then it.Color = opts.color end
     it.Visible = 1
@@ -127,8 +132,38 @@ function Coop.textBlock(name, text, opts)
   Coop.textBlockHide(name, n + 1)
 end
 
+-- Hints shown at once never draw over each other (owner's screenshot, 0.2.2: "cut off from
+-- the squad?" over "Delgado is needed here"): a block that would overlap another moves away
+-- from it, in the bottom half up (the lowest keeps its place), in the top half down.
+Coop.blocks = {}
+Coop.BLOCK_GAP = 6
+Coop.LINE_H = 22
+function Coop.blockY(name, y, n, step)
+  Coop.blocks[name] = {y = y, h = (n - 1) * step + Coop.LINE_H}
+  local up = y >= 240
+  local list = {}
+  for k, b in pairs(Coop.blocks) do
+    if (b.y >= 240) == up then list[#list + 1] = {name = k, y = b.y, h = b.h} end
+  end
+  table.sort(list, function(a, b)
+    if a.y ~= b.y then if up then return a.y > b.y else return a.y < b.y end end
+    return a.name < b.name
+  end)
+  local edge
+  for _, b in ipairs(list) do
+    local top = b.y
+    if edge then
+      if up then top = math.min(top, edge - Coop.BLOCK_GAP - b.h) else top = math.max(top, edge + Coop.BLOCK_GAP) end
+    end
+    edge = up and top or (top + b.h)
+    if b.name == name then return top end
+  end
+  return y
+end
+
 -- Hides the block's lines from line `from` on (1 = all of it).
 function Coop.textBlockHide(name, from)
+  if (from or 1) <= 1 then Coop.blocks[name] = nil end
   local k = from or 1
   while true do
     local it = Scorer.GetItem(0, k == 1 and name or (name .. "#" .. k))
@@ -146,11 +181,70 @@ function Coop.cleanNick(s)
   return string.sub(s, 1, 16)
 end
 
--- "ru" when the game's own strings are Russian (cp1251), else "en".
-function Coop.lang()
-  if cfg.lang then return cfg.lang end   -- tests: the other language on this install
-  if CoopMenu and CoopMenu.lang then return CoopMenu.lang end
+-- The mod's language: the game's (Options -> Language): "de", "fr", "es", "it", "ru" when its
+-- strings are Russian (the Russian release has them as its "English"), else "en".
+Coop.LANG_NAMES = {erman = "de", rench = "fr", panish = "es", talian = "it"}
+function Coop.detectLang()
+  local sel = string.lower(tostring(Game.Get("SelectedLanguage") or ""))
+  for part, code in pairs(Coop.LANG_NAMES) do
+    if string.find(sel, part, 1, true) then return code end
+  end
   return (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
+end
+
+function Coop.lang()
+  if cfg.lang then return cfg.lang end   -- tests: another language on this install
+  return Coop.detectLang()
+end
+
+-- Texts of the other languages (lang_<code>.lua: {["CoopMenu.TEXT"] = {...}, ...}) put into a
+-- module's own table under that code, so its lookups find them like en and ru.
+function Coop.addLangs(tbl, path)
+  local lang = Coop.lang()
+  if lang == "en" or lang == "ru" or type(tbl) ~= "table" then return end
+  Coop.langTexts = Coop.langTexts or {}
+  if Coop.langTexts[lang] == nil then
+    local ok, t = pcall(dofile, COOP_DIR .. "lang_" .. lang .. ".lua")
+    Coop.langTexts[lang] = ok and type(t) == "table" and t or false
+    if not ok then Coop.log("language " .. lang .. ": " .. tostring(t)) end
+  end
+  local t = Coop.langTexts[lang] and Coop.langTexts[lang][path]
+  if t ~= nil and tbl[lang] == nil then tbl[lang] = t end
+end
+
+-- Mod sources are UTF-8; the game's fonts use the language's code page: cp1251 for Russian,
+-- cp1252 for the others.
+function Coop.enc(s, lang)
+  if type(s) ~= "string" then return s end
+  lang = lang or Coop.lang()
+  if lang == "ru" then return Coop.cp1251(s) end
+  return Coop.cp1252(s)
+end
+
+Coop.CP1252 = {[0x20AC] = 128, [0x201A] = 130, [0x201E] = 132, [0x2026] = 133, [0x0152] = 140, [0x2018] = 145,
+               [0x2019] = 146, [0x201C] = 147, [0x201D] = 148, [0x2013] = 150, [0x2014] = 151, [0x0153] = 156,
+               [0x0178] = 159}
+function Coop.cp1252(s)
+  return (string.gsub(s, "[\194-\239][\128-\191]+", function(c)
+    local b1, b2, b3 = string.byte(c, 1, 3)
+    local code
+    if b1 < 224 then code = (b1 - 192) * 64 + (b2 - 128)
+    elseif b3 then code = ((b1 - 224) * 64 + (b2 - 128)) * 64 + (b3 - 128) end
+    if code and code >= 160 and code <= 255 then return string.char(code) end
+    local x = code and Coop.CP1252[code]
+    return x and string.char(x) or "?"
+  end))
+end
+
+-- Short texts of this file and of coop_split.lua.
+Coop.TEXT = {
+  en = {clip = "Last 30 s saved as a video: ", pads = "Gamepads assigned again", auto = "Auto"},
+  ru = {clip = "Видео последних 30 с сохранено: ", pads = "Геймпады назначены заново", auto = "Авто"},
+}
+Coop.addLangs(Coop.TEXT, "Coop.TEXT")
+function Coop.text(key)
+  local lang = Coop.lang()
+  return Coop.enc((Coop.TEXT[lang] or Coop.TEXT.en)[key] or Coop.TEXT.en[key] or key, lang)
 end
 
 -- Mod sources are UTF-8; the game's fonts use cp1251.
@@ -245,6 +339,17 @@ end
 function Coop.broadcastOwners()
   cfg.owners = Coop.ownString()
   Net.CoopSend(-1, 1, "own|" .. cfg.owners)
+end
+
+-- A refused claim: the owners to the claimer only, at most every 2 s per peer (a split screen
+-- player 2 asks again every second while its body is not its own).
+function Coop.ownersTo(peer, why)
+  Coop.ownersToT = Coop.ownersToT or {}
+  local now = Net.CoopTime()
+  if now - (Coop.ownersToT[peer] or -10) < 2 then return end
+  Coop.ownersToT[peer] = now
+  if why then Coop.log(why) end
+  Net.CoopSend(peer, 1, "own|" .. Coop.ownString())
 end
 
 -- Host: give a joining peer the wanted body if it is free, else the first free one.
@@ -617,7 +722,6 @@ function Coop.drivePuppets(dt)
         else
           -- The body walks on its own inputs (animation, collision); this keeps it on the
           -- interpolated path every frame, without a dead zone that would make it jump.
-          -- Height stays with the engine (floor contact) unless it is clearly off.
           local y = math.abs(dy) > Coop.FOLLOW_Y and pos.y + dy * follow or pos.y
           e.Pos = V3D(pos.x + dx * follow, y, pos.z + dz * follow)
         end
@@ -632,6 +736,10 @@ function Coop.drivePuppets(dt)
         e.InCtrl_Walk = tg.st.walk
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
+        -- Crouching (the game has it standing still only: a step stands up), held while the
+        -- owner's body plays a Duck action; the puppet stood upright before (0.2.2 check).
+        local duck = string.find(tostring(tg.st.action), "^Duck") and 1 or 0
+        if e.InCtrl_Crouch ~= duck then e.InCtrl_Crouch = duck end
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1
@@ -756,11 +864,10 @@ function Coop.onMessage(peer, data)
       if Coop.peerOf(Coop.owners[name]) ~= peer then return end
       Net.CoopSend(-1, 1, data)
     end
+    -- The body's height follows its owner's (drivePuppets), so the jump's arc comes with the
+    -- states: a push here as well lifted it twice. Counted for the dev checks.
     local e = Game.GetEntity(name)
-    local vy = tonumber(f[3])
-    if e and vy and Coop.isPuppet(name) and e.Life > 0 and e.Vel then
-      local v = e.Vel
-      e.Vel = V3D(v.x, vy, v.z)
+    if e and Coop.isPuppet(name) and e.Life > 0 then
       Coop.lastJump = {name = name, y = e.Pos.y, peak = e.Pos.y, frame = Coop.frame}
       Coop.jumpsSeen = (Coop.jumpsSeen or 0) + 1
     end
@@ -800,10 +907,11 @@ function Coop.onMessage(peer, data)
         if p == peer then Coop.owners[n] = nil end
       end
       Coop.owners[name] = peer
+      Coop.broadcastOwners()
     else
       Coop.log("claim of " .. tostring(name) .. " by peer " .. peer .. " refused")
+      Coop.ownersTo(peer)
     end
-    Coop.broadcastOwners()
   elseif kind == "claim2" and Coop.isHost() then
     -- A client's split screen player (coop_split.lua) holds this body now ("" none).
     local name, id = f[2] or "", peer + Coop.P2
@@ -813,10 +921,10 @@ function Coop.onMessage(peer, data)
         if p == id then Coop.owners[n] = nil end
       end
       if name ~= "" then Coop.owners[name] = id end
+      Coop.broadcastOwners()
     else
-      Coop.log("claim2 of " .. tostring(name) .. " by peer " .. peer .. " refused")
+      Coop.ownersTo(peer, "claim2 of " .. tostring(name) .. " by peer " .. peer .. " refused")
     end
-    Coop.broadcastOwners()
   elseif kind == "welcome" and Coop.isClient() then
     cfg.myId = tonumber(f[2])
     cfg.char = f[4]
@@ -824,7 +932,7 @@ function Coop.onMessage(peer, data)
     if string.lower("levels/" .. f[3]) ~= Coop.level then
       Coop.log("following host to " .. f[3])
       Coop.rearm()   -- carry myId/char into the next level
-      Coop.levelLoading = true
+      Coop.levelLoading = Net.CoopTime()
       Game.LoadLevel("Levels/" .. f[3])
     end
   elseif kind == "seats" and Coop.isClient() then
@@ -893,8 +1001,19 @@ local function handle(peer, kind, data)
   elseif kind == "leave" then Coop.onLeave(peer) end
 end
 
+-- A load that never came (a level the game does not find, an error in its loader): the
+-- messages are handled again after a while, not dropped for the rest of the level.
+Coop.LOAD_WAIT = 20
+function Coop.loading()
+  if not Coop.levelLoading then return false end
+  if Net.CoopTime() - Coop.levelLoading < Coop.LOAD_WAIT then return true end
+  Coop.log("level load did not happen: messages handled again")
+  Coop.levelLoading = nil
+  return false
+end
+
 function Coop.pump()
-  if Coop.levelLoading then return end
+  if Coop.loading() then return end
   for _ = 1, 200 do
     local peer, kind, data = Net.CoopRecv()
     if not peer then return end
@@ -906,7 +1025,7 @@ function Coop.pump()
     end
     -- A message that started loading a level ends this pump: the rest belongs to the new level
     -- (handled there, by its own scripts and guards).
-    if Coop.levelLoading then return end
+    if Coop.loading() then return end
   end
 end
 
@@ -1159,13 +1278,17 @@ function Coop.checkRefusedClaim(mine)
   if Coop.lastClaim ~= mine or Net.CoopTime() - (Coop.lastClaimT or 0) < Coop.CLAIM_WAIT then return end
   if Scene and Scene.IsPlaying then return end
   if CoopSpirit and CoopSpirit.active then return end
+  -- (once a second: with no free body this would look up the squad every tick)
+  local now = Net.CoopTime()
+  if now < (Coop.refusedNextT or 0) then return end
+  Coop.refusedNextT = now + 1
   local target
   for n, p in pairs(Coop.owners) do
     if p == cfg.myId then target = n end
   end
   if not target then
     for _, n in ipairs(Coop.SQUAD) do
-      local e = Game.GetEntity(n)
+      local e = Coop.squadEnt(n)
       if Coop.owners[n] == nil and e and (e.Life or 0) > 0 and e.bActive ~= false and
          not (CoopStory and CoopStory.taken and CoopStory.taken(n)) then
         target = n
@@ -1334,8 +1457,7 @@ function Coop.clipKey()
     Coop.log("clip: F11 -> " .. tostring(path))
     if path and path ~= "" then
       local name = string.match(path, "[^\\]+$") or path
-      pcall(Scorer.SetMsgText, (Coop.lang() == "ru" and Coop.cp1251("Видео последних 30 с сохранено: ") or
-        "Last 30 s saved as a video: ") .. "Coop\\" .. name, Game.GetTime() + 5)
+      pcall(Scorer.SetMsgText, Coop.text("clip") .. "Coop\\" .. name, Game.GetTime() + 5)
     end
   end
   Coop.clipHeld = down
@@ -1348,7 +1470,7 @@ end
 -- own file (Coop\display.txt) and put back every second over whatever the profile loaded.
 Coop.WIDE_ASPECT = 1.85
 Coop.ASPECTS = {
-  {0, "Auto", "Авто"}, {4 / 3, "4:3"}, {5 / 4, "5:4"}, {16 / 10, "16:10"}, {16 / 9, "16:9"},
+  {0, "Auto"}, {4 / 3, "4:3"}, {5 / 4, "5:4"}, {16 / 10, "16:10"}, {16 / 9, "16:9"},
   {64 / 27, "21:9 (2560x1080)"}, {43 / 18, "21:9 (3440x1440)"}, {32 / 9, "32:9"},
 }
 Coop.DISPLAY_FILE = "coop:display.txt"
@@ -1399,10 +1521,9 @@ end
 
 function Coop.aspectLabel()
   local a = Coop.ASPECTS[Coop.aspectChoice()]
-  local ru = Coop.lang() == "ru"
   if a[1] > 0 then return a[2] end
   local r = Coop.screenRatio()
-  local name = ru and Coop.cp1251(a[3]) or a[2]
+  local name = Coop.text("auto")
   return r and string.format("%s (%.2f:1)", name, r) or name
 end
 
@@ -1631,6 +1752,23 @@ end
 
 -- Restore the ownership table carried over from the previous level.
 if cfg.owners then Coop.owners = Coop.parseOwn(cfg.owners) end
+
+-- Game.UsrEntity(n) reads the engine's table of local users with no check: only user 0 is
+-- there in a game without split screen (user 1 with it; coop_split.lua maps the 3 it gives
+-- hidden first-person models). The game's own scripts pass an FP model's id
+-- (Game.UsrEntity(fp.id)), and the FP models of other players' characters have other ids:
+-- the engine then read a bad pointer and the game crashed (0x427489, 0.2.2 tests: a client
+-- in Rom_Outskirts). No such user: nil, which those scripts take as a script error.
+if Game.UsrEntity ~= Coop.usrGuard then
+  local real = Game.UsrEntity
+  Coop.usrGuard = function(i, ...)
+    if i == 0 or (i == 1 and CoopSplit and (CoopSplit.on or CoopSplit.char)) then return real(i, ...) end
+    Coop.usrRefused = (Coop.usrRefused or 0) + 1
+    if Coop.usrRefused <= 3 then Coop.log("Game.UsrEntity(" .. tostring(i) .. "): no such user here, nil") end
+    return nil
+  end
+  Game.UsrEntity = Coop.usrGuard
+end
 
 do
   -- Side instances (the Lost Patrol) wrap the network calls: load before anything sends.

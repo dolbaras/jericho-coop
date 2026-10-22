@@ -399,7 +399,7 @@ function W.updateRejoin()
   end
   local lang = Coop.lang()
   local text = W.REJOIN_TEXT[lang] or W.REJOIN_TEXT.en
-  Coop.textBlock("CoopRejoin", lang == "ru" and Coop.cp1251(text) or text, {y = 360, color = Color(255, 220, 140, 255)})
+  Coop.textBlock("CoopRejoin", Coop.enc(text, lang), {y = 360, color = Color(255, 220, 140, 255)})
   W.rejoinShown = true
   local key = Net.CoopKey and Net.CoopKey(W.REJOIN_KEY) == 1
   local ok, buttons = pcall(Net.CoopKey, -1, 0)
@@ -576,3 +576,6 @@ function W.onObjectMessage(peer, f)
   end
   return true
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(W.REJOIN_TEXT, "CoopWorld.REJOIN_TEXT")

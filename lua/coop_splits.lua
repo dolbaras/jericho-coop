@@ -105,7 +105,7 @@ Sp.CHOICE_TIME = 20
 function Sp.text(key)
   local lang = Coop.lang()
   local s = (Sp.TEXT[lang] or Sp.TEXT.en)[key] or Sp.TEXT.en[key] or key
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 local function human(name)
@@ -1427,3 +1427,6 @@ function Sp.update()
   Sp.updateChoice()
   if Sp.G15.struggle then Sp.G15updateStruggle(Coop.TICK) end
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(Sp.TEXT, "CoopSplits.TEXT")

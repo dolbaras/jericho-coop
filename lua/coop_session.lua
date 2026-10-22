@@ -21,7 +21,7 @@ CS.HOST_LEFT_DELAY = 4   -- seconds the message stays before the menu loads
 function CS.text(key)
   local lang = Coop.lang()
   local s = (CS.TEXT[lang] or CS.TEXT.en)[key] or CS.TEXT.en[key] or key
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 CS.CLIENT_HIDDEN = {["Menu.RestartWaypointGameMenu"] = true, ["Menu.RestartGameMenu"] = true}
@@ -88,3 +88,6 @@ function CS.update()
     CS.toMenu("host_left")
   end
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(CS.TEXT, "CoopSession.TEXT")

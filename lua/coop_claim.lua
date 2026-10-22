@@ -28,7 +28,7 @@ C.TEXT = {
 local function text(key)
   local lang = Coop.lang()
   local s = (C.TEXT[lang] or C.TEXT.en)[key]
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 local function prop(list, key)
@@ -226,3 +226,6 @@ end
 function C.acceptsAI(name)
   return name and C.aiActing[name] == true
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(C.TEXT, "CoopClaim.TEXT")

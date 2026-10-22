@@ -180,6 +180,8 @@ function St.onMessage(peer, f)
     -- (only this character's turn: another's start or end leaves ours alone)
     local mine = St.myTurn and St.myTurn.name == f[2]
     if mine then St.myTurn = nil end
+    -- (a turn that ended no longer stands for the body's next walks: St.clientWalks)
+    if secs <= 0 and St.turnFor then St.turnFor[f[2]] = nil end
     if secs > 0 and x and Coop.isLocalBody(f[2]) then
       St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs}
       -- The same step replayed here would walk this body by its AI in a moment: the player
@@ -671,7 +673,7 @@ end
 local function turnText(key, ...)
   local lang = Coop.lang()
   local s = string.format((St.TEXT[lang] or St.TEXT.en)[key], ...)
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 -- The body's own machine: the hint, and done once the body is there and uses a power (or
@@ -741,3 +743,6 @@ function St.update()
     St.watchVars()
   end
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(St.TEXT, "CoopStory.TEXT")

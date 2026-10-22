@@ -43,7 +43,7 @@ LP.TEXT = {
 function LP.text(key)
   local lang = Coop.lang()
   local s = (LP.TEXT[lang] or LP.TEXT.en)[key] or LP.TEXT.en[key] or key
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 ------------------------------------------------------------------------------
@@ -405,3 +405,6 @@ end
 function LP.onMainLevel(name)
   if cfg.inst then return LP.sideMainLevel(name) end
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(LP.TEXT, "CoopPatrol.TEXT")

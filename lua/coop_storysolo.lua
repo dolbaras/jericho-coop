@@ -116,7 +116,7 @@ end
 function SS.text(key)
   local lang = Coop.lang()
   local s = (SS.TEXT[lang] or SS.TEXT.en)[key] or SS.TEXT.en[key] or key
-  return lang == "ru" and Coop.cp1251(s) or s
+  return Coop.enc(s, lang)
 end
 
 -- step: {after = seconds} or {on = "<function run by the story>"}, then call = "<path>",
@@ -515,5 +515,8 @@ function SS.updatePatrol()
     CoopPatrol.sideMainLevel(main)
   end
 end
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(SS.TEXT, "CoopStorySolo.TEXT")
 
 return SS

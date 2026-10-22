@@ -35,7 +35,7 @@ CoopMenu.smodPeers = {}    -- peers that have SMOD (coop_smod.lua), the host's v
 CoopMenu.screen = nil      -- "root", "host", "join", "lobby"
 
 ------------------------------------------------------------------------------
--- Text: Russian when the game's own strings are Russian (cp1251), else English.
+-- Text: the game's language (Coop.lang): en and ru here, de/fr/es/it in lang_<code>.lua.
 ------------------------------------------------------------------------------
 
 CoopMenu.TEXT = {
@@ -104,30 +104,27 @@ CoopMenu.TEXT = {
   },
 }
 
-function CoopMenu.detectLanguage()
-  if cfg.lang then return cfg.lang end   -- tests: the other language on this install
-  local probe = Game.GetLangStr("Menu_ExitGame") or ""
-  for i = 1, #probe do
-    if string.byte(probe, i) >= 192 then return "ru" end
-  end
-  return "en"
-end
+-- The game's language (Coop.lang): it can change in the options while the menu is up.
+function CoopMenu.detectLanguage() return Coop.lang() end
 CoopMenu.lang = CoopMenu.detectLanguage()
+Coop.addLangs(CoopMenu.TEXT, "CoopMenu.TEXT")
 
--- The sources are UTF-8; the game's fonts use cp1251. Convert Cyrillic once at load.
-local function utf8_to_cp1251(s)
-  return (string.gsub(s, "([\208\209])([\128-\191])", function(a, b)
-    local code = (string.byte(a) - 192) * 64 + (string.byte(b) - 128)   -- Unicode code point
-    if code == 0x401 then return "\168" end      -- Ё
-    if code == 0x451 then return "\184" end      -- ё
-    if code >= 0x410 and code <= 0x44F then return string.char(code - 0x410 + 192) end
-    return "?"
-  end))
-end
-for k, v in pairs(CoopMenu.TEXT.ru) do CoopMenu.TEXT.ru[k] = utf8_to_cp1251(v) end
-
+-- Texts in the game's code page, per language, converted as first used.
+local encoded = {}
 local function T(key)
-  return CoopMenu.TEXT[CoopMenu.lang][key] or CoopMenu.TEXT.en[key] or key
+  local lang = Coop.lang()
+  if lang ~= CoopMenu.lang then
+    CoopMenu.lang = lang
+    Coop.addLangs(CoopMenu.TEXT, "CoopMenu.TEXT")
+  end
+  local c = encoded[lang]
+  if not c then c = {}; encoded[lang] = c end
+  local s = c[key]
+  if s == nil then
+    s = Coop.enc((CoopMenu.TEXT[lang] or CoopMenu.TEXT.en)[key] or CoopMenu.TEXT.en[key] or key, lang)
+    c[key] = s
+  end
+  return s
 end
 CoopMenu.T = T
 

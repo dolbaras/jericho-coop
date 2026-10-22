@@ -43,7 +43,7 @@ Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot 
 # Installer
 Copy-Item (Join-Path $root "tools\installer.ps1") (Join-Path $stage "coop-installer.ps1")
 Set-Content -Path (Join-Path $stage "Install Co-op.bat") -Encoding ASCII `
-    -Value '@powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0coop-installer.ps1" %*'
+    -Value '@start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0coop-installer.ps1" %*'
 Copy-Item (Join-Path $root "docs\release-readme.txt") (Join-Path $stage "README-COOP.txt")
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $stage "LICENSE.txt")
 Copy-Item (Join-Path $root "docs\enet-license.txt") (Join-Path $stage "ENET-LICENSE.txt")

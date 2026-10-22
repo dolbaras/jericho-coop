@@ -329,17 +329,15 @@ end
 -- During a first-person scene seen through someone else's eyes, say whose: for the first
 -- seconds of the scene, then the caption fades. The name is the game's own (language file
 -- keys Church, Cole...: "Черч").
-E.EYES = {en = "Through %s's eyes", ru = "\194\232\228 \227\235\224\231\224\236\232: %s"}  -- "Вид глазами: %s" (cp1251)
+E.EYES = {en = "Through %s's eyes", ru = "Вид глазами: %s"}
 E.EYES_SHOW = 5
 E.EYES_FADE = 1
-function E.lang()
-  return Coop.cfg.lang or (CoopMenu and CoopMenu.lang) or (string.byte(Game.GetLangStr("Menu_ExitGame") or "", 1) or 0) >= 192 and "ru" or "en"
-end
+function E.lang() return Coop.lang() end
 
 -- A scene held at the gate (the level's opening scene while others still load) would leave
 -- this player in live play for a few seconds where the game shows the scene at once: the
 -- screen stays black and the keys do nothing until it starts; a long wait says why.
-E.WAIT = {en = "Waiting for players...", ru = "\206\230\232\228\224\237\232\229 \232\227\240\238\234\238\226..."}  -- "Ожидание игроков..." (cp1251)
+E.WAIT = {en = "Waiting for players...", ru = "Ожидание игроков..."}
 E.WAIT_TEXT_AFTER = 0.5
 -- Fades go through the game's own Scorer.Fade; while the curtain is up, the level's opening
 -- fade-in (MapInit.main: black -> clear, run after the mod starts) would show the first frame.
@@ -413,7 +411,7 @@ function E.updateCurtain()
     it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
     it.Effect = "Shadow"
     it.Pos = V2D(320, 240)
-    Coop.setCentered(it, E.WAIT[E.lang()] or E.WAIT.en)
+    Coop.setCentered(it, Coop.enc(E.WAIT[E.lang()] or E.WAIT.en))
     it.Color = Color(230, 230, 230, 255)
   end
   it.Visible = 1
@@ -442,7 +440,8 @@ function E.updateSceneLabel()
       local lang = E.lang()
       local name = Game.GetLangStr(E.fpLabel)
       if not name or name == "" then name = E.fpLabel end
-      Coop.setCentered(it, string.format(E.EYES[lang] or E.EYES.en, name))
+      -- (the name is the game's own text, in its code page already)
+      Coop.setCentered(it, string.format(Coop.enc(E.EYES[lang] or E.EYES.en, lang), name))
     end
     local t = Game.GetTime() - E.fpLabelT0
     local a = t < E.EYES_SHOW and 1 or math.max(0, 1 - (t - E.EYES_SHOW) / E.EYES_FADE)
@@ -475,7 +474,7 @@ function E.onLevel(name)
   Coop.cfg.level = name
   Coop.rearm()
   if CoopSave then CoopSave.applyPending() end
-  Coop.levelLoading = true
+  Coop.levelLoading = Net.CoopTime()
   fromHost(SaveGame.LoadLevel, name)
 end
 
@@ -633,8 +632,7 @@ end
 
 function E.showSkip(votes, players)
   local lang = Coop.lang()
-  local s = string.format(E.SKIP_TEXT[lang] or E.SKIP_TEXT.en, votes, players)
-  if lang == "ru" then s = Coop.cp1251(s) end
+  local s = Coop.enc(string.format(E.SKIP_TEXT[lang] or E.SKIP_TEXT.en, votes, players), lang)
   Scorer.SetLabelText(s, Game.GetTime() + 6)
 end
 
@@ -1185,3 +1183,8 @@ function E.install()
 end
 
 E.installScenes()
+
+-- Texts of the other languages (Coop.addLangs).
+Coop.addLangs(E.EYES, "CoopEnemies.EYES")
+Coop.addLangs(E.WAIT, "CoopEnemies.WAIT")
+Coop.addLangs(E.SKIP_TEXT, "CoopEnemies.SKIP_TEXT")

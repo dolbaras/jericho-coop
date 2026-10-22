@@ -82,6 +82,24 @@ static void dump_stack(const char *what, DWORD *sp)
     fclose(f);
 }
 
+/* An access violation (first chance): where, what it touched, the registers and the return
+ * addresses on that thread's stack. The game's own handler later ends in ExitProcess with
+ * the exception code (0xC0000005), whose stack shows only that handler. The first few only. */
+static LONG CALLBACK log_access_violation(EXCEPTION_POINTERS *x)
+{
+    static LONG seen;
+    EXCEPTION_RECORD *r = x->ExceptionRecord;
+    CONTEXT *c = x->ContextRecord;
+    if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || InterlockedIncrement(&seen) > 4)
+        return EXCEPTION_CONTINUE_SEARCH;
+    char what[200];
+    sprintf(what, "AccessViolation at %p (%s %p) eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx ebp=%08lx",
+            r->ExceptionAddress, r->ExceptionInformation[0] ? "write" : "read",
+            (void *)r->ExceptionInformation[1], c->Eax, c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp);
+    dump_stack(what, (DWORD *)c->Esp);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static void __stdcall hook_ExitProcess(UINT code)
 {
     char what[32];
@@ -143,6 +161,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             void *gle = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetLastError");
             if (gle)
                 patch_jmp(gle, (void *)hook_GetLastError);
+            AddVectoredExceptionHandler(1, log_access_violation);
         }
     }
     return TRUE;

@@ -28,8 +28,10 @@ end
 -- Texts
 ------------------------------------------------------------------------------
 
--- en -> ru (UTF-8 here, cp1251 on screen).
-Sm.RU = {
+-- SMOD's texts (it has them in English only) by language: en -> ru here, the others in
+-- lang_<code>.lua under "CoopSmod.TR" (UTF-8 here, the game's code page on screen).
+Sm.TR = {}
+Sm.TR.ru = {
   ["Cheats"] = "Читы",
   ["Quick debug"] = "Быстрая отладка",
   ["Debug"] = "Отладка",
@@ -59,14 +61,18 @@ Sm.RU = {
   ["Console"] = "Консоль",
 }
 
+Coop.addLangs(Sm.TR, "CoopSmod.TR")
+
+-- Shown in another language than SMOD's English.
 function Sm.ru()
-  return Coop.lang and Coop.lang() == "ru"
+  return Coop.lang and Coop.lang() ~= "en"
 end
 
 function Sm.tr(s)
   if type(s) ~= "string" or not Sm.ru() then return s end
-  local t = Sm.RU[s]
-  return t and Coop.cp1251(t) or s
+  local lang = Coop.lang()
+  local t = Sm.TR[lang] and Sm.TR[lang][s]
+  return t and Coop.enc(t, lang) or s
 end
 
 -- Option tables the debug menus are built from (translated in place, once per level).
@@ -248,8 +254,8 @@ end
 ------------------------------------------------------------------------------
 
 -- SMOD's jump (_G.Jump, the walk/run key) only lifts this machine's body: the others see it
--- through jump|<char>|<vel.y>, which gives their copy of the body the same push. Any game
--- shows it (only the velocity is needed), with or without SMOD.
+-- in its states (a puppet's height follows its owner's, coop.lua drivePuppets); jump|<char>
+-- tells them it was a jump (dev checks).
 function Sm.installJump()
   -- autoexec.lua defines _G.Jump again each time it runs: wrapped again after it.
   if type(_G.Jump) ~= "function" or _G.Jump == Sm.jumpWrapper then return end
