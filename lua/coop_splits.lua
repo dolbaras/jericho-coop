@@ -1362,7 +1362,10 @@ function Sp.installG1A(isHost)
     Sp.hooked["G1A"] = true
     local orig = MapInit.StartSayGoodbye
     MapInit.StartSayGoodbye = function(...)
-      if not (Coop.inSession() and Sp.humansIn(Sp.G1A.alpha) > 0) then return orig(...) end
+      -- In any session (not only with Alpha's players): vanilla locks and walks "the player",
+      -- which on a client is its own body (Black locked 12 s and walked off by the AI in the
+      -- owner's Steam test); the co-op version leaves that to Ross's player.
+      if not Coop.inSession() then return orig(...) end
       -- once (a second call would bring every wave twice)
       if Sp.G1A.saidGoodbye then return end
       Sp.G1A.saidGoodbye = true

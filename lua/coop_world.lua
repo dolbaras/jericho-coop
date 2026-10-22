@@ -182,11 +182,18 @@ end
 --   wd|<count>|<sum>       host -> clients every 10 s: digest of doors and dead objects
 --   wdneed                 client -> host after two differing digests in a row
 --   wstate|D:name+;K:name  host -> one client: every door and dead object (catch-up, resend)
+--   blk|<name>|1/0         host -> clients: an invisible blocker's collision (B: in wstate)
 ------------------------------------------------------------------------------
 W.doors = {}      -- name -> true open / false closed, as set on this machine
 W.objects = {}    -- name -> last seen alive (physics objects created with Life)
 W.dead = {}       -- name -> true: killed here or on another machine
 W.DIGEST_EVERY = 10
+-- Invisible blockers (InvisibleBlocker and other map objects the level's scripts switch with
+-- bMapCollision): the host's state on every machine. The scripts that switch them off often
+-- run at the end of a team chat or an AI walk of the player's own body, which a client's copy
+-- may not finish: the client met walls nobody else had (alk_tomb Block1/Block2/Bloquer0, the
+-- owner's Steam test: "everyone passes, the client walks into a wall in the arches").
+W.blockers = {}   -- name -> collision on (as last seen / sent)
 W.OBJECT_POLL = 0.25
 
 local function now() return Net.CoopTime() end
@@ -236,6 +243,59 @@ function W.installObjects()
     e = Game.GetEntity(e.NextInSlot)
   end
   Coop.log("world: doors and objects tracked (" .. n .. " objects found on the map)")
+  W.findBlockers()
+end
+
+-- The map's objects created with a bMapCollision of their own (MapPhysicObjects keeps the
+-- level's object list after creating them).
+function W.findBlockers()
+  local list = MapPhysicObjects and MapPhysicObjects.PhysicObjects
+  local n = 0
+  if type(list) ~= "table" then return end
+  for _, desc in pairs(list) do
+    local name, coll
+    if type(desc) == "table" then
+      for _, kv in ipairs(desc) do
+        if type(kv) == "table" then
+          if kv[1] == "Name" then name = kv[2] elseif kv[1] == "bMapCollision" then coll = kv[2] end
+        end
+      end
+    end
+    if type(name) == "string" and coll ~= nil and Game.GetEntity(name) then
+      local ok, on = pcall(function() return Game.GetEntity(name).bMapCollision end)
+      if ok and on ~= nil then
+        W.blockers[name] = on and true or false
+        n = n + 1
+      end
+    end
+  end
+  if n > 0 then Coop.log("world: " .. n .. " blockers followed") end
+end
+
+function W.setBlocker(name, on)
+  W.blockers[name] = on
+  local e = Game.GetEntity(name)
+  if not e then return false end
+  local ok, cur = pcall(function() return e.bMapCollision end)
+  if ok and cur ~= on then
+    pcall(function() e.bMapCollision = on end)
+    Coop.log("world: blocker " .. name .. (on and " on" or " off") .. " as on the host")
+    return true
+  end
+  return false
+end
+
+-- Host: a blocker switched by the level's scripts here.
+function W.pollBlockers()
+  for name, was in pairs(W.blockers) do
+    local e = Game.GetEntity(name)
+    local ok, on = pcall(function() return e and e.bMapCollision end)
+    if ok and on ~= nil and (on and true or false) ~= was then
+      W.blockers[name] = on and true or false
+      Net.CoopSend(-1, 1, "blk|" .. name .. "|" .. (on and 1 or 0))
+      Coop.log("world: blocker " .. name .. (on and " on" or " off"))
+    end
+  end
 end
 
 -- A door's real state (PhysicsObj.OpenDoor sets Action "Open", it then reads "Opened").
@@ -289,6 +349,7 @@ function W.entries()
     t[#t + 1] = "D:" .. name .. (real and "+" or "-")
   end
   for name in pairs(W.dead) do t[#t + 1] = "K:" .. name end
+  for name, on in pairs(W.blockers) do t[#t + 1] = "B:" .. name .. (on and "+" or "-") end
   table.sort(t)
   return t
 end
@@ -317,6 +378,8 @@ function W.applyState(text)
     elseif kind == "K" and not W.dead[name] then
       W.killObject(name)
       fixed = fixed + 1
+    elseif kind == "B" and W.setBlocker(name, sign == "+") then
+      fixed = fixed + 1
     end
   end
   local extra = {}
@@ -331,6 +394,7 @@ function W.update()
   if not Coop.inSession() or Coop.level == "levels/menu" then return end
   W.installObjects()
   W.pollObjects()
+  if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
   if Coop.isHost() and now() >= (W.nextDigest or now() + W.DIGEST_EVERY) then
     local n, sum = W.digest(W.entries())
     Net.CoopSend(-1, 1, "wd|" .. n .. "|" .. sum)
@@ -345,9 +409,11 @@ function W.onObjectMessage(peer, f)
   local kind = f[1]
   -- Messages queued while this machine loaded the level are handled before the first tick:
   -- the door wrappers must exist first, or a door would be recorded open but stay shut.
-  if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" then W.installObjects() end
+  if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" or kind == "blk" then W.installObjects() end
   if kind == "door" and Coop.isClient() then
     W.setDoor(f[2], f[3] == "1")
+  elseif kind == "blk" and Coop.isClient() then
+    if Coop.cfg.syncblockers ~= false then W.setBlocker(f[2], f[3] == "1") end
   elseif kind == "kill" then
     if Coop.isHost() then
       if not W.dead[f[2]] then Net.CoopSend(-1, 1, "kill|" .. f[2]) end
