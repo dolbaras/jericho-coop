@@ -305,6 +305,58 @@ function Sm.installPauseText()
   end
 end
 
+-- SMOD's CAMERAANIMS = false (its default) keeps the camera still in every first-person action,
+-- the scripted ones too: climbing over, QTE strikes, Cole's charges, healing... The arms and the
+-- body move while the eyes stay put, so the player "fell through" those animations or saw them
+-- from too near or too far (owner's Steam test, 0.2.1), and SMOD's 90 degree view adds to it (the
+-- game made them for 75). An action the game's own scripts create as scripted (SMOD's makefp:
+-- priority 50 and up, or bWallIgnore) gets its camera motion back the first time it plays, and
+-- the view is 75 degrees in the purely scripted ones; aiming, running, reloading stay as SMOD has them.
+Sm.CINE_FOV = 75
+function Sm.updateCamera()
+  if Coop.cfg.smodcam == false or rawget(_G, "CAMERAANIMS") ~= false then return end
+  local u = Game.UsrEntity(0)
+  local fp = u and u.FPSEntity ~= "" and Game.GetEntity(u.FPSEntity)
+  local name = fp and fp.Action
+  if name == Sm.cineLast and u == Sm.cineBody then return end
+  Sm.cineLast, Sm.cineBody = name, u
+  local cine, scripted = false, false
+  local cls = fp and fp.oActCtrl and fp.oActCtrl.oActClass
+  local act = cls and type(name) == "string" and name ~= "" and cls:GetAct(name)
+  if act then
+    local afp = act.oActFP
+    local prio = act.PriorityLevel or 0
+    local wall = afp ~= nil and afp.bWallIgnore == true
+    cine = prio >= 50 or wall
+    -- (the view changes only in purely scripted ones: climbing, QTEs, special uses; powers
+    -- in a fight keep SMOD's view)
+    scripted = prio >= 1024 or wall
+    if cine and afp and afp.bAnmCam ~= true then
+      afp.bAnmCam = true
+      afp.bAnmCamAng = true
+      Sm.cineCount = (Sm.cineCount or 0) + 1
+      if Sm.cineCount <= 20 then Coop.log("smod camera: " .. name .. " moves the camera again") end
+    end
+  end
+  local saved = Sm.fovSaved
+  if scripted and not saved and u then
+    local ac = Act.GetClass(u.ActCtrl ~= "" and u.ActCtrl or u.Name)
+    if ac and ac.FOV ~= Sm.CINE_FOV then
+      Sm.fovSaved = {cls = ac, fov = ac.FOV}
+      ac.FOV = Sm.CINE_FOV
+    end
+  elseif not scripted and saved then
+    saved.cls.FOV = saved.fov
+    Sm.fovSaved = nil
+  end
+end
+
+function Sm.update()
+  if not Sm.present() then return end
+  local ok, err = pcall(Sm.updateCamera)
+  if not ok and not Sm.camError then Sm.camError = true Coop.log("smod camera error: " .. tostring(err)) end
+end
+
 function Sm.install()
   if not Sm.present() then return end
   Sm.installMenus()

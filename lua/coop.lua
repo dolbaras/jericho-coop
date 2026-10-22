@@ -1328,6 +1328,7 @@ function Coop.update()
   Coop.frame = Coop.frame + 1
   pcall(Coop.clipKey)
   pcall(Coop.autoAspect)
+  if CoopSmod and CoopSmod.update then CoopSmod.update() end
   if Coop.inSession() then
     local ok, err = pcall(Coop.reclaimBody)
     if not ok and (Coop.reclaimErrors or 0) < 3 then
