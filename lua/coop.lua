@@ -1174,9 +1174,31 @@ function Coop.clipKey()
   Coop.clipHeld = down
 end
 
+-- Screens wider than 16:9 (2560x1080, 3440x1440...): the game's aspect ratio option has only
+-- 4:3, 16:9 and 16:10, and the player profile (Profile.CBJericho) puts its value back at the main
+-- menu over game.cfg, so an ultrawide screen was always stretched. The ratio of the video mode
+-- itself is set instead, checked every second (a profile load or the option can change it).
+Coop.WIDE_ASPECT = 1.85
+function Coop.autoAspect()
+  if cfg.aspect == false or Coop.frame % 30 ~= 1 then return end
+  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
+  if not (w and h and h > 0) then return end
+  local r = w / h
+  if r < Coop.WIDE_ASPECT then return end
+  local cur = tonumber(Game.Get("PhysicalAspectRatio")) or 0
+  if math.abs(cur - r) > 0.01 then
+    Game.Set("PhysicalAspectRatio", r)
+    if not Coop.aspectLogged then
+      Coop.aspectLogged = true
+      Coop.log(string.format("aspect: %dx%d, PhysicalAspectRatio %.4f -> %.4f", w, h, cur, r))
+    end
+  end
+end
+
 function Coop.update()
   Coop.frame = Coop.frame + 1
   pcall(Coop.clipKey)
+  pcall(Coop.autoAspect)
   if Coop.inSession() then
     local ok, err = pcall(Coop.reclaimBody)
     if not ok and (Coop.reclaimErrors or 0) < 3 then

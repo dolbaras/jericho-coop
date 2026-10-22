@@ -28,10 +28,14 @@ Sp.FX = {RT_PixelMotionBlurPower = 0, RT_PixelMotionBlur = 0, RT_HDRExposureTime
 --     sides): everything the game shows, the first-person weapon included.
 --   "wide": the half filled, the view drawn wider than high (view scales below) and squeezed
 --     into it; a low first-person weapon (Delgado's minigun) can fall off its bottom.
+-- On a screen wider than 16:9 (21:9: each half about 4.7:1) "full" left each player a quarter of
+-- the screen between black sides: "wide" is the default there (recorded on 21:9, 0.2.2).
 Sp.WIDE_SCALE_X, Sp.WIDE_SCALE_Y = 0.6, 1.2
 
 function Sp.wide()
-  return cfg.splitview == "wide"
+  if cfg.splitview then return cfg.splitview == "wide" end
+  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
+  return w ~= nil and h ~= nil and h > 0 and w / h >= (Coop.WIDE_ASPECT or 1.85)
 end
 
 -- The camera a player sees (their slot's, but swapped during player 2's astral projection).
