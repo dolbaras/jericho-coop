@@ -225,9 +225,32 @@ local function now() return Net.CoopTime() end
 -- A map prop, not a part of a character's ragdoll ("Bip ..." bones are PxBodyPhysics too; setting
 -- their Life killed a squad member's body part in a test) nor a piece a break leaves (each
 -- machine makes its own).
+-- Only the map's own props: the level's object list (MapPhysicObjects, kept after the level
+-- made them), its DM_Physic_ dummies and "OB_..." ones. Other physics bodies are made by
+-- characters' scripts (Delgado's reload throws "BoE_Delgado_..." parts) on one machine only.
+function W.mapNames()
+  if W.mapNameSet then return W.mapNameSet end
+  local set = {}
+  local list = MapPhysicObjects and MapPhysicObjects.PhysicObjects
+  if type(list) == "table" then
+    for _, desc in pairs(list) do
+      if type(desc) == "table" then
+        for _, kv in ipairs(desc) do
+          if type(kv) == "table" and kv[1] == "Name" and type(kv[2]) == "string" then set[kv[2]] = true end
+        end
+      end
+    end
+  end
+  W.mapNameSet = set
+  return set
+end
+
 function W.isProp(name)
-  return type(name) == "string" and #name < 64 and not string.find(name, "Bip", 1, true) and
-         not string.find(string.lower(name), "piece", 1, true)
+  if type(name) ~= "string" or #name >= 64 or string.find(name, "Bip", 1, true) or
+     string.find(string.lower(name), "piece", 1, true) then
+    return false
+  end
+  return W.mapNames()[name] or string.sub(name, 1, 3) == "OB_" or string.sub(name, 1, 10) == "DM_Physic_"
 end
 
 function W.trackObject(o)
@@ -469,9 +492,9 @@ function W.pollObjects()
   for name in pairs(W.objects) do
     local e = Game.GetEntity(name)
     local ok, life = pcall(function() return e and tonumber(e.Life) end)
-    if not e then
-      W.objects[name] = nil
-    elseif ok and life and life <= 0 and not W.dead[name] then
+    -- (a prop that breaks may be deleted at once, its pieces left: gone is broken too; the
+    -- host's broken skeleton stayed whole on the client before, props test 0.2.3)
+    if (not e or (ok and life and life <= 0)) and not W.dead[name] then
       W.dead[name] = true
       W.objects[name] = nil
       Net.CoopSend(Coop.isHost() and -1 or 0, 1, "kill|" .. name)
