@@ -2867,17 +2867,35 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     local u = Game.UsrEntity(0)
     if not u or (u.Life or 0) <= 0 or Coop.storyDriven[u.Name] then return end
     u.IgnoreUsrControl = 1
-    local fire = cfg.autoplay_fire ~= false and Coop.frame % 3 == 0 and nearestEnemy(u.Pos)
-    if fire then
+    -- As a person plays: the view turns at a hand's speed (not at once), aims before it
+    -- shoots, in bursts, a little off; it looks around while it waits.
+    local dt = math.min(0.25, math.max(0, now - (A.tickT or now)))
+    A.tickT = now
+    local function turnTo(yaw, rate, pitch)
+      local cur = u.Ang.y
+      local diff = (yaw - cur + 540) % 360 - 180
+      local step = rate * dt
+      if math.abs(diff) > step then diff = diff > 0 and step or -step end
+      local y = cur + diff
+      u.Ang = V3D(0, y, 0)
+      local vp = u.ViewAng and u.ViewAng.x or 0
+      u.ViewAng = V3D(vp + ((pitch or 0) - vp) * math.min(1, dt * 4), y, 0)
+      return math.abs((yaw - y + 540) % 360 - 180)
+    end
+    if cfg.autoplay_fire ~= false and Coop.frame % 3 == 0 then A.fireAt = nearestEnemy(u.Pos) end
+    local fire = cfg.autoplay_fire ~= false and A.fireAt
+    if fire and (fire.Life or 0) > 0 then
       local d = fire.Pos - u.Pos
-      local yaw = math.deg(math.atan2(-d.x, -d.z))
-      u.Ang = V3D(0, yaw, 0)
-      u.ViewAng = V3D(0, yaw, 0)
-      u.owc.Shot = (Coop.frame % 30 < 20) and 1 or 0
+      A.aimOff = A.aimOff or 0
+      if Coop.frame % 45 == 0 then A.aimOff = (math.random() - 0.5) * 6 end
+      local off = turnTo(math.deg(math.atan2(-d.x, -d.z)) + A.aimOff, 300, -4)
+      u.owc.Shot = (off < 12 and Coop.frame % 40 < 22) and 1 or 0
       u.InCtrl_Walk = 0
+      u.InCtrl_Str = (Coop.frame % 120 < 60) and 0.4 or -0.4   -- strafes a little under fire
       A.lastMoveT = now
       return
     end
+    u.InCtrl_Str = 0
     u.owc.Shot = 0
     -- A use object only this player's character may use (CoopClaim's gates: Black's
     -- telekinesis, Church's blood seal...): go there and use it, as its player would; the use
@@ -2902,8 +2920,12 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     if not tp or (not gatePos and (tp - u.Pos):mod() < 150) then
       u.InCtrl_Walk = 0
       A.lastMoveT, A.lastPos = now, u.Pos
+      -- waiting: looks around
+      A.lookBase = A.lookBase or u.Ang.y
+      turnTo(A.lookBase + math.sin(now * 0.6) * 45, 60, math.sin(now * 0.4) * 6)
       return
     end
+    A.lookBase = nil
     local d = tp - u.Pos
     local dist = math.sqrt(d.x * d.x + d.z * d.z)
     if dist > 4000 then
@@ -2912,15 +2934,21 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
       Coop.log("autoplay: caught up with the trail (teleported)")
       return
     end
-    local yaw = math.deg(math.atan2(-d.x, -d.z))
-    u.Ang = V3D(0, yaw, 0)
-    u.ViewAng = V3D(0, yaw, 0)
-    u.InCtrl_Walk = 1
-    u.InCtrl_Sprint = dist > 900 and 1 or 0
+    local off = turnTo(math.deg(math.atan2(-d.x, -d.z)), 220, 0)
+    -- slows down in a turn, a pace that varies a little, sprints a long way only
+    u.InCtrl_Walk = off > 60 and 0.3 or (0.85 + 0.15 * math.sin(now * 0.7))
+    u.InCtrl_Sprint = (dist > 900 and off < 20) and 1 or 0
+    if A.sideUntil and now < A.sideUntil then u.InCtrl_Str = A.side end
     -- Stuck: no progress along the trail for 2.5 s.
     if not A.lastPos or (u.Pos - A.lastPos):mod() > 60 then
       A.lastPos, A.lastMoveT = u.Pos, now
-    elseif now - (A.lastMoveT or now) > 2.5 then
+      if A.sideUntil and now >= A.sideUntil then A.sideUntil = nil end
+    elseif now - (A.lastMoveT or now) > 1.5 and not A.sideUntil then
+      -- a step aside first, as a person who walked into something does
+      A.side = math.random() < 0.5 and 1 or -1
+      A.sideUntil = now + 0.8
+    elseif now - (A.lastMoveT or now) > 4 then
+      A.sideUntil = nil
       local cell = math.floor(u.Pos.x / 300) .. "," .. math.floor(u.Pos.z / 300)
       if not A.stuckCells[cell] then
         A.stuckCells[cell] = true
