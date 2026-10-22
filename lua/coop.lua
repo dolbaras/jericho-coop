@@ -310,7 +310,10 @@ function Coop.stateOf(e)
   if type(fpa) ~= "string" or fpa == "" then fpa = "-" end
   -- Switched on or off by the story ("-": not said): the host's word for the bodies it runs.
   local on = "-"
-  if Coop.isHost() and not Coop.isRemoteOwned(e.Name) then on = e.bActive == false and "0" or "1" end
+  -- (not while a scene plays here: scenes hide the squad for themselves)
+  if Coop.isHost() and not Coop.isRemoteOwned(e.Name) and not (Scene and Scene.IsPlaying) then
+    on = e.bActive == false and "0" or "1"
+  end
   return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
