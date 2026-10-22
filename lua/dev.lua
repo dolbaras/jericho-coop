@@ -2635,3 +2635,19 @@ if cfg.targetprobe and Coop.isHost() and Coop.level ~= "levels/menu" then
       Coop.tpCalls, tostring(Coop.tpLast), tostring(CoopEnemies.stats.remoteTargets), table.concat(targets, " ")))
   end
 end
+
+-- 'hoststep' (host): from tick 300, every 100 ticks the host's body moves 300 units along its
+-- facing (does another machine follow a body that is not one of the six, e.g. Act 1's Ross?).
+if cfg.hoststep and Coop.isHost() and Coop.level ~= "levels/menu" then
+  local prevStep = Coop.dev
+  function Coop.dev()
+    if prevStep then prevStep() end
+    if Coop.frame < 300 or Coop.frame % 100 ~= 0 then return end
+    local u = Game.UsrEntity(0)
+    if not u then return end
+    local y = math.rad(u.Ang.y)
+    u.Pos = u.Pos + V3D(-math.sin(y) * 300, 0, -math.cos(y) * 300)
+    pcall(Game.SetOnFloor, u.Name)
+    Coop.log(string.format("hoststep: %s at %.0f,%.0f", u.Name, u.Pos.x, u.Pos.z))
+  end
+end

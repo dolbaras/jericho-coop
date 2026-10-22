@@ -202,8 +202,8 @@ function R.update(view, p2)
   local a = show and 1 or 0
   if e.Active ~= a then e.Active = a end
   if Coop.cfg.rosslog and Coop.frame % 7 == 0 then
-    Coop.log(string.format("ross: view %s shown %s ai %s action %s", tostring(view), tostring(show), tostring(ai),
-      tostring(r and r.Action)))
+    Coop.log(string.format("ross: view %s shown %s ai %s action %s at %.0f,%.0f net %s", tostring(view), tostring(show), tostring(ai),
+      tostring(r and r.Action), e.Pos.x, e.Pos.z, tostring(st ~= nil)))
   end
 end
 
