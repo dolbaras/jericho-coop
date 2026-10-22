@@ -380,7 +380,7 @@ function W.updateRejoin()
   local dist = (not busy) and flatDist(u.Pos, h) or 0
   if busy or dist < W.REJOIN_AWAY then
     W.farSince, W.rejoinHeld = nil, nil
-    if dist < W.REJOIN_AWAY then W.rejoinUntil = nil end
+    if not busy and dist < W.REJOIN_AWAY then W.rejoinUntil = nil end
     if W.rejoinShown then Coop.textBlockHide("CoopRejoin") W.rejoinShown = nil end
     return
   end
@@ -468,7 +468,13 @@ function W.entries()
     t[#t + 1] = "D:" .. name .. (real and "+" or "-")
   end
   for name in pairs(W.dead) do t[#t + 1] = "K:" .. name end
-  for name, on in pairs(W.blockers) do t[#t + 1] = "B:" .. name .. (on and "+" or "-") end
+  for name, on in pairs(W.blockers) do
+    -- (as it is here: a level script of this machine may have switched it since)
+    local e = Game.GetEntity(name)
+    local ok, live = pcall(function() return e and e.bMapCollision end)
+    if ok and live ~= nil then on = live and true or false end
+    t[#t + 1] = "B:" .. name .. (on and "+" or "-")
+  end
   table.sort(t)
   return t
 end

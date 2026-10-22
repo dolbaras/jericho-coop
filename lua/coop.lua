@@ -321,7 +321,7 @@ end
 -- (split hooks, story walks) switched bodies on the host alone, and a client's replay could
 -- leave one off that the host had on (audit 0.2.2 A9).
 function Coop.syncPuppetActive(e, st)
-  if cfg.syncactive == false or not st.on then return end
+  if cfg.syncactive == false or st.on == nil then return end
   if e.bActive ~= st.on then
     e.bActive = st.on
     Coop.log("puppet " .. e.Name .. (st.on and " switched on" or " switched off") .. " as on the host")
@@ -741,8 +741,9 @@ function Coop.onMessage(peer, data)
       walk = tonumber(f[8]), str = tonumber(f[9]), sprint = tonumber(f[10]),
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
       raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
-      fpa = f[18], on = (f[19] == "1" and true) or (f[19] == "0" and false) or nil,
+      fpa = f[18],
     }
+    if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
   elseif kind == "jump" then
@@ -836,6 +837,7 @@ end
 function Coop.onJoin(peer)
   Coop.log("peer " .. peer .. " connected")
   if Coop.isClient() then
+    if CoopMenu then CoopMenu.wasFull = nil end   -- (a new connection: its own refusal, if any)
     Net.CoopSend(0, 1, "hello|" .. tostring(cfg.char or cfg.want or "") .. "|" .. Coop.cleanNick(cfg.nick) .. "|" ..
       Coop.VERSION)
   end
@@ -889,6 +891,7 @@ local function handle(peer, kind, data)
 end
 
 function Coop.pump()
+  if Coop.levelLoading then return end
   for _ = 1, 200 do
     local peer, kind, data = Net.CoopRecv()
     if not peer then return end
@@ -1452,6 +1455,12 @@ end
 -- in split screen (coop_split.lua shows each body in the other player's view) nor in a
 -- scene or a power's own camera.
 function Coop.checkOwnModel(u)
+  local hid = Coop.ownModelHidden
+  if hid and hid ~= u.Name then
+    local e = Game.GetEntity(hid)
+    if e and e.bObjectVisible == false then e.bObjectVisible = true end
+    Coop.ownModelHidden = nil
+  end
   if cfg.fpbodyfix == false or (CoopSplit and CoopSplit.on) or (Scene and Scene.IsPlaying) then return end
   if Game.GetCam(0) ~= "MainCam" or u.InCtrl_UseFPS ~= 1 or (u.Life or 0) <= 0 then return end
   local fp = u.FPSEntity and u.FPSEntity ~= "" and Game.GetEntity(u.FPSEntity)
@@ -1465,6 +1474,7 @@ function Coop.checkOwnModel(u)
     return
   end
   u.bObjectVisible = false
+  Coop.ownModelHidden = u.Name
   if fp.bObjectVisible == false then fp.bObjectVisible = true end
   Coop.ownModelSeen = nil
   Coop.ownModelFixes = (Coop.ownModelFixes or 0) + 1

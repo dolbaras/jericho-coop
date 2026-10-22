@@ -156,10 +156,12 @@ function Build-Anims($g) {
     if (-not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))) { $data = Join-Path $g "Packed" }
     # A copy made without the archives (the SMOD + Co-op test bundle): the original game's.
     $ptr = Join-Path $g "coop-gamedata.txt"
-    if (-not (Test-Path (Join-Path $data "Data00.packed")) -and (Test-Path $ptr)) {
-        $orig = (Get-Content -LiteralPath $ptr -TotalCount 1).Trim()
-        foreach ($d in @($orig, (Join-Path $orig "Packed"))) {
-            if (Test-Path (Join-Path $d "Data00.packed")) { $data = $d; break }
+    if (-not (Test-Path -LiteralPath (Join-Path $data "Data00.packed")) -and (Test-Path -LiteralPath $ptr)) {
+        $orig = ([string](Get-Content -LiteralPath $ptr -TotalCount 1)).Trim()
+        if ($orig) {
+            foreach ($d in @($orig, (Join-Path $orig "Packed"))) {
+                if (Test-Path -LiteralPath (Join-Path $d "Data00.packed")) { $data = $d; break }
+            }
         }
     }
     $loose = $data -ne $g
@@ -271,7 +273,7 @@ function Do-Install($g) {
     $mark = Join-Path $g "coop\anims\trueross_coop.ok"
     $pk = Join-Path $g "Pack1.packed"
     $isLoose = -not (Test-Path (Join-Path $g "Data00.packed")) -and
-        ((Test-Path (Join-Path $g "Packed\Data00.packed")) -or (Test-Path (Join-Path $g "coop-gamedata.txt")))
+        ((Test-Path (Join-Path $g "Packed\Data00.packed")) -or (Test-Path -LiteralPath (Join-Path $g "coop-gamedata.txt")))
     $haveModel = if ($isLoose) { Test-Path (Join-Path $g "models\chars\trueross\trueross_coop.sm3") }
                  else { (Test-Path $pk) -and (Select-String -Path $pk -Pattern "trueross_coop.sm3" -SimpleMatch -Quiet) }
     if ($anims -eq "ok" -and $haveModel) {

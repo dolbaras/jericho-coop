@@ -108,7 +108,7 @@ end
 function H.bodyOf(name)
   local e = Coop.squadEnt(name)
   if name ~= "Ross" or not e or (e.Life or 0) <= 0 then return e end
-  local s = CoopRoss and CoopRoss.body and Game.GetEntity(CoopRoss.NAME)
+  local s = CoopRoss and CoopRoss.body and CoopRoss.body()
   if s and CoopRoss.showable() then return s end
   return e
 end

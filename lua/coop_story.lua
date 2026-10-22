@@ -177,7 +177,9 @@ function St.onMessage(peer, f)
   end
   if f[1] == "sturn" and Coop.isClient() then
     local x, y, z, secs = tonumber(f[3]), tonumber(f[4]), tonumber(f[5]), tonumber(f[6]) or 0
-    St.myTurn = nil
+    -- (only this character's turn: another's start or end leaves ours alone)
+    local mine = St.myTurn and St.myTurn.name == f[2]
+    if mine then St.myTurn = nil end
     if secs > 0 and x and Coop.isLocalBody(f[2]) then
       St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs}
       -- The same step replayed here would walk this body by its AI in a moment: the player
@@ -194,7 +196,7 @@ function St.onMessage(peer, f)
         Coop.log("story: lock on my body lifted for my turn")
       end
     end
-    if secs <= 0 then St.clearTurnText() end
+    if secs <= 0 and mine then St.clearTurnText() end
     return true
   end
   if f[1] == "sturndone" and Coop.isHost() then

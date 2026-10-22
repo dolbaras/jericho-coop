@@ -1145,6 +1145,8 @@ function CoopMenu.onMessage(peer, f)
   local kind = f[1]
   if kind == "full" and Coop.isClient() then
     CoopMenu.wasFull = true
+    -- (the host's close does not reach a Steam peer: leave from this side too)
+    pcall(Net.CoopClose)
     CoopMenu.Root()
     CoopMenu.message(string.format(T("lobby_full"), tonumber(f[2]) or 0))
     return true
