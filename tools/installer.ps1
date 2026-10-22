@@ -15,8 +15,9 @@ param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $Ignor
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $payload = Join-Path $here "files"
-# The window's texts by key, per language ({0}, {1}... filled in from L's arguments).
-$S = @{
+# The window's texts by key, per language ({0}, {1}... filled in from L's arguments). Not $S:
+# variable names ignore case and a function sees its callers' ($s of an event handler).
+$script:TEXTS = @{
     en = @{
         "the_co_op_mod" = "The co-op mod is not installed in`n{0}"
         "removed_file_s" = "Removed {0} file(s)."
@@ -444,11 +445,11 @@ $script:lang = if ($Lang) { $Lang.ToLower() } else { (Get-UICulture).TwoLetterIS
 if (-not $script:langs.Contains($script:lang)) { $script:lang = (Get-Culture).TwoLetterISOLanguageName }
 if (-not $script:langs.Contains($script:lang)) { $script:lang = "en" }
 function L($key) {
-    $s = $S[$script:lang][$key]
-    if (-not $s) { $s = $S.en[$key] }
-    if (-not $s) { return $key }
-    if ($args.Count) { return ($s -f $args) }
-    $s
+    $text = $script:TEXTS[$script:lang][$key]
+    if (-not $text) { $text = $script:TEXTS.en[$key] }
+    if (-not $text) { return $key }
+    if ($args.Count) { return ($text -f $args) }
+    $text
 }
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # This version: the payload's, or (the uninstaller in the game folder) the installed one's.
@@ -518,7 +519,7 @@ function Ui-Progress($pct, $text) {
 
 # state: run, done, warn, skip, fail
 function Ui-Step($key, $state) {
-    if (-not $script:ui) { return }
+    if (-not $script:ui) { Write-Host "[$state] $key"; return }
     $row = $script:ui.steps[$key]
     if (-not $row) { return }
     $c = $script:ui.colors
@@ -530,7 +531,6 @@ function Ui-Step($key, $state) {
         "fail" { $row.icon.Text = [char]0x2716; $row.icon.ForeColor = $c.bad; $row.text.ForeColor = $c.text }
     }
     if ($state -ne "run" -and $script:ui.running -eq $row) { $script:ui.running = $null }
-    if (-not $script:ui) { Write-Host "[$state] $key" }
     Ui-Pump
 }
 
@@ -573,7 +573,7 @@ function Find-Games {
     # (one form of each folder: an install record's "...\Jericho\" is the same as "...\Jericho")
     $c | Where-Object { Test-Game $_ } | ForEach-Object {
         $p = (Resolve-Path -LiteralPath $_).Path
-        if ($p.Length -gt 3) { $p.TrimEnd('') } else { $p }
+        if ($p.Length -gt 3) { $p.TrimEnd('\') } else { $p }
     } | Select-Object -Unique
 }
 
@@ -687,6 +687,8 @@ function Run-Live($exe, [string[]] $argList, [scriptblock] $onLine) {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
     $p = [System.Diagnostics.Process]::Start($psi)
     $err = $p.StandardError.ReadToEndAsync()
     $next = $p.StandardOutput.ReadLineAsync()
@@ -738,7 +740,7 @@ function Build-Anims($g) {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Ui-Log (L "building_the_cutscene_animations" $data)
     $script:animStart = Get-Date
-    $argList = @($py.args) + @("-I", "-B", "-u", (Join-Path $g "coop\anims\cm3_retarget.py"), "--game", $data, "--out", $tmp, "batch", "--pack", "$pack.tmp")
+    $argList = @($py.args) + @("-I", "-B", "-u", "-X", "utf8", (Join-Path $g "coop\anims\cm3_retarget.py"), "--game", $data, "--out", $tmp, "batch", "--pack", "$pack.tmp")
     $code = Run-Live $py.exe $argList {
         param($line)
         if ($line -match '^progress (\d+)/(\d+)$') {
@@ -1103,9 +1105,9 @@ $timer.Add_Tick({
 })
 
 $form.Add_FormClosing({
-    param($s, $e)
+    param($sender, $ev)
     if ($script:busy) {
-        $e.Cancel = $true
+        $ev.Cancel = $true
         [Windows.Forms.MessageBox]::Show($form, (L "please_wait_until_it"), "Jericho Co-op", "OK", "Information") | Out-Null
     }
 })

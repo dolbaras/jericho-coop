@@ -672,8 +672,8 @@ end
 
 local function turnText(key, ...)
   local lang = Coop.lang()
-  local s = string.format((St.TEXT[lang] or St.TEXT.en)[key], ...)
-  return Coop.enc(s, lang)
+  -- (the template converted first: the names put in are the game's own text already)
+  return string.format(Coop.enc((St.TEXT[lang] or St.TEXT.en)[key], lang), ...)
 end
 
 -- The body's own machine: the hint, and done once the body is there and uses a power (or

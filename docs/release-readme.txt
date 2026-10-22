@@ -20,8 +20,14 @@ Requirements
 Install
 1. Extract the archive anywhere and run "Install Co-op.bat". It finds the game folder (or asks
    for it), keeps a copy of every file it replaces (in <game>\coop-backup) and installs the mod.
-   Running it again updates the mod or removes it.
+   Its window shows each step and a progress bar; building the cutscene animations from your
+   game files takes 2-5 minutes (the minutes left are shown). Running it again updates the mod
+   or removes it. Its language is Windows' (English, Russian, German, French, Spanish,
+   Italian), or pick one in the list at its top.
 2. Start the game as usual. The main menu has a "Co-op" entry.
+Languages: the mod's menus and hints (and SMOD's) follow the game's language setting: English,
+Russian, German, French, Spanish or Italian.
+The game itself needs a mouse plugged in to start (even when you play with a gamepad).
 Uninstall: "Uninstall Co-op.bat" in the game folder - removes the mod and puts the replaced
 files back. What the installer changes in the game: it marks the game's exe as able to use
 4 GB of memory instead of 2 (large address aware; only the retail exe, the original is kept and
@@ -162,8 +168,14 @@ game draws, in memory, and writes nothing until F11.
 Установка
 1. Распакуйте архив куда угодно и запустите «Install Co-op.bat». Он сам найдёт папку игры (или
    спросит её), сохранит копию каждого файла, который заменяет (в <папка игры>\coop-backup), и
-   установит мод. Повторный запуск обновляет мод или удаляет его.
+   установит мод. В его окне видны шаги и полоса прогресса; сборка анимаций катсцен из ваших
+   файлов игры занимает 2-5 минут (показано, сколько осталось). Повторный запуск обновляет мод
+   или удаляет его. Язык окна — как у Windows (английский, русский, немецкий, французский,
+   испанский, итальянский), его можно сменить в списке вверху окна.
 2. Запустите игру как обычно. В главном меню появится пункт «Совместная игра».
+Языки: меню и подсказки мода (и SMOD) следуют языку игры: английский, русский, немецкий,
+французский, испанский или итальянский.
+Самой игре для запуска нужна подключённая мышь (даже если играете на геймпаде).
 Удаление: «Uninstall Co-op.bat» в папке игры — удаляет мод и возвращает заменённые файлы.
 Что установщик меняет в игре: помечает exe игры как способный использовать 4 ГБ памяти вместо 2
 (large address aware; только розничный exe, оригинал сохраняется и возвращается при удалении) и

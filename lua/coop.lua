@@ -542,6 +542,8 @@ end
 function Coop.releasePuppet(e)
   e.InCtrl_Walk = 0
   e.InCtrl_Str = 0
+  e.InCtrl_Sprint = 0
+  e.InCtrl_Crouch = 0
   if e.owc then e.owc.Shot = 0 end
   if e.oAI then e.oAI.bEnable = true end
   -- Back to the engine: collision on, and actions move bodies again.
@@ -684,6 +686,8 @@ function Coop.mirrorArms(e, name, st)
   if crouched and cls:GetAct("Duck" .. want) then want = "Duck" .. want end
   if cls:GetAct(want) then
     e.ForceAction = want
+    Coop.mirrorT = Coop.mirrorT or {}
+    Coop.mirrorT[name] = Net.CoopTime()
     if Coop.cfg.mirrorlog then Coop.log("mirror: " .. name .. " " .. fpa .. " -> " .. want) end
   end
 end
@@ -698,9 +702,15 @@ function Coop.syncCrouch(e, name, st)
   local v = duck and 1 or 0
   if e.InCtrl_Crouch ~= v then e.InCtrl_Crouch = v end
   if duck == now then return end
+  -- (not over a strike or power just mirrored on it, nor again and again if it does not take)
+  local t = Net.CoopTime()
+  if Coop.mirrorT and t - (Coop.mirrorT[name] or -10) < 1 then return end
+  Coop.crouchT = Coop.crouchT or {}
+  if t - (Coop.crouchT[name] or -10) < 0.5 then return end
   local cls = Act.GetClass(e.ActCtrl ~= "" and e.ActCtrl or name)
   local want = duck and act or "Relax"
   if cls and cls:GetAct(want) then
+    Coop.crouchT[name] = t
     e.ForceAction = want
     if Coop.cfg.mirrorlog then Coop.log("crouch: " .. name .. " -> " .. want) end
   end
