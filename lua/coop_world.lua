@@ -85,6 +85,20 @@ function W.send(name, ...)
   W.sent = (W.sent or 0) + 1
 end
 
+-- A use callback run for another player (replayed on a client, or run on the host for a
+-- client's use) plays its first-person animation on this machine's own arms otherwise
+-- (MakeFP.LaunchFpsAnm(0, "TKCombo1Hit1"): Black's telekinesis on everyone's view).
+function W.installFPAnm()
+  if W.fpAnmInstalled or not MakeFP or not MakeFP.LaunchFpsAnm then return end
+  W.fpAnmInstalled = true
+  local orig = MakeFP.LaunchFpsAnm
+  MakeFP.LaunchFpsAnm = function(id, ...)
+    local u = W.forUser
+    if id == 0 and u and Coop.SQUAD_SET[u] and not Coop.isLocalBody(u) then return end
+    return orig(id, ...)
+  end
+end
+
 function W.installClient()
   if W.installed then return end
   W.installed = true
@@ -125,7 +139,9 @@ function W.replay(name, trig, args)
   Coop.replay = true
   local origTrig = Game.GetTriggeredEntity
   Game.GetTriggeredEntity = function(id) return W.replayTriggered or origTrig(id) end
+  W.forUser = type(args[1]) == "string" and args[1] or nil
   local ok, err = pcall(f, unpack(args, 1, args.n))
+  W.forUser = nil
   Game.GetTriggeredEntity = origTrig
   Coop.replay = false
   W.replaying, W.replayTriggered = false, nil
@@ -149,7 +165,10 @@ function W.onMessage(peer, f, data)
     -- Only the body this peer holds may use objects in its name.
     if f2 and type(args[1]) == "string" and Coop.heldBy(args[1], peer) then
       Coop.log("world: " .. args[1] .. " (peer " .. peer .. ") uses " .. t[2])
-      f2(unpack(args, 1, args.n))
+      W.forUser = args[1]
+      local ok, err = pcall(f2, unpack(args, 1, args.n))
+      W.forUser = nil
+      if not ok then Coop.log("world: use " .. t[2] .. " error: " .. tostring(err)) end
     end
   end
   return true
@@ -493,6 +512,7 @@ end
 function W.update()
   if not Coop.inSession() or Coop.level == "levels/menu" then return end
   W.installObjects()
+  W.installFPAnm()
   W.pollObjects()
   if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
   local okr, errr = pcall(W.updateRejoin)
