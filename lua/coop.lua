@@ -758,6 +758,7 @@ function Coop.onMessage(peer, data)
       local v = e.Vel
       e.Vel = V3D(v.x, vy, v.z)
       Coop.lastJump = {name = name, y = e.Pos.y, peak = e.Pos.y, frame = Coop.frame}
+      Coop.jumpsSeen = (Coop.jumpsSeen or 0) + 1
     end
   elseif kind == "hello" and Coop.isHost() then
     if f[4] ~= Coop.VERSION then   -- another co-op version (before 0.2: no field)
