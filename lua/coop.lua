@@ -1248,7 +1248,7 @@ Coop.ASPECTS = {
   {0, "Auto", "Авто"}, {4 / 3, "4:3"}, {5 / 4, "5:4"}, {16 / 10, "16:10"}, {16 / 9, "16:9"},
   {64 / 27, "21:9 (2560x1080)"}, {43 / 18, "21:9 (3440x1440)"}, {32 / 9, "32:9"},
 }
-Coop.DISPLAY_FILE = "display.txt"
+Coop.DISPLAY_FILE = "coop:display.txt"
 
 function Coop.aspectChoice()
   if Coop.aspectSel == nil then
@@ -1313,7 +1313,7 @@ function Coop.installAspectMenu()
     if Net.CoopFile then Net.CoopFile(Coop.DISPLAY_FILE, "w", "aspect\t" .. string.format("%.6f", Coop.ASPECTS[Coop.aspectSel][1])) end
     local r = Coop.wantedAspect()
     if r then Game.Set("PhysicalAspectRatio", r) end
-    local itm = Scorer.GetItem(id, control)
+    local itm = id and control and Scorer.GetItem(id, control)
     if itm then itm.Text = Menu.Get_Aspect_Ratio_Status() end
   end
   Coop.aspectSwitch = function(id, control) step(id, control, 1) end
