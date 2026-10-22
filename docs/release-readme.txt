@@ -69,6 +69,12 @@ How it works
   the QTE and it passes when at least one player succeeds.
 - Character-only actions: the players are offered to take that character; if nobody does
   within 30 s, the AI does it (lobby setting).
+- A story action of a character a player holds (Black's telekinesis on the prologue's rubble,
+  for example) is that player's: a hint shows where to go; use a power there (or just stand
+  there a moment). If they do not within 25 s, the AI walks the character there and does it.
+- Cut off from the squad (the story shuts a door or a passage behind whoever goes first, or you
+  are far away for a while)? A hint offers to hold T (gamepad: both sticks pressed) to be put
+  next to the host's character.
 - With more players than living squad members (or when the story takes a character away), a
   player becomes a "spirit": flies near the squad, marks enemies and can take a free body.
 - Every player's powers act in the host's world (telekinesis, runes, fire, ghost bullets,
@@ -99,11 +105,11 @@ the co-op mod. It needs SMOD and DXVK: put x32\d3d9.dll of DXVK (the Windows bui
 checked) into the game's bin folder. Ross's model for the other players in Act 1 gets the
 upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
 
-Ultrawide screens
-On a screen wider than 16:9 (2560x1080, 3440x1440...) the mod sets the game's aspect ratio from
-the screen resolution: the game's own option has only 4:3, 16:9 and 16:10, and its player profile
-puts that value back at the main menu, so editing game.cfg does not hold. Do not change "Aspect
-ratio" in the game's options there. Split screen fills each half on such a screen.
+Aspect ratio (wide and ultrawide screens)
+Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
+4:3, 5:4, 16:10, 16:9, 21:9 (2560x1080), 21:9 (3440x1440), 32:9. The choice is kept by the mod
+(the game's player profile used to put its own value back at the main menu, so editing game.cfg
+did not hold). Split screen fills each half on a wide screen.
 
 Split screen
 A second player on the same PC, in the same game: the screen is split top and bottom, each
@@ -206,6 +212,12 @@ game draws, in memory, and writes nothing until F11.
   игроки, и оно пройдено, если справился хотя бы один.
 - Действия, которые может сделать только определённый персонаж: игрокам предлагают взять
   этого персонажа, если никто не взял за 30 с — делает ИИ (настраивается в лобби).
+- Сюжетное действие персонажа, которого держит игрок (например, телекинез Блэк на завале в
+  прологе), — за этим игроком: подсказка покажет, куда подойти; там примените способность (или
+  просто постойте секунду). Если за 25 с игрок этого не сделал, персонажа доводит и действует ИИ.
+- Отстали от отряда (сюжет закрыл дверь или проход за теми, кто прошёл первым, или вы долго
+  далеко)? Подсказка предложит удерживать T (геймпад: оба стика нажаты), чтобы оказаться рядом
+  с персонажем хоста.
 - Если игроков больше, чем живых бойцов (или персонаж ушёл по сюжету), игрок становится
   «духом»: летает рядом с отрядом, отмечает врагов и может занять свободное тело.
 - Способности каждого игрока действуют в мире хоста (телекинез, руны, огонь, призрачные пули,
@@ -235,11 +247,11 @@ SMOD
 проверена 3.1.1) в папку bin игры. Модель Росса для других игроков в акте 1 тоже получает
 увеличенные текстуры. Проверено: все 33 уровня загружены подряд, сплитскрин, клипы F11.
 
-Ультраширокие мониторы
-На экране шире 16:9 (2560x1080, 3440x1440...) мод сам выставляет соотношение сторон по
-разрешению экрана: в настройках игры есть только 4:3, 16:9 и 16:10, а профиль игрока при входе в
-меню возвращает своё значение, поэтому правка game.cfg не держится. Пункт «Соотношение сторон» в
-настройках игры там не меняйте. Сплитскрин на таком экране заполняет каждую половину.
+Соотношение сторон (широкие и ультраширокие мониторы)
+Конфигурация -> Видео -> Формат: Авто (по умолчанию: по разрешению экрана), 4:3, 5:4, 16:10, 16:9,
+21:9 (2560x1080), 21:9 (3440x1440), 32:9. Выбор запоминает мод (профиль игрока раньше возвращал
+при входе в меню своё значение, поэтому правка game.cfg не держалась). Сплитскрин на широком
+экране заполняет каждую половину.
 
 Сплитскрин
 Второй игрок на том же ПК, в той же игре: экран делится на верх и низ, у каждого игрока свой
