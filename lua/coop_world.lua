@@ -320,10 +320,8 @@ W.REJOIN_FAR_TIME = 30      -- ... for this long: the hint too
 W.REJOIN_HOLD = 1.5
 W.REJOIN_KEY = 0x54         -- T
 W.REJOIN_PAD = {64, 128}    -- XInput left and right stick pressed, together
-W.REJOIN_TEXT = {en = "Cut off from the squad?
-Hold T (pad: both sticks) to rejoin it",
-                 ru = "Отстали от отряда?
-Удерживайте T (геймпад: оба стика), чтобы вернуться"}
+W.REJOIN_TEXT = {en = "Cut off from the squad?\nHold T (pad: both sticks) to rejoin it",
+                 ru = "Отстали от отряда?\nУдерживайте T (геймпад: оба стика), чтобы вернуться"}
 
 function W.hostBodyPos()
   for name, p in pairs(Coop.owners) do
