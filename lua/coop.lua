@@ -308,10 +308,24 @@ function Coop.stateOf(e)
   local fp = e.FPSEntity and e.FPSEntity ~= "" and Game.GetEntity(e.FPSEntity)
   local fpa = fp and fp.Action
   if type(fpa) ~= "string" or fpa == "" then fpa = "-" end
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s",
+  -- Switched on or off by the story ("-": not said): the host's word for the bodies it runs.
+  local on = "-"
+  if Coop.isHost() and not Coop.isRemoteOwned(e.Name) then on = e.bActive == false and "0" or "1" end
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
-    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")))
+    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on)
+end
+
+-- A puppet of a body the host runs is switched on or off as there: host-only story code
+-- (split hooks, story walks) switched bodies on the host alone, and a client's replay could
+-- leave one off that the host had on (audit 0.2.2 A9).
+function Coop.syncPuppetActive(e, st)
+  if cfg.syncactive == false or not st.on then return end
+  if e.bActive ~= st.on then
+    e.bActive = st.on
+    Coop.log("puppet " .. e.Name .. (st.on and " switched on" or " switched off") .. " as on the host")
+  end
 end
 
 function Coop.sendStates()
@@ -338,7 +352,7 @@ function Coop.sendStates()
     local usr = Game.UsrEntity(0)
     if usr and not Coop.storyDriven[usr.Name] then Net.CoopSend(0, 0, Coop.stateOf(usr)) end
     local p2 = CoopSplit and CoopSplit.on and CoopSplit.body()
-    if p2 then Net.CoopSend(0, 0, Coop.stateOf(p2)) end
+    if p2 and not Coop.storyDriven[p2.Name] then Net.CoopSend(0, 0, Coop.stateOf(p2)) end
   end
 end
 
@@ -578,6 +592,7 @@ function Coop.drivePuppets(dt)
     local e = Coop.squadEnt(name)
     local st = Coop.remote[name]
     if e and st and CoopTeam and Coop.isPuppet(name) then CoopTeam.syncPuppetLife(e, st) end
+    if e and st and Coop.isPuppet(name) then Coop.syncPuppetActive(e, st) end
     if e and e.Life and e.Life > 0 then
       local tg = Coop.isPuppet(name) and st and Coop.puppetTarget(name, now)
       if tg then
@@ -726,7 +741,7 @@ function Coop.onMessage(peer, data)
       walk = tonumber(f[8]), str = tonumber(f[9]), sprint = tonumber(f[10]),
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
       raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
-      fpa = f[18],
+      fpa = f[18], on = (f[19] == "1" and true) or (f[19] == "0" and false) or nil,
     }
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
@@ -772,24 +787,31 @@ function Coop.onMessage(peer, data)
     local name = f[2]
     -- Bodies the story has taken away (coop_story.lua) cannot be claimed.
     local unav = CoopStory and CoopStory.taken and CoopStory.taken(name)
-    if not unav and (not Coop.isRemoteOwned(name) or Coop.owners[name] == peer) then
+    -- Only a free body (or its own): "not remote-owned" let a stale claim take the host's
+    -- body or its player 2's, and the two ping-ponged (audit 0.2.2 A6). A refused claim gets
+    -- the owners back, so the claimer sees it and moves out (Coop.checkRefusedClaim).
+    if not unav and (Coop.owners[name] == nil or Coop.owners[name] == peer) then
       for n, p in pairs(Coop.owners) do
         if p == peer then Coop.owners[n] = nil end
       end
       Coop.owners[name] = peer
-      Coop.broadcastOwners()
+    else
+      Coop.log("claim of " .. tostring(name) .. " by peer " .. peer .. " refused")
     end
+    Coop.broadcastOwners()
   elseif kind == "claim2" and Coop.isHost() then
     -- A client's split screen player (coop_split.lua) holds this body now ("" none).
     local name, id = f[2] or "", peer + Coop.P2
     local unav = name ~= "" and CoopStory and CoopStory.taken and CoopStory.taken(name)
-    if not unav and (name == "" or not Coop.isRemoteOwned(name) or Coop.owners[name] == id) then
+    if not unav and (name == "" or Coop.owners[name] == nil or Coop.owners[name] == id) then
       for n, p in pairs(Coop.owners) do
         if p == id then Coop.owners[n] = nil end
       end
       if name ~= "" then Coop.owners[name] = id end
-      Coop.broadcastOwners()
+    else
+      Coop.log("claim2 of " .. tostring(name) .. " by peer " .. peer .. " refused")
     end
+    Coop.broadcastOwners()
   elseif kind == "welcome" and Coop.isClient() then
     cfg.myId = tonumber(f[2])
     cfg.char = f[4]
@@ -797,6 +819,7 @@ function Coop.onMessage(peer, data)
     if string.lower("levels/" .. f[3]) ~= Coop.level then
       Coop.log("following host to " .. f[3])
       Coop.rearm()   -- carry myId/char into the next level
+      Coop.levelLoading = true
       Game.LoadLevel("Levels/" .. f[3])
     end
   elseif kind == "seats" and Coop.isClient() then
@@ -849,18 +872,34 @@ function Coop.menuMode()
   return CoopMenu ~= nil and Coop.level == "levels/menu" and not cfg.auto
 end
 
+-- One message: an error in its handler is logged (a few per kind) and the tick goes on;
+-- before, one failing handler stopped the whole network tick, state sending included
+-- (audit 0.2.2 A13).
+Coop.msgErrors = {}
+local function handle(peer, kind, data)
+  if Coop.menuMode() then
+    if kind == "msg" then
+      if not CoopMenu.onMessage(peer, split(data)) then Coop.onMessage(peer, data) end
+    elseif kind == "join" then CoopMenu.onJoin(peer)
+    elseif kind == "leave" then CoopMenu.onLeave(peer) end
+  elseif kind == "msg" then Coop.onMessage(peer, data)
+  elseif kind == "join" then Coop.onJoin(peer)
+  elseif kind == "leave" then Coop.onLeave(peer) end
+end
+
 function Coop.pump()
   for _ = 1, 200 do
     local peer, kind, data = Net.CoopRecv()
     if not peer then return end
-    if Coop.menuMode() then
-      if kind == "msg" then
-        if not CoopMenu.onMessage(peer, split(data)) then Coop.onMessage(peer, data) end
-      elseif kind == "join" then CoopMenu.onJoin(peer)
-      elseif kind == "leave" then CoopMenu.onLeave(peer) end
-    elseif kind == "msg" then Coop.onMessage(peer, data)
-    elseif kind == "join" then Coop.onJoin(peer)
-    elseif kind == "leave" then Coop.onLeave(peer) end
+    local ok, err = pcall(handle, peer, kind, data)
+    if not ok then
+      local k = kind == "msg" and (string.match(data or "", "^([^|]*)") or "?") or tostring(kind)
+      Coop.msgErrors[k] = (Coop.msgErrors[k] or 0) + 1
+      if Coop.msgErrors[k] <= 3 then Coop.log("message " .. k .. " error: " .. tostring(err)) end
+    end
+    -- A message that started loading a level ends this pump: the rest belongs to the new level
+    -- (handled there, by its own scripts and guards).
+    if Coop.levelLoading then return end
   end
 end
 
@@ -1087,9 +1126,50 @@ function Coop.updateLocalOwnership()
   elseif Coop.isClient() and cfg.myId then
     if Coop.owners[mine] ~= cfg.myId and Coop.lastClaim ~= mine then
       Coop.lastClaim = mine
+      Coop.lastClaimT = Net.CoopTime()
       cfg.char = mine
       Net.CoopSend(0, 1, "claim|" .. mine)
     end
+    Coop.checkRefusedClaim(mine)
+  end
+end
+
+-- Client: the body this player drives belongs to another player (two switched into the same
+-- free body at once; the host gave it to the other): move to the body the owners give this
+-- player, else to a free one. It drove on as a second driver before (audit 0.2.2 A6).
+Coop.CLAIM_WAIT = 3
+function Coop.checkRefusedClaim(mine)
+  local owner = Coop.owners[mine]
+  if owner == nil or owner == cfg.myId or Coop.storyDriven[mine] then return end
+  -- (only a claim of its own that the host refused: a spirit or a player who never claimed
+  -- this body is left to coop_spirit.lua)
+  if Coop.lastClaim ~= mine or Net.CoopTime() - (Coop.lastClaimT or 0) < Coop.CLAIM_WAIT then return end
+  if Scene and Scene.IsPlaying then return end
+  if CoopSpirit and CoopSpirit.active then return end
+  local target
+  for n, p in pairs(Coop.owners) do
+    if p == cfg.myId then target = n end
+  end
+  if not target then
+    for _, n in ipairs(Coop.SQUAD) do
+      local e = Game.GetEntity(n)
+      if Coop.owners[n] == nil and e and (e.Life or 0) > 0 and e.bActive ~= false and
+         not (CoopStory and CoopStory.taken and CoopStory.taken(n)) then
+        target = n
+        break
+      end
+    end
+  end
+  if (Coop.refusedLogT or 0) + 5 < Net.CoopTime() then
+    Coop.refusedLogT = Net.CoopTime()
+    Coop.log("claim: " .. mine .. " is held by owner " .. tostring(owner) .. ", moving to " .. tostring(target))
+  end
+  if target and Team and Team.SwitchSoldier then
+    local locks = Team.UnavaliablePlayers
+    local was = locks and locks[target]
+    if locks then locks[target] = nil end
+    pcall(Team.SwitchSoldier, mine, target)
+    if locks then locks[target] = was end
   end
 end
 
@@ -1132,6 +1212,16 @@ function Coop.frameUpdate(now, dt)
     if not ok and (Coop.splitErrors or 0) < 5 then
       Coop.splitErrors = (Coop.splitErrors or 0) + 1
       Coop.log("split error: " .. tostring(err))
+    end
+  end
+  -- Ross's stand-in (act 1) per frame, as the puppets: at 20 Hz it moved in steps (audit
+  -- 0.2.2 A10). (In split screen coop_split.lua runs it per view, unless the screen is whole
+  -- for a scene.)
+  if CoopRoss and not (CoopSplit and CoopSplit.on and CoopSplit.shownFor ~= nil) and Coop.level ~= "levels/menu" then
+    local ok, err = pcall(CoopRoss.update)
+    if not ok and (Coop.rossErrors or 0) < 5 then
+      Coop.rossErrors = (Coop.rossErrors or 0) + 1
+      Coop.log("ross error: " .. tostring(err))
     end
   end
   if Coop.inSession() then
@@ -1361,14 +1451,6 @@ function Coop.update()
       Coop.log("reclaim error: " .. tostring(err))
     end
   end
-  -- (in split screen coop_split.lua runs it per view, unless the screen is whole for a scene)
-  if CoopRoss and not (CoopSplit and CoopSplit.on and CoopSplit.shownFor ~= nil) and Coop.level ~= "levels/menu" then
-    local ok, err = pcall(CoopRoss.update)
-    if not ok and (Coop.rossErrors or 0) < 5 then
-      Coop.rossErrors = (Coop.rossErrors or 0) + 1
-      Coop.log("ross error: " .. tostring(err))
-    end
-  end
   if CoopSplit and not CoopSplit.on and Coop.frame >= 10 then
     local ok, err = pcall(CoopSplit.autoStart)
     if not ok then Coop.log("split start error: " .. tostring(err)) end
@@ -1393,9 +1475,14 @@ function Coop.update()
     Coop.bgState = bg
   end
   Coop.wrapTeam()
-  Coop.pump()
+  -- The guards first: a client's first tick in a level handles what arrived while it loaded
+  -- (replayed callbacks, spawned enemies), which must meet them (audit 0.2.2 A4).
   if CoopEnemies and (Coop.isHost() or Coop.isClient()) then
     CoopEnemies.install()
+    if CoopEnemies.installed and CoopWorld then CoopWorld.install() end
+  end
+  Coop.pump()
+  if CoopEnemies and (Coop.isHost() or Coop.isClient()) then
     if CoopEnemies.installed then
       CoopEnemies.update()
       if CoopWorld then
@@ -1418,8 +1505,8 @@ function Coop.update()
   end
   if CoopStory and Coop.inSession() then
     local ok, err = pcall(CoopStory.update)
-    if not ok and (Coop.storyErrors or 0) < 5 then
-      Coop.storyErrors = (Coop.storyErrors or 0) + 1
+    if not ok and (Coop.storyTickErrors or 0) < 5 then
+      Coop.storyTickErrors = (Coop.storyTickErrors or 0) + 1
       Coop.log("story error: " .. tostring(err))
     end
   end
@@ -1432,8 +1519,8 @@ function Coop.update()
   end
   if CoopSplits and Coop.inSession() then
     local ok, err = pcall(CoopSplits.update)
-    if not ok and (Coop.splitErrors or 0) < 5 then
-      Coop.splitErrors = (Coop.splitErrors or 0) + 1
+    if not ok and (Coop.splitsErrors or 0) < 5 then
+      Coop.splitsErrors = (Coop.splitsErrors or 0) + 1
       Coop.log("splits error: " .. tostring(err))
     end
   end

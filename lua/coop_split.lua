@@ -399,7 +399,8 @@ end
 
 function Sp.driveUser(user, b)
   local d = Sp.drives[user]
-  if not b or (b.Life or 0) <= 0 or b.UsrControl ~= user then
+  -- (not a body the story walks: its lock is the story's, audit 0.2.2 A16)
+  if not b or (b.Life or 0) <= 0 or b.UsrControl ~= user or Coop.storyDriven[b.Name] then
     if d then Sp.stopDriveUser(user) end
     return
   end
@@ -498,7 +499,7 @@ function Sp.stopDriveUser(user)
   if b then
     b.InCtrl_Walk, b.InCtrl_Str, b.InCtrl_Sprint = 0, 0, 0
     if b.owc then b.owc.Shot = 0 end
-    b.IgnoreUsrControl = 0
+    if not Coop.storyDriven[b.Name] then b.IgnoreUsrControl = 0 end
   end
   Coop.log("split: player " .. (user + 1) .. " back on the game's own controls")
 end

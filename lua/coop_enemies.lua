@@ -169,6 +169,12 @@ function E.installHost()
     end
     -- Damage to a body another human controls is applied by its owner.
     if To and Coop.isRemoteOwned(To.Name) and not Coop.applyingRemoteHit then
+      -- One machine per source (audit 0.2.2 A12): damage with no source (a fall...) is the
+      -- owner's own, where the body really is; anything with a source comes from here.
+      if not From and Coop.cfg.hazardlocal ~= false then
+        E.stats.dropped = E.stats.dropped + 1
+        return false
+      end
       local owner = Coop.ownerOf(To.Name)
       E.stats.pdmgSent = E.stats.pdmgSent + 1
       Net.CoopSend(Coop.peerOf(owner), 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
@@ -469,6 +475,7 @@ function E.onLevel(name)
   Coop.cfg.level = name
   Coop.rearm()
   if CoopSave then CoopSave.applyPending() end
+  Coop.levelLoading = true
   fromHost(SaveGame.LoadLevel, name)
 end
 
@@ -824,6 +831,11 @@ local function guard(tbl, name)
     -- A host callback replayed by coop_world.lua runs the level's own effects here;
     -- enemies, saves and level changes stay dropped (the host sends those itself).
     if Coop.replay and tbl == MapCallbacks then return f(...) end
+    -- A replayed callback's own gates count here as on the host (every call is replayed):
+    -- "if not SaveGame.FlagCounter(name, n) then return end" let nothing after it run on a
+    -- client, so objects, triggers, debris and revives that follow such a gate (73 in the
+    -- levels) stayed in the level-start state there (audit 0.2.2 A1).
+    if Coop.replay and tbl == SaveGame and name == "FlagCounter" then return f(...) end
     if tbl == MapCallbacks and CoopWorld then CoopWorld.onLocalCallback(name, ...) end
     E.stats.dropped = E.stats.dropped + 1
   end
@@ -881,6 +893,13 @@ function E.installClient()
     if From:IsType("WalkChar") and (From.TgType == "red" or not Coop.isLocalPlayer(From.Name)) then
       -- Enemy damage comes from the host (pdmg); puppets fire for show only.
       E.stats.dropped = E.stats.dropped + 1
+      return false
+    end
+    -- So does a hazard's on this player's body (a barrel, a thrown object: the host's copy
+    -- hit it too and sent pdmg; taken here as well it counted twice, audit 0.2.2 A12).
+    if not From:IsType("WalkChar") and Coop.isLocalPlayer(To.Name) and Coop.cfg.hazardlocal ~= false then
+      E.stats.dropped = E.stats.dropped + 1
+      E.stats.hazards = (E.stats.hazards or 0) + 1
       return false
     end
     return origDamage(From, To, Damage, BodyMultiplier)
@@ -946,11 +965,35 @@ function E.driveEnemies(dt)
 end
 
 -- Enemies the client knows but the host does not drive must not think either.
+E.GENERATOR_FUNCS = {"ActivateNextEnemy", "ScheduleActivationOfNextEnemy", "ActivateEnemy", "ActivateSpontaneousEnemy"}
+
+-- Client: an enemy active here but in none of the host's snapshots for ORPHAN_TIME (the host
+-- has it off, dead or not at all) is switched off here too; it stood or walked around,
+-- harmless and shootable, and the hits on it counted nowhere (audit 0.2.2 A3, owner's Steam
+-- test). A later snapshot of it switches it on again (driveEnemies).
+E.ORPHAN_TIME = 2.5
+E.orphanSince = {}
 function E.freezeLocalEnemies()
+  local now = Net.CoopTime()
+  local gate = E.gateOpen == nil or E.gateOpen()
   local e = Game.GetFirst()
   while e ~= nil do
-    if isEnemy(e) and e.Life > 0 and not E.targets[e.Name] and e.oAI and e.oAI.bEnable then
-      e.oAI.bEnable = false
+    if isEnemy(e) and e.Life > 0 and not E.targets[e.Name] then
+      if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+      if e.bActive and gate then
+        local since = E.orphanSince[e.Name]
+        if not since then
+          E.orphanSince[e.Name] = now
+        elseif now - since > E.ORPHAN_TIME then
+          e.bActive = false
+          E.orphanSince[e.Name] = nil
+          E.stats.orphans = (E.stats.orphans or 0) + 1
+        end
+      else
+        E.orphanSince[e.Name] = nil
+      end
+    elseif E.orphanSince[e.Name] then
+      E.orphanSince[e.Name] = nil
     end
     e = Game.GetEntity(e.NextInSlot)
   end
@@ -972,12 +1015,29 @@ function E.onMessage(peer, f)
       if NPC.Groups and not NPC.Groups[group] and CoopSplits and CoopSplits.newList then
         CoopSplits.newList(group)
       end
+      -- The engine names a new enemy from NPC.Counter: the host's number, so the name is the
+      -- host's from the start (renaming afterwards could clash with a later one).
+      local num = tonumber(string.match(name, "^Enemy_(%d+)$"))
+      if num then NPC.Counter = num end
       local e = fromHost(NPC.CreateWithAI, class, tonumber(f[5]), tonumber(f[6]), tonumber(f[7]), group)
       if type(e) ~= "string" and e and e.Name ~= name then e.Name = name end
     end
     E.stats.spawns = E.stats.spawns + 1
   elseif kind == "egroup" and Coop.isClient() then
+    -- A generator group fills itself (EnemyGen, random class and spawn point): here it must
+    -- not, its enemies come one by one from the host (espawn). Replaying the generator made
+    -- enemies only this machine had, under names the host gave others (audit 0.2.2 A2).
+    local saved = {}
+    if EnemyGen then
+      for _, fn in ipairs(E.GENERATOR_FUNCS) do
+        if type(EnemyGen[fn]) == "function" then
+          saved[fn] = EnemyGen[fn]
+          EnemyGen[fn] = function() end
+        end
+      end
+    end
     fromHost(NPC.ActivateEnemyGroup, f[2])
+    for fn, orig in pairs(saved) do EnemyGen[fn] = orig end
     E.stats.groups = E.stats.groups + 1
   elseif kind == "edie" and Coop.isClient() then
     local e = Game.GetEntity(f[2])
@@ -1099,9 +1159,9 @@ function E.report()
     for _ in pairs(E.targets) do n = n + 1 end
     E.lastCount = "driven:" .. n
   end
-  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d scaled=%d",
+  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d scaled=%d orphans=%d",
     tostring(E.lastCount or "-"), s.remoteTargets or 0, s.hitsSent, s.hitsApplied, s.pdmgSent, s.pdmgApplied, s.spawns,
-    s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0, s.scaled or 0)
+    s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0, s.scaled or 0, s.orphans or 0)
 end
 
 -- Scene hooks go in as soon as this file loads: levels schedule their opening scene for

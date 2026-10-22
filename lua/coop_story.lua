@@ -28,6 +28,9 @@ function St.drive(name, on)
   if on and e and e.oAI then
     e.InCtrl_Walk, e.InCtrl_Str = 0, 0
     e.oAI.bEnable = true
+  elseif not on and e and e.oAI and Coop.isRemoteOwned(name) then
+    -- (the AI walked on until the player's next state came, audit 0.2.2 A16)
+    e.oAI.bEnable = false
   end
   Net.CoopSend(-1, 1, "sdrive|" .. name .. "|" .. (on and 1 or 0))
   Coop.log("story: " .. name .. (on and " walked by the host" or " back to its player"))

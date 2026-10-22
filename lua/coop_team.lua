@@ -150,8 +150,11 @@ function T.onMessage(peer, f)
     return true
   elseif kind == "time" then
     local x = tonumber(f[2]) or 1
+    -- (the host relays to everyone, the sender too: it applied its own already; applied again
+    -- late, two quick changes could put it back to the first one, audit 0.2.2 A16)
+    if Coop.isClient() and f[3] and tonumber(f[3]) == Coop.cfg.myId then return true end
     if T.origSetTime then T.applyTime(x) end
-    if Coop.isHost() then Net.CoopSend(-1, 1, "time|" .. x) end
+    if Coop.isHost() then Net.CoopSend(-1, 1, "time|" .. x .. "|" .. peer) end
     return true
   elseif kind == "gameover" and Coop.isClient() then
     Coop.log("host: game over")

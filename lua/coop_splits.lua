@@ -26,6 +26,7 @@
 -- Messages:
 --   spc|<split>|<target>     host -> all: choose (shown to the players the split leaves behind)
 --   spn|<text key>|<chars>   host -> all: objective text for the players holding <chars>
+--   spcrank                  host -> all: G11's crank usable (the use goes to the host as any)
 
 CoopSplits = CoopSplits or {}
 local Sp = CoopSplits
@@ -269,6 +270,16 @@ function Sp.G8phase(n)
 end
 
 function Sp.installG8(isHost)
+  -- Church enters the ward room: vanilla switches Black and Delgado off; human ones stay. On
+  -- every machine: clients replay the callback (cb|) and switched their own body off (audit
+  -- 0.2.2 A7).
+  Sp.after("MapCallbacks.TriggerBloodWar_3", function()
+    for _, n in ipairs(Sp.G8.list) do
+      local e = Game.GetEntity(n)
+      if e and human(n) then e.bActive = true end
+    end
+    if isHost then Sp.G8phase(2) end
+  end)
   if not isHost then return end
   -- Church starts the climb (use object or area trigger): the choice, then phase 1 when
   -- the scene hands control back.
@@ -280,14 +291,6 @@ function Sp.installG8(isHost)
   Sp.after("MapCallbacks.TriggerEscalada_0", climb)
   Sp.after("MapCallbacks.PlayEscalada", function(_, Playerid)
     if Scene and Scene.IsPlaying then climb() end
-  end)
-  -- Church enters the ward room: vanilla switches Black and Delgado off; human ones stay.
-  Sp.after("MapCallbacks.TriggerBloodWar_3", function()
-    for _, n in ipairs(Sp.G8.list) do
-      local e = Game.GetEntity(n)
-      if e and human(n) then e.bActive = true end
-    end
-    Sp.G8phase(2)
   end)
   Sp.after("MapCallbacks.BloodWarGroup_0", function() Sp.G8phase(3) end)
   Sp.after("MapCallbacks.TriggerAperturaPuerta_0", function()
@@ -425,8 +428,8 @@ function Sp.G11wave()
   g.started = true
   local n = math.min(6, 3 + (CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() or 1))
   pcall(PhysicsObj.OpenDoor, "puertaPuzzlePuente")
-  local crank = Game.GetEntity("ManivelaPuertaPuente")
-  if crank then crank.bArrowCanUse = true end
+  Sp.G11crank()
+  Net.CoopSend(-1, 1, "spcrank")
   for k = 1, n do
     local p = g.DOOR_SPAWNS[(k - 1) % #g.DOOR_SPAWNS + 1]
     local ok, e = pcall(NPC.CreateWithAI, "Legionary", p.x - math.floor((k - 1) / 4) * 120, p.y, p.z, g.LIST, 1)
@@ -442,6 +445,13 @@ function Sp.G11wave()
   Sp.notice("abyss1", g.all)
   Sp.radio("Black", "173_L4_Block_Legion")
   Sp.radio("Church", "Enemy_Ambush")
+end
+
+-- Jones may shut the door with the crank: on every machine (only the host had the use prompt,
+-- audit 0.2.2 A8).
+function Sp.G11crank()
+  local crank = Game.GetEntity("ManivelaPuertaPuente")
+  if crank then crank.bArrowCanUse = true end
 end
 
 function Sp.G11check()
@@ -1393,6 +1403,9 @@ function Sp.onMessage(peer, f)
       Net.CoopSend(-1, 1, "spfree|" .. f[2])
     end
     if f[2] ~= Coop.localChar() then Sp.G15onFree(f[2]) end
+    return true
+  elseif f[1] == "spcrank" and Coop.isClient() then
+    Sp.G11crank()
     return true
   elseif f[1] == "spc" and Coop.isClient() then
     Sp.offer(f[2])

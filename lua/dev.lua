@@ -2707,3 +2707,189 @@ if cfg.turntp and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'autoplay' (host and clients): a playthrough by the AI, for finding where a player's body
+-- cannot go where the game's own AI goes (invisible walls, objects left on one machine).
+-- The host walks an AI squad member, the "scout", to the nearest active story trigger it has
+-- not reached yet (AIGen.GoAndAction: the level's navigation; triggers to the next level last);
+-- every machine's own player body follows the scout's trail with its input fields (turn, walk,
+-- sprint) as a person would, and fires at enemies nearby. A body that does not get on along the
+-- trail for 2.5 s logs "autoplay: stuck" with what stands around it, then is put further along
+-- the trail. Options: autoplay_fire=false, autoplay_scout='Cole'.
+if cfg.autoplay and Coop.level ~= "levels/menu" then
+  local A = {visited = {}, trail = {}, idx = 1, stuckCells = {}, stucks = 0, reached = 0}
+  Coop.autoplayState = A
+  local prevAp = Coop.dev
+
+  local function prop(e, k)
+    local ok, v = pcall(function() return e[k] end)
+    return ok and v or nil
+  end
+
+  local function scout()
+    local s = A.scout and Game.GetEntity(A.scout)
+    if s and (s.Life or 0) > 0 and not Coop.ownerOf(A.scout) and A.scout ~= Coop.localChar() then return s end
+    for _, n in ipairs(cfg.autoplay_scout and {cfg.autoplay_scout} or Coop.SQUAD) do
+      local e = Game.GetEntity(n)
+      if e and (e.Life or 0) > 0 and e.bActive ~= false and e.Active ~= 0 and not Coop.ownerOf(n) and n ~= Coop.localChar() then
+        A.scout = n
+        Coop.log("autoplay: scout " .. n)
+        return e
+      end
+    end
+  end
+
+  local function isTrigger(name)
+    return string.find(name, "^AreaTrigger") or string.find(name, "Trigger") or string.find(name, "^New_Level") or
+           string.find(name, "^NextLevel")
+  end
+  local function levelExit(name)
+    return string.find(string.lower(name), "level") ~= nil
+  end
+
+  local function nextTarget(from)
+    local best, bestD
+    local e = Game.GetFirst()
+    while e ~= nil do
+      local n = e.Name
+      if n and isTrigger(n) and not A.visited[n] and prop(e, "bActive") ~= false then
+        local p = prop(e, "Pos")
+        if p then
+          local d = (p - from):mod()
+          if levelExit(n) then d = d * 4 + 20000 end
+          if not bestD or d < bestD then best, bestD = e, d end
+        end
+      end
+      if e.NextInSlot == "" then break end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    return best
+  end
+
+  -- What stands within 250 units of a body (for a stuck report).
+  local function around(p)
+    local list = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      local q = prop(e, "Pos")
+      if q and (q - p):mod() < 250 and e.Name ~= Coop.localChar() then
+        list[#list + 1] = string.format("%s(%s,%s)", e.Name, tostring(prop(e, "Type")), tostring(prop(e, "bActive")))
+        if #list >= 12 then break end
+      end
+      if e.NextInSlot == "" then break end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    return table.concat(list, " ")
+  end
+
+  local function nearestEnemy(p)
+    local best, bestD
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 and e.bActive ~= false then
+        local d = (e.Pos - p):mod()
+        if d < 2000 and (not bestD or d < bestD) then best, bestD = e, d end
+      end
+      if e.NextInSlot == "" then break end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    return best, bestD
+  end
+
+  function Coop.dev()
+    if prevAp then prevAp() end
+    if Scene and Scene.IsPlaying then return end
+    local now = Net.CoopTime()
+    local s = scout()
+    -- Host: the scout's next walk.
+    if Coop.isHost() and s and Coop.frame % 20 == 0 then
+      if A.walking and now - A.walkT > 45 then
+        Coop.log("autoplay: scout gave up on " .. A.walking)
+        A.visited[A.walking] = true
+        A.walking = nil
+      end
+      if not A.walking then
+        local t = nextTarget(s.Pos)
+        if t then
+          A.walking, A.walkT = t.Name, now
+          local name = t.Name
+          local tpos = t.Pos
+          local ok, err = pcall(AIGen.GoAndAction, s.Name, tpos, tpos + V3D(0, 0, 50), function(ent)
+            A.visited[name] = true
+            if A.walking == name then A.walking = nil end
+            local left = ent and (ent.Pos - tpos):mod() or -1
+            if left >= 0 and left < 400 then A.reached = A.reached + 1 end
+            Coop.log(string.format("autoplay: scout %s %s (%.0f units left)", left >= 0 and left < 400 and "reached" or "stopped short of",
+              name, left))
+          end)
+          Coop.log(string.format("autoplay: scout to %s (%.0f units)%s", name, (t.Pos - s.Pos):mod(), ok and "" or (" error " .. tostring(err))))
+        end
+      end
+    end
+    if Coop.frame % 200 == 0 then
+      local u0 = Game.UsrEntity(0)
+      Coop.log(string.format("autoplay: status body %s at %s, scout %s at %s, trail %d/%d, reached %d, stuck %d",
+        tostring(u0 and u0.Name), u0 and string.format("%.0f,%.0f", u0.Pos.x, u0.Pos.z) or "-", tostring(s and s.Name),
+        s and string.format("%.0f,%.0f", s.Pos.x, s.Pos.z) or "-", A.idx, #A.trail, A.reached, A.stucks))
+    end
+    -- Every machine: the scout's trail.
+    if s and Coop.frame % 5 == 0 then
+      local last = A.trail[#A.trail]
+      if not last or (s.Pos - last):mod() > 120 then A.trail[#A.trail + 1] = s.Pos end
+    end
+    -- This player's body follows it.
+    local u = Game.UsrEntity(0)
+    if not u or (u.Life or 0) <= 0 or Coop.storyDriven[u.Name] then return end
+    u.IgnoreUsrControl = 1
+    local fire = cfg.autoplay_fire ~= false and Coop.frame % 3 == 0 and nearestEnemy(u.Pos)
+    if fire then
+      local d = fire.Pos - u.Pos
+      local yaw = math.deg(math.atan2(-d.x, -d.z))
+      u.Ang = V3D(0, yaw, 0)
+      u.ViewAng = V3D(0, yaw, 0)
+      u.owc.Shot = (Coop.frame % 30 < 20) and 1 or 0
+      u.InCtrl_Walk = 0
+      A.lastMoveT = now
+      return
+    end
+    u.owc.Shot = 0
+    while A.trail[A.idx] and (A.trail[A.idx] - u.Pos):mod() < 150 and A.idx < #A.trail do A.idx = A.idx + 1 end
+    local tp = A.trail[A.idx]
+    if not tp or (tp - u.Pos):mod() < 150 then
+      u.InCtrl_Walk = 0
+      A.lastMoveT, A.lastPos = now, u.Pos
+      return
+    end
+    local d = tp - u.Pos
+    local dist = math.sqrt(d.x * d.x + d.z * d.z)
+    if dist > 4000 then
+      u.Pos = tp
+      pcall(Game.SetOnFloor, u.Name)
+      Coop.log("autoplay: caught up with the trail (teleported)")
+      return
+    end
+    local yaw = math.deg(math.atan2(-d.x, -d.z))
+    u.Ang = V3D(0, yaw, 0)
+    u.ViewAng = V3D(0, yaw, 0)
+    u.InCtrl_Walk = 1
+    u.InCtrl_Sprint = dist > 900 and 1 or 0
+    -- Stuck: no progress along the trail for 2.5 s.
+    if not A.lastPos or (u.Pos - A.lastPos):mod() > 60 then
+      A.lastPos, A.lastMoveT = u.Pos, now
+    elseif now - (A.lastMoveT or now) > 2.5 then
+      local cell = math.floor(u.Pos.x / 300) .. "," .. math.floor(u.Pos.z / 300)
+      if not A.stuckCells[cell] then
+        A.stuckCells[cell] = true
+        A.stucks = A.stucks + 1
+        Coop.log(string.format("autoplay: stuck %s at %.0f,%.0f,%.0f heading to %.0f,%.0f | %s", u.Name, u.Pos.x, u.Pos.y,
+          u.Pos.z, tp.x, tp.z, around(u.Pos)))
+      end
+      u.Pos = tp
+      pcall(Game.SetOnFloor, u.Name)
+      A.lastPos, A.lastMoveT = u.Pos, now
+    end
+    if Coop.frame % 400 == 0 then
+      Coop.log(string.format("autoplay: trail %d/%d, triggers reached %d, stuck spots %d", A.idx, #A.trail, A.reached, A.stucks))
+    end
+  end
+end

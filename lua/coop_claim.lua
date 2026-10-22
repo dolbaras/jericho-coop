@@ -188,13 +188,19 @@ function C.update()
   -- Take control: the existing claim path switches this player into the character.
   local s = C.shown
   if s and Net.CoopKey and Net.CoopKey(C.KEY) == 1 and not C.keyWas then
-    Coop.log("claim: taking " .. s.char)
-    if Coop.isHost() then
-      for n, p in pairs(Coop.owners) do if p == Coop.myId() then Coop.owners[n] = nil end end
-      Coop.owners[s.char] = Coop.myId()
-      Coop.broadcastOwners()
-    else
-      Net.CoopSend(0, 1, "claim|" .. s.char)
+    -- The player moves into the body (as the spirit's claim does); Coop.updateLocalOwnership
+    -- then claims it. Changing the owner alone did nothing on the host (it took its old body
+    -- back the same tick) and on a client left two drivers on one body (audit 0.2.2 A5).
+    local mine = Coop.localChar()
+    if Coop.ownerOf(s.char) ~= nil and Coop.ownerOf(s.char) ~= Coop.myId() then
+      Coop.log("claim: " .. s.char .. " is held by another player")
+    elseif mine and mine ~= s.char and Team and Team.SwitchSoldier then
+      local locks = Team.UnavaliablePlayers
+      local was = locks and locks[s.char]
+      if locks then locks[s.char] = nil end
+      local ok, res = pcall(Team.SwitchSoldier, mine, s.char)
+      if locks then locks[s.char] = was end
+      Coop.log("claim: taking " .. s.char .. " (" .. tostring(ok and res) .. ")")
     end
   end
   C.keyWas = s and Net.CoopKey and Net.CoopKey(C.KEY) == 1

@@ -92,6 +92,27 @@ function H.hide(name)
   end
 end
 
+-- The squad, and in act 1 Ross (a player may hold him; audit 0.2.2 A11).
+function H.names()
+  if not (Coop.actOne and Coop.actOne()) then return Coop.SQUAD end
+  if not H.withRoss then
+    H.withRoss = {}
+    for i, n in ipairs(Coop.SQUAD) do H.withRoss[i] = n end
+    H.withRoss[#H.withRoss + 1] = "Ross"
+  end
+  return H.withRoss
+end
+
+-- The body a plate goes over: Ross's stand-in where it shows him (coop_ross.lua; his own
+-- entity is off or unseen there), else the body itself.
+function H.bodyOf(name)
+  local e = Coop.squadEnt(name)
+  if name ~= "Ross" or not e or (e.Life or 0) <= 0 then return e end
+  local s = CoopRoss and CoopRoss.body and Game.GetEntity(CoopRoss.NAME)
+  if s and CoopRoss.showable() then return s end
+  return e
+end
+
 -- Bodies that get a plate on the HUD of user (0 or 1): other players' bodies, and in split
 -- screen the other local player's.
 function H.wants(name, user)
@@ -123,15 +144,15 @@ function H.update()
   -- Nor over a menu (pause, help): the world goes on behind it in a session.
   local menu = Input.GetActionSet and Input.GetActionSet() == "Menu"
   if Coop.cfg.tags == false or Coop.level == "levels/menu" or (Scene and Scene.IsPlaying) or black or menu then
-    for _, name in ipairs(Coop.SQUAD) do H.hide(name) end
+    for _, name in ipairs(H.names()) do H.hide(name) end
     return
   end
   if not H.nickCache or Coop.frame % 20 == 0 then H.nickCache = H.nicks() end
   -- Split screen draws each user's HUD over its own camera: the projection is done per
   -- camera here (Scorer.Get2DPos follows the camera being drawn, which alternates).
   local split = CoopSplit and CoopSplit.on and not CoopSplit.held
-  for _, name in ipairs(Coop.SQUAD) do
-    local e = Coop.squadEnt(name)
+  for _, name in ipairs(H.names()) do
+    local e = H.bodyOf(name)
     for _, user in ipairs({0, 1}) do
       local shown = false
       -- (no plates over a power's own view: astral projection, Rawlings's healing flight)

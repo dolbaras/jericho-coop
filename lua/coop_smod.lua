@@ -236,9 +236,11 @@ end
 -- Client on the host's checkpoint (SMOD's rules): its own body back to full health.
 function Sm.checkpointHeal()
   if not Sm.rules() then return end
-  local usr = Game.UsrEntity(0)
-  local cls = usr and usr.oActCtrl and usr.oActCtrl.oActClass
-  if cls and cls.Life and usr.Life > 0 then usr.Life = cls.Life end
+  -- (and this PC's player 2's body, audit 0.2.2 A16)
+  for _, usr in ipairs({Game.UsrEntity(0), CoopSplit and CoopSplit.on and CoopSplit.body() or false}) do
+    local cls = usr and usr.oActCtrl and usr.oActCtrl.oActClass
+    if cls and cls.Life and usr.Life > 0 then usr.Life = cls.Life end
+  end
 end
 
 ------------------------------------------------------------------------------

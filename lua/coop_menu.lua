@@ -68,6 +68,7 @@ CoopMenu.TEXT = {
     rules_notall = "game's (SMOD not for all)", ai_smod = "SMOD (%d%% damage)",
     version_host = "The host has co-op %s, you have %s: both need the same version",
     version_peer = "%s has another co-op version (this is %s)",
+    lobby_full = "The session is full (%d players)",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -99,6 +100,7 @@ CoopMenu.TEXT = {
     rules_notall = "игры (SMOD не у всех)", ai_smod = "SMOD (%d%% урона)",
     version_host = "У хоста кооп %s, у вас %s: версии должны совпадать",
     version_peer = "У игрока %s другая версия коопа (здесь %s)",
+    lobby_full = "Сессия заполнена (%d игроков)",
   },
 }
 
@@ -1098,7 +1100,14 @@ end
 
 function CoopMenu.onJoin(peer)
   if Coop.isHost() then
-    if #CoopMenu.seats >= CoopMenu.MAX_PLAYERS then return end
+    -- Full (player 2 seats count): say so and close, instead of "Connecting..." forever
+    -- (audit 0.2.2 A16).
+    if #CoopMenu.seats >= CoopMenu.MAX_PLAYERS then
+      Coop.log("lobby: peer " .. peer .. " refused, the session is full")
+      Net.CoopSend(peer, 1, "full|" .. CoopMenu.MAX_PLAYERS)
+      Net.CoopClose(peer)
+      return
+    end
     CoopMenu.seats[#CoopMenu.seats + 1] = {peer = peer, char = CoopMenu.firstFree(peer), ready = false,
                                            nick = T("player") .. " " .. (peer + 1)}
     Net.CoopSend(peer, 1, "welcome|" .. peer .. "|Menu|" .. CoopMenu.seats[#CoopMenu.seats].char .. "|" .. Coop.VERSION)
@@ -1125,7 +1134,7 @@ function CoopMenu.onLeave(peer)
     end
     CoopMenu.smodPeers[peer] = nil
     CoopMenu.broadcastLobby()
-  elseif peer == 0 then
+  elseif peer == 0 and not CoopMenu.wasFull then
     CoopMenu.Root()
     CoopMenu.message(T("host_left"))
   end
@@ -1134,7 +1143,12 @@ end
 -- Returns true when the message was a lobby message.
 function CoopMenu.onMessage(peer, f)
   local kind = f[1]
-  if kind == "pick" and Coop.isHost() then
+  if kind == "full" and Coop.isClient() then
+    CoopMenu.wasFull = true
+    CoopMenu.Root()
+    CoopMenu.message(string.format(T("lobby_full"), tonumber(f[2]) or 0))
+    return true
+  elseif kind == "pick" and Coop.isHost() then
     local s = CoopMenu.seatOf(peer)
     if s and f[2] and not CoopMenu.taken(f[2], peer) then
       s.char = f[2]

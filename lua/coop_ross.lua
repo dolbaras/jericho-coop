@@ -165,6 +165,8 @@ function R.update(view, p2)
     if st then
       if e.owc then e.owc.Shot = st.shot or 0 end
       Coop.syncSlot(e, st.slot)
+      -- (his strikes, reloads: his body's action stays Relax for them, as any player's)
+      Coop.mirrorArms(e, "Ross", st)
     elseif ai then
       if e.owc and r.owc then e.owc.Shot = r.owc.Shot or 0 end
       local wc = r.oWeapCtrl
@@ -201,7 +203,8 @@ function R.update(view, p2)
   end
   local a = show and 1 or 0
   if e.Active ~= a then e.Active = a end
-  if Coop.cfg.rosslog and Coop.frame % 7 == 0 then
+  if Coop.cfg.rosslog and Net.CoopTime() - (R.logT or 0) > 0.35 then
+    R.logT = Net.CoopTime()
     Coop.log(string.format("ross: view %s shown %s ai %s action %s at %.0f,%.0f net %s", tostring(view), tostring(show), tostring(ai),
       tostring(r and r.Action), e.Pos.x, e.Pos.z, tostring(st ~= nil)))
   end

@@ -99,7 +99,8 @@ end
 
 function P.squad()
   local list = {}
-  for _, name in ipairs(Coop.SQUAD) do
+  -- (in act 1 Ross too: alk_bunker_00 leaves only Ross and Rawlings, audit 0.2.2 A11)
+  for _, name in ipairs(Coop.actOne() and Coop.LIGHT_BODIES or Coop.SQUAD) do
     local e = Game.GetEntity(name)
     if e and e.Active ~= 0 and e.bActive ~= false and e.Life and e.Life > 0 then list[#list + 1] = e end
   end
