@@ -982,8 +982,14 @@ function Coop.ensureFP(name)
   if not (name and Coop.SQUAD_SET[name] and Act and Act.GetClass and Game.PreloadLibrary) then return end
   if Act.GetClass("FP_" .. name) ~= nil then return end
   for _, n in ipairs(Coop.FP_ORDER) do
-    local ok, err = pcall(Coop.buildFP, n)
-    Coop.log("first-person set " .. n .. ": " .. (ok and "built" or tostring(err)))
+    -- (a character the level does not have: its own script is not loaded, and its set needs
+    -- it: alk_bunker_00 left a half-built FP_Church, "attempt to index global 'Church'")
+    if _G[n] == nil and n ~= name then
+      Coop.log("first-person set " .. n .. ": not in this level")
+    else
+      local ok, err = pcall(Coop.buildFP, n)
+      Coop.log("first-person set " .. n .. ": " .. (ok and "built" or tostring(err)))
+    end
     if n == name then return end
   end
 end
@@ -1436,6 +1442,32 @@ function Coop.watchControl()
     Coop.controlLogs = (Coop.controlLogs or 0) + 1
     if Coop.controlLogs <= Coop.CONTROL_LOG_MAX then Coop.log("control: " .. key) end
   end
+  if u then Coop.checkOwnModel(u) end
+end
+
+-- The player's own model is not drawn in first person (the engine hides it, the arms are
+-- the FP set). After a downed player was moved into another body on a client the model
+-- stayed drawn: the view sat behind its own head, no arms (0.2.2 test, alk_bunker_01). Not
+-- in split screen (coop_split.lua shows each body in the other player's view) nor in a
+-- scene or a power's own camera.
+function Coop.checkOwnModel(u)
+  if cfg.fpbodyfix == false or (CoopSplit and CoopSplit.on) or (Scene and Scene.IsPlaying) then return end
+  if Game.GetCam(0) ~= "MainCam" or u.InCtrl_UseFPS ~= 1 or (u.Life or 0) <= 0 then return end
+  local fp = u.FPSEntity and u.FPSEntity ~= "" and Game.GetEntity(u.FPSEntity)
+  if not fp or u.bObjectVisible ~= true then
+    Coop.ownModelSeen = nil
+    return
+  end
+  -- (twice in a row: a switch shows the body for a moment on its own)
+  if Coop.ownModelSeen ~= u.Name then
+    Coop.ownModelSeen = u.Name
+    return
+  end
+  u.bObjectVisible = false
+  if fp.bObjectVisible == false then fp.bObjectVisible = true end
+  Coop.ownModelSeen = nil
+  Coop.ownModelFixes = (Coop.ownModelFixes or 0) + 1
+  if Coop.ownModelFixes <= 10 then Coop.log("own model of " .. u.Name .. " drawn in first person: hidden") end
 end
 
 function Coop.update()

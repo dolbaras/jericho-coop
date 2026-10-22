@@ -306,6 +306,108 @@ function W.doorOpen(name)
   return a == "Open" or a == "Opened"
 end
 
+-- Client: rejoin the squad. The story shuts ways behind whoever goes first (alk_bunker_01's
+-- entrance blocker and door, alk_city's collapsing columns); a player still behind was locked
+-- out ("everyone passes, the client does not", owner's Steam test). Where it cannot be told
+-- which side a closing door leaves a player on, the player decides: after a door or blocker
+-- shuts near them while they are away from the host's body, or after REJOIN_FAR_TIME seconds
+-- far from it, a hint offers to hold T (or both pad sticks pressed: Back opens the game's
+-- character help) to be put next to the host's body.
+W.REJOIN_NEAR_DOOR = 3000   -- the closing within this of the player
+W.REJOIN_AWAY = 600         -- the player this far from the host's body
+W.REJOIN_FAR = 2500         -- far from the host's body ...
+W.REJOIN_FAR_TIME = 30      -- ... for this long: the hint too
+W.REJOIN_HOLD = 1.5
+W.REJOIN_KEY = 0x54         -- T
+W.REJOIN_PAD = {64, 128}    -- XInput left and right stick pressed, together
+W.REJOIN_TEXT = {en = "Cut off from the squad?
+Hold T (pad: both sticks) to rejoin it",
+                 ru = "Отстали от отряда?
+Удерживайте T (геймпад: оба стика), чтобы вернуться"}
+
+function W.hostBodyPos()
+  for name, p in pairs(Coop.owners) do
+    if p == 0 then
+      local st = Coop.remote and Coop.remote[name]
+      if st and st.x then return V3D(st.x, st.y, st.z), name end
+      local e = Game.GetEntity(name)
+      if e then return e.Pos, name end
+    end
+  end
+end
+
+local function flatDist(a, b)
+  local dx, dz = a.x - b.x, a.z - b.z
+  return math.sqrt(dx * dx + dz * dz)
+end
+
+-- A door or blocker the host shut: the hint if it is near this player and the host's body away.
+function W.onShut(what)
+  if not Coop.isClient() or Coop.cfg.rejoin == false then return end
+  local d, u = Game.GetEntity(what), Game.UsrEntity(0)
+  local h = W.hostBodyPos()
+  if not d or not u or not h then return end
+  if flatDist(u.Pos, d.Pos) < W.REJOIN_NEAR_DOOR and flatDist(u.Pos, h) > W.REJOIN_AWAY then
+    W.rejoinUntil = Net.CoopTime() + 60
+    Coop.log("world: " .. what .. " shut near " .. u.Name .. ", away from the host: rejoin offered")
+  end
+end
+
+function W.updateRejoin()
+  if not Coop.isClient() or Coop.cfg.rejoin == false then return end
+  local t = Net.CoopTime()
+  local u = Game.UsrEntity(0)
+  local h, hostName = W.hostBodyPos()
+  local busy = (Scene and Scene.IsPlaying) or not u or not h or (u.Life or 0) <= 0 or Coop.storyDriven[u.Name] or
+               (CoopSpirit and CoopSpirit.active)
+  local dist = (not busy) and flatDist(u.Pos, h) or 0
+  if busy or dist < W.REJOIN_AWAY then
+    W.farSince, W.rejoinHeld = nil, nil
+    if dist < W.REJOIN_AWAY then W.rejoinUntil = nil end
+    if W.rejoinShown then Coop.textBlockHide("CoopRejoin") W.rejoinShown = nil end
+    return
+  end
+  if dist > W.REJOIN_FAR then
+    W.farSince = W.farSince or t
+    if t - W.farSince > W.REJOIN_FAR_TIME and not W.rejoinUntil then
+      W.rejoinUntil = t + 3600
+      Coop.log(string.format("world: %s far from the host's body for %d s: rejoin offered", u.Name, W.REJOIN_FAR_TIME))
+    end
+  else
+    W.farSince = nil
+  end
+  if not W.rejoinUntil or t > W.rejoinUntil then
+    if W.rejoinShown then Coop.textBlockHide("CoopRejoin") W.rejoinShown = nil end
+    return
+  end
+  local lang = Coop.lang()
+  local text = W.REJOIN_TEXT[lang] or W.REJOIN_TEXT.en
+  Coop.textBlock("CoopRejoin", lang == "ru" and Coop.cp1251(text) or text, {y = 360, color = Color(255, 220, 140, 255)})
+  W.rejoinShown = true
+  local key = Net.CoopKey and Net.CoopKey(W.REJOIN_KEY) == 1
+  local ok, buttons = pcall(Net.CoopKey, -1, 0)
+  local pad = ok
+  for _, bit in ipairs(W.REJOIN_PAD) do
+    pad = pad and math.floor((tonumber(buttons) or 0) / bit) % 2 == 1
+  end
+  if key or pad then
+    W.rejoinHeld = W.rejoinHeld or t
+    if t - W.rejoinHeld >= W.REJOIN_HOLD then
+      local back2 = V3D(u.Pos.x - h.x, 0, u.Pos.z - h.z)
+      local l = math.max(1, math.sqrt(back2.x * back2.x + back2.z * back2.z))
+      u.Pos = h + V3D(back2.x / l * 90, 30, back2.z / l * 90)
+      pcall(Game.SetOnFloor, u.Name)
+      W.rejoins = (W.rejoins or 0) + 1
+      Coop.log(string.format("world: %s rejoined %s (was %.0f away)", u.Name, tostring(hostName), dist))
+      W.rejoinUntil, W.rejoinHeld, W.farSince = nil, nil, nil
+      Coop.textBlockHide("CoopRejoin")
+      W.rejoinShown = nil
+    end
+  else
+    W.rejoinHeld = nil
+  end
+end
+
 function W.setDoor(name, open)
   W.doors[name] = open
   if W.doorOpen(name) == open then return end
@@ -395,6 +497,11 @@ function W.update()
   W.installObjects()
   W.pollObjects()
   if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
+  local okr, errr = pcall(W.updateRejoin)
+  if not okr and (W.rejoinErrors or 0) < 3 then
+    W.rejoinErrors = (W.rejoinErrors or 0) + 1
+    Coop.log("world: rejoin error " .. tostring(errr))
+  end
   if Coop.isHost() and now() >= (W.nextDigest or now() + W.DIGEST_EVERY) then
     local n, sum = W.digest(W.entries())
     Net.CoopSend(-1, 1, "wd|" .. n .. "|" .. sum)
@@ -412,8 +519,10 @@ function W.onObjectMessage(peer, f)
   if kind == "door" or kind == "kill" or kind == "wstate" or kind == "wd" or kind == "blk" then W.installObjects() end
   if kind == "door" and Coop.isClient() then
     W.setDoor(f[2], f[3] == "1")
+    if f[3] ~= "1" then W.onShut(f[2]) end
   elseif kind == "blk" and Coop.isClient() then
     if Coop.cfg.syncblockers ~= false then W.setBlocker(f[2], f[3] == "1") end
+    if f[3] == "1" then W.onShut(f[2]) end
   elseif kind == "kill" then
     if Coop.isHost() then
       if not W.dead[f[2]] then Net.CoopSend(-1, 1, "kill|" .. f[2]) end
