@@ -227,4 +227,10 @@ return {
     ["Debug Level"] = "Niveau de débogage",
     Console = "Console",
   },
+  ["CoopSquad.TEXT"] = {
+    lead = "Vous commandez %s : %s",
+    all = "Toute la section vous suit",
+    ross = "La section suit Ross",
+    other = "%s suit %s : c'est ce joueur qui lui donne les ordres",
+  },
 }

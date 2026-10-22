@@ -878,6 +878,7 @@ function Coop.onMessage(peer, data)
   if CoopSpirit and CoopSpirit.onMessage(peer, f) then return end
   if CoopWorld and CoopWorld.onMessage(peer, f, data) then return end
   if CoopClaim and CoopClaim.onMessage(peer, f) then return end
+  if CoopSquad and CoopSquad.onMessage(peer, f) then return end
   if CoopSave and CoopSave.onMessage(peer, f) then return end
   if CoopStory and CoopStory.onMessage(peer, f) then return end
   if CoopSplits and CoopSplits.onMessage(peer, f) then return end
@@ -1716,6 +1717,13 @@ function Coop.update()
     end
   end
   if CoopTeam and Coop.inSession() and Coop.level ~= "levels/menu" then CoopTeam.update() end
+  if CoopSquad then
+    local okq, errq = pcall(CoopSquad.update)
+    if not okq and (Coop.squadErrors or 0) < 3 then
+      Coop.squadErrors = (Coop.squadErrors or 0) + 1
+      Coop.log("squad error: " .. tostring(errq))
+    end
+  end
   if CoopClaim then
     local ok, err = pcall(CoopClaim.update)
     if not ok and (Coop.claimErrors or 0) < 5 then
@@ -1877,6 +1885,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("world load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_claim.lua")
   if not ok then Coop.log("claim load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_squad.lua")
+  if not ok then Coop.log("squad load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_session.lua")
   if not ok then Coop.log("session load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_story.lua")
