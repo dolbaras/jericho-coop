@@ -154,6 +154,14 @@ function Build-Anims($g) {
     # built files also go next to the game's own (listed as built= in coop\install.txt).
     $data = $g
     if (-not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))) { $data = Join-Path $g "Packed" }
+    # A copy made without the archives (the SMOD + Co-op test bundle): the original game's.
+    $ptr = Join-Path $g "coop-gamedata.txt"
+    if (-not (Test-Path (Join-Path $data "Data00.packed")) -and (Test-Path $ptr)) {
+        $orig = (Get-Content -LiteralPath $ptr -TotalCount 1).Trim()
+        foreach ($d in @($orig, (Join-Path $orig "Packed"))) {
+            if (Test-Path (Join-Path $d "Data00.packed")) { $data = $d; break }
+        }
+    }
     $loose = $data -ne $g
     # Built by this version of the builder (its mark inside): kept. An older one is rebuilt
     # (0.2: the scene characters walk instead of gliding), or padded if Python is missing.
@@ -262,7 +270,8 @@ function Do-Install($g) {
     # it when this mark says the game can load it (removed with the coop folder on uninstall).
     $mark = Join-Path $g "coop\anims\trueross_coop.ok"
     $pk = Join-Path $g "Pack1.packed"
-    $isLoose = -not (Test-Path (Join-Path $g "Data00.packed")) -and (Test-Path (Join-Path $g "Packed\Data00.packed"))
+    $isLoose = -not (Test-Path (Join-Path $g "Data00.packed")) -and
+        ((Test-Path (Join-Path $g "Packed\Data00.packed")) -or (Test-Path (Join-Path $g "coop-gamedata.txt")))
     $haveModel = if ($isLoose) { Test-Path (Join-Path $g "models\chars\trueross\trueross_coop.sm3") }
                  else { (Test-Path $pk) -and (Select-String -Path $pk -Pattern "trueross_coop.sm3" -SimpleMatch -Quiet) }
     if ($anims -eq "ok" -and $haveModel) {

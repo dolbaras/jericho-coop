@@ -15,7 +15,7 @@
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
 Coop = {}
-Coop.VERSION = "0.2.1"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.2.2"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
