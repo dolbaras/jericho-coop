@@ -1324,10 +1324,35 @@ function Coop.installAspectMenu()
   end
 end
 
+-- Who holds this player's body, logged on every change (owner's Steam test, 0.2.1: the client's
+-- character "became uncontrollable" now and then, by scripts or AI, with nothing in the log):
+-- input locked, its AI on, the action set, the camera, a scene, a story walk.
+Coop.CONTROL_LOG_MAX = 300
+function Coop.watchControl()
+  if Coop.level == "levels/menu" or Coop.frame % 5 ~= 0 then return end
+  local u = Game.UsrEntity(0)
+  local key
+  if not u then
+    key = "no body"
+  else
+    local okSet, set = pcall(Input.GetActionSet)
+    local scene = Scene and Scene.IsPlaying and tostring(Scene.SceneName or "?") or "-"
+    key = string.format("%s lock=%s ai=%s set=%s cam=%s scene=%s story=%s", u.Name, tostring(u.IgnoreUsrControl),
+      tostring(u.oAI and u.oAI.bEnable), tostring(okSet and set), tostring(Game.GetCam(0)), scene,
+      tostring(Coop.storyDriven and Coop.storyDriven[u.Name] or false))
+  end
+  if key ~= Coop.controlKey then
+    Coop.controlKey = key
+    Coop.controlLogs = (Coop.controlLogs or 0) + 1
+    if Coop.controlLogs <= Coop.CONTROL_LOG_MAX then Coop.log("control: " .. key) end
+  end
+end
+
 function Coop.update()
   Coop.frame = Coop.frame + 1
   pcall(Coop.clipKey)
   pcall(Coop.autoAspect)
+  pcall(Coop.watchControl)
   if CoopSmod and CoopSmod.update then CoopSmod.update() end
   if Coop.inSession() then
     local ok, err = pcall(Coop.reclaimBody)

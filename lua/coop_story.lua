@@ -51,7 +51,9 @@ function St.installWalks()
         return orig(nameEnt, pos, posEnd, done, velocity)
       end
       -- A body a human holds: its player's turn first (St.startTurn), the walk if they do not.
-      if (remote or nameEnt == Coop.localChar()) and St.startTurn(nameEnt, pos, posEnd, funcExec, walk) then return end
+      -- (only another machine's body: a step that walks "the player" runs on every machine for
+      -- its own body, and the host's own body walks as before)
+      if remote and St.startTurn(nameEnt, pos, posEnd, funcExec, walk) then return end
       return walk()
     end
     -- Client (story code replayed, or run by MapInit): the arrival function waits for the
@@ -79,6 +81,8 @@ St.pending = {}
 function St.clientWalks()
   local now = Net.CoopTime()
   for name, p in pairs(St.pending) do
+    local turned = St.turnFor and St.turnFor[name] and now - St.turnFor[name] < St.TURN_TIME + 5
+    if turned then p.started = true end
     if p.mine and not p.started and now - p.t > St.WAIT and not Coop.storyDriven[name] then
       p.started = true
       St.pending[name] = nil
@@ -123,6 +127,12 @@ function St.onMessage(peer, f)
     St.myTurn = nil
     if secs > 0 and x and Coop.isLocalBody(f[2]) then
       St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs}
+      -- The same step replayed here would walk this body by its AI in a moment: the player
+      -- walks it (its arrival function still runs at the host's sdone).
+      local p = St.pending[f[2]]
+      if p then p.started = true end
+      St.turnFor = St.turnFor or {}
+      St.turnFor[f[2]] = Net.CoopTime()
     end
     if secs <= 0 then St.clearTurnText() end
     return true
