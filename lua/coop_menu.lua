@@ -1315,19 +1315,23 @@ end
 -- menu's own items, a dark box and two lines in the popup's fonts, mirrored to SMOD's on the
 -- left. The popup is placed by fractions of the screen; menu items by 640 x 480 units of the
 -- middle 4:3, so the box is worked out from the screen's aspect ratio.
-CoopMenu.LABEL = {left = 0.082, top = 0.788, width = 0.29, height = 0.094, time = 7,
+CoopMenu.LABEL = {left = 0.024, top = 0.788, width = 0.29, height = 0.094, time = 7,
                   font = "HoratioTiny", small = "MessageSmall"}
 function CoopMenu.labelItems()
   local L = CoopMenu.LABEL
-  local aspect = tonumber(Game.Get("PhysicalAspectRatio")) or 0
+  -- (the ratio the mod keeps the game at, coop.lua Coop.autoAspect: the main menu's start loads
+  -- the game's own value back for a moment, and the label is made right then)
+  local aspect = cfg.aspect ~= false and Coop.wantedAspect and Coop.wantedAspect() or nil
+  aspect = aspect or tonumber(Game.Get("PhysicalAspectRatio")) or 0
   if aspect < 1 then aspect = 4 / 3 end
   local w = 480 * aspect
   local off = (w - 640) / 2
-  -- (the text needs about 190 units; on 4:3 and 5:4 that box would reach "Exit game", so it
-  -- goes to the corner below the menu there)
+  -- (the text needs about 190 units: on 4:3 and 5:4 the menu's lower items, SMOD's longer
+  -- menu down to the bottom, leave no room beside them, so the label goes to the top left
+  -- corner there, beside the logo)
   local wd = math.max(L.width * w, 196)
   local x, y, ht = L.left * w - off, L.top * 480, L.height * 480
-  if aspect < 1.5 then x, y = 0.043 * w - off, 0.898 * 480 end
+  if aspect < 1.5 then x, y = 0.03 * w - off, 0.03 * 480 end
   local lines = {{"CoopLabel1", "Jericho Co-op+ " .. Coop.VERSION, L.font, 0.12},
                  {"CoopLabel2", "github.com/dolbaras/jericho-coop", L.small, 0.54}}
   for _, l in ipairs(lines) do
