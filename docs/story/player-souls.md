@@ -52,6 +52,15 @@ coop_spirit.lua), but only in a few level hints, and not for a player who switch
    projection can now do what Ross does. To check: whether clients can switch in Act 1 today.
 4. **Players 3-4**: only forced moves; their own choice of character at the lobby / join stays.
 
+5. **A downed player's body** (`coop_team.lua`, `Team.CheckGameOver`): today, as in the
+   original, a player whose body goes down moves into the next living squad member no human
+   holds, whichever branch of a split that member is on (seen 2026-10-23 in G8: the host's
+   Delgado fell in the hall the players below hold, and the host moved into Church on his
+   lone climb). For players 1-2 (Ross's soul, Jones's projection) that is the original's
+   rule and stays. For players 3-4 it should not happen: they wait for Rawlings' revive or
+   become the spirit near their body. To decide: should players 1-2 prefer a body on their
+   own side of a split before crossing to the other side?
+
 ## Open questions for the planning
 
 - Is Jones's body reserved for player 2 (player 2 starts as Jones; players 3-4 cannot pick
