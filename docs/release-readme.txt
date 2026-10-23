@@ -1,4 +1,4 @@
-Jericho Co-op+ for Clive Barker's Jericho (release candidate / релиз-кандидат)
+Jericho Co-op+ for Clive Barker's Jericho
 ==============================================================================
 
 ENGLISH
@@ -13,10 +13,9 @@ both moving between bodies, the others keep their character. It also brings sett
 game lacks (display mode with a borderless window, refresh rate, aspect ratios up to 32:9),
 fixes, six languages, and works with SMOD, "Clive Upscaler's Jericho" and DXVK.
 
-This is the release candidate brought to an end: every problem found in tests and code reviews
-is fixed. The whole campaign, every story split and the Lost Patrol run through in tests with two
-real games on two PCs; people have played missions 1-8 so far. Please report problems (see
-below).
+Every problem found in tests and code reviews is fixed. The whole campaign, every story split
+and the Lost Patrol run through in tests with two real games on two PCs; people have played
+missions 1-8 so far. Please report problems (see below).
 
 Requirements
 - Your own copy of the game. Tested: retail DVD release (Jericho.exe SHA-256
@@ -202,10 +201,9 @@ game draws, in memory, and writes nothing until F11.
 игре нет (режим экрана с окном без рамки, частота обновления, форматы до 32:9), исправления,
 шесть языков и работает со SMOD, «Clive Upscaler's Jericho» и DXVK.
 
-Это доведённый до конца релиз-кандидат: исправлено всё, что нашли тесты и проверки кода. Вся
-кампания, все сюжетные разделения и «Потерянный патруль» пройдены в тестах двумя настоящими
-играми на двух ПК; живые игроки пока прошли миссии 1-8. Пожалуйста, сообщайте об ошибках (см.
-ниже).
+Исправлено всё, что нашли тесты и проверки кода. Вся кампания, все сюжетные разделения и
+«Потерянный патруль» пройдены в тестах двумя настоящими играми на двух ПК; живые игроки пока
+прошли миссии 1-8. Пожалуйста, сообщайте об ошибках (см. ниже).
 
 Что нужно
 - Своя копия игры. Проверено на розничной DVD-версии (Jericho.exe SHA-256
