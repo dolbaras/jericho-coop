@@ -866,6 +866,24 @@ function S.modCams()
   return {S.CAM, CoopSpirit and CoopSpirit.CAM}
 end
 
+-- Cameras still linked to something as a scene ends (the first few per level): which one
+-- held the scene's model when deleting it failed (objref.h "!Refs").
+function S.logCamLinks()
+  S.camLogs = (S.camLogs or 0) + 1
+  if S.camLogs > 6 then return end
+  local t = {"cam0=" .. tostring(Game.GetCam(0))}
+  local e = Game.GetFirst()
+  while e ~= nil do
+    local ok, cam = pcall(function() return e:IsType("Camera") end)
+    if ok and cam then
+      local okL, link = pcall(function() return e.EntityLink end)
+      if okL and link and link ~= "" then t[#t + 1] = tostring(e.Name) .. "->" .. tostring(link) end
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  Coop.log("scene end cameras: " .. table.concat(t, " "))
+end
+
 function S.unlinkModCams()
   for _, n in pairs(S.modCams()) do
     local c = n and Game.GetEntity(n)
@@ -880,7 +898,19 @@ function S.install()
   local orig = Scene.EndOfScene
   Scene.EndOfScene = function(...)
     S.stop(true)
+    -- The engine unlinks only the camera current at a scene's end: MainCam (the scene's) must
+    -- be the current one. A spirit's camera was current at TheRescue's end after the Lost
+    -- Patrol's merge (made current again during the scene), MainCam stayed linked to the
+    -- deleted scene model and the game crashed (objref.h "!Refs", branch test 0.2.3).
+    local cur = Game.GetCam(0)
+    for _, n in pairs(S.modCams()) do
+      if n and cur == n then
+        Game.SetCam(0, "MainCam")
+        Coop.log("scene end: camera " .. n .. " handed back to MainCam")
+      end
+    end
     S.unlinkModCams()
+    pcall(S.logCamLinks)
     S.releaseIdleCtrl()   -- before the scene's end callback may lock or walk the body itself
     return orig(...)
   end
