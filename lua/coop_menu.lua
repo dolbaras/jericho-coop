@@ -773,8 +773,8 @@ function CoopMenu.refreshLobby()
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   local p2 = CoopMenu.seatOf((CoopMenu.myPeer() or 0) + Coop.P2)
   setText(item("Itm4"), "< " .. T("p2") .. ": " .. (p2 and CoopMenu.charName(p2.char) or T("p2_none")) .. " >")
-  CoopMenu.portrait("CoopPortrait1", me and me.char, CoopMenu.PORTRAIT.left)
-  CoopMenu.portrait("CoopPortrait2", p2 and p2.char, CoopMenu.PORTRAIT.right)
+  CoopMenu.portrait("CoopPortrait1", me and me.char, -1)
+  CoopMenu.portrait("CoopPortrait2", p2 and p2.char, 1)
   setText(item("Itm5"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
   if Coop.isHost() and item("Itm7") then
     setText(item("Itm7"), CoopMenu.allReady() and T("start") or T("start_wait"))
@@ -787,25 +787,37 @@ end
 -- there whether the player unlocked it or not); this player's on the left, a split screen
 -- player 2's on the right.
 CoopMenu.PICTURE = {Ross = 0, Black = 1, Delgado = 2, Church = 3, Jones = 4, Cole = 5, Rawlings = 6}
-CoopMenu.PORTRAIT = {left = 95, right = 545, y = 335, size = 150}
-function CoopMenu.portrait(name, char, x)
+-- The free side of the lobby's rows: from the screen's edge (menu units are the middle 4:3,
+-- a wide screen has more on each side) to ROWS_FROM units.
+CoopMenu.PORTRAIT = {y = 335, size = 150, rowsFrom = 125}
+CoopMenu.portraitFile = {}
+function CoopMenu.portrait(name, char, side)
   local n = char and CoopMenu.PICTURE[char]
   local it = item(name)
   if not n then
     if it then it.Visible = 0 end
     return
   end
-  if not it then
-    it = Scorer.NewItem(0, name, "Sprite")
+  -- (as the game's Extras screen makes its cards: the file first, then the unit size)
+  local file = "2D/Menu/Extra_" .. n .. "_Picture_0.bmp"
+  if not it or CoopMenu.portraitFile[name] ~= file then
+    it = it or Scorer.NewItem(0, name, "Sprite")
+    it.File = file
     it.Unit = 1
     it.Pivot = V2D(0.5, 0.5)
     it.Color = Color(255, 255, 255, 255)
+    CoopMenu.portraitFile[name] = file
   end
-  local file = "2D/Menu/Extra_" .. n .. "_Picture_0.bmp"
-  if it.File ~= file then it.File = file end
   local P = CoopMenu.PORTRAIT
+  local aspect = tonumber(Game.Get("PhysicalAspectRatio")) or 0
+  if aspect < 1 then aspect = 4 / 3 end
+  local off = math.max(0, (480 * aspect - 640) / 2)
+  local room = P.rowsFrom + off - 10
+  local size = math.min(P.size, room)
+  local x = -off + 5 + room / 2
+  if side > 0 then x = 640 - x end
   it.Pos = V2D(x, P.y)
-  it.Scale = V2D(P.size, P.size)
+  it.Scale = V2D(size, size)
   it.Visible = 1
 end
 
