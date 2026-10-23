@@ -361,8 +361,32 @@ function T.helpRawlings()
   end
 end
 
+-- The squad switch's flight camera: the game slows the world to 0.005 for the flight, co-op
+-- does not (T.installTime), so the flight ended in the frame it started and Team.EndTravelCam
+-- deleted a camera the engine had already taken for that frame: "Check failed:
+-- GetActiveCamera() != this" (split screen, lab/splitswitch.ps1: within 40 switches). Its end
+-- waits TRAVEL_MIN s of game time.
+T.TRAVEL_MIN = 0.1
+function T.installTravel()
+  if T.travelInstalled or not Team or not Team.TravelCam or not Team.EndTravelCam then return end
+  T.travelInstalled = true
+  local origTravel, origEnd = Team.TravelCam, Team.EndTravelCam
+  Team.TravelCam = function(...)
+    T.travelAt = Game.GetTime()
+    return origTravel(...)
+  end
+  Team.EndTravelCam = function(Camname, ...)
+    if Coop.inSession() and T.travelAt and Game.GetTime() < T.travelAt + T.TRAVEL_MIN then
+      Game.AddScheduledFunc(T.travelAt + T.TRAVEL_MIN, "CoopEndTravel", "Team.EndTravelCam", Camname)
+      return
+    end
+    return origEnd(Camname, ...)
+  end
+end
+
 function T.update()
   T.install()
+  T.installTravel()
   if Coop.frame % 30 == 0 then T.recheckWait() end
   T.installTime()
   T.updateCompensation()
