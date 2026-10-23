@@ -24,6 +24,10 @@ What the launcher already out there relies on, so every later release keeps it:
   then one line per `file=`, `backup=`, `built=` and `shortcut=`. 0.2.3-0.2.4 wrote all
   shortcuts on one `shortcut=` line joined by spaces (or an empty one with none); from 0.2.5
   the installer splits such a line after each `.lnk` and drops empty ones, and keeps doing so.
+- **Installs without a record.** 0.1.0 had no installer (its zip was extracted into the game
+  folder): from 0.2.6 the installer recognises it by its files (the proxy DLL's
+  `coop_net installed`, `coop\coop.lua`, its root texts by their words), updates and removes it,
+  and never keeps an older co-op DLL as the game's original. Keep that detection.
 
 A change to any of these needs a launcher that copes with both the old and the new form, shipped
 one release before the old form is dropped.
@@ -34,4 +38,6 @@ Testing an update without GitHub: serve a releases/latest-style JSON and the zip
 in tests, never to the desktop. An update test should start from the previous published zip
 installed with two shortcut folders (as a normal install's desktop and Start menu), so the
 record looks like a player's; then check the record, that both shortcuts were refreshed, and
-that uninstalling removes them.
+that uninstalling removes them. Before a release, also run every published version through the new installer
+(`lab/oldversions_test.ps1`, plus `-Chain` and `-RemoveOld`): the folder must end equal to
+the clean game after removal.

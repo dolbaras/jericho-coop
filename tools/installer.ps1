@@ -654,6 +654,70 @@ function Read-Manifest($g) {
             elseif ($line -match '^shortcut=(.*)$') { $m.shortcuts += @([regex]::Split($Matches[1], '(?<=\.lnk) ') | Where-Object { $_ }) }
         }
     }
+    # (no record, or one without files: 0.1.0, which had no installer, or a record lost)
+    if ($m.files.Count -eq 0) {
+        $o = Find-OldCoop $g
+        if ($o.found) { return $o }
+        return $m
+    }
+    # 0.1.0's files in the root under a later version's record (installed over it): ours too
+    foreach ($o in $script:OLD_ROOT) {
+        if ($m.files -notcontains $o[0] -and (Has-Text (Join-Path $g $o[0]) @($o[1]))) { $m.files += $o[0] }
+    }
+    # An "original" kept by an install over 0.1.0's files is that version's DLL: not the game's.
+    $m.backups = @($m.backups | Where-Object { -not (Is-CoopDll (Join-Path $g "coop-backup\$_")) })
+    $m
+}
+
+# The mod's own files from any version, by what is in them: the proxy DLL by its log line, the
+# texts by their words (0.1.0 had no installer: its zip was extracted into the game folder).
+function Has-Text($p, [string[]] $words) {
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $false }
+    try { $s = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($p)) } catch { return $false }
+    foreach ($w in $words) { if ($s.Contains($w)) { return $true } }
+    $false
+}
+function Is-CoopDll($p) { Has-Text $p @("coop_net installed") }
+
+# Texts of a release's archive root in the game folder (0.1.0's zip, or a later one extracted
+# there): kept while the mod is installed, removed with it.
+$script:OLD_ROOT = @(@("README-COOP.txt", "Jericho"), @("LICENSE.txt", "Jericho Co-op contributors"),
+                     @("ENET-LICENSE.txt", "Lee Salzman"), @("STEAM-NOTICE.txt", "Spacewar"))
+# 0.1.1's two-window split screen (replaced by the split screen in one game in 0.1.2).
+$script:OLD_SPLIT = @(@("Co-op split screen.bat", "coop-splitscreen.ps1"), @("coop-splitscreen.ps1", "Split screen"))
+
+# A co-op install without a usable record: what is the mod's, found by the files themselves.
+# The version from coop\version.txt (0.1.1 on), else 0.1.0.
+function Find-OldCoop($g) {
+    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); version = ""; found = $false }
+    $root = [IO.Path]::GetFullPath($g).TrimEnd('\')
+    $coop = Join-Path $root "coop"
+    $dll = Is-CoopDll (Join-Path $root "bin\dinput8.dll")
+    if (-not $dll -and -not (Test-Path -LiteralPath (Join-Path $coop "coop.lua"))) { return $m }
+    $m.found = $true
+    if ($dll) { $m.files += "bin\dinput8.dll" }
+    if (Test-Path -LiteralPath $coop) {
+        foreach ($f in Get-ChildItem -LiteralPath $coop -Recurse -File -Force) { $m.files += $f.FullName.Substring($root.Length + 1) }
+    }
+    foreach ($o in @($script:OLD_ROOT) + @($script:OLD_SPLIT)) {
+        if (Has-Text (Join-Path $root $o[0]) @($o[1])) { $m.files += $o[0] }
+    }
+    foreach ($f in "coop-installer.ps1", "Uninstall Co-op.bat") { if (Test-Path -LiteralPath (Join-Path $root $f)) { $m.files += $f } }
+    $pk = Join-Path $root "Pack1.packed"
+    if ((Test-Path -LiteralPath $pk) -and (Select-String -LiteralPath $pk -Pattern "coopbody_" -SimpleMatch -Quiet)) { $m.files += "Pack1.packed" }
+    # (originals an installer kept, its record gone)
+    $bk = Join-Path $root "coop-backup"
+    if (Test-Path -LiteralPath $bk) {
+        foreach ($f in Get-ChildItem -LiteralPath $bk -Recurse -File -Force) {
+            if (-not (Is-CoopDll $f.FullName)) { $m.backups += $f.FullName.Substring($bk.Length + 1) }
+        }
+    }
+    $v = Get-Content -LiteralPath (Join-Path $coop "version.txt") -TotalCount 1 -ErrorAction SilentlyContinue
+    if (-not $v) {
+        $lua = Get-Content -LiteralPath (Join-Path $coop "coop.lua") -Raw -ErrorAction SilentlyContinue
+        if ($lua -match 'Coop\.VERSION\s*=\s*"([^"]+)"') { $v = $Matches[1] }
+    }
+    $m.version = if ($v) { "$v".Trim() } else { "0.1.0" }
     $m
 }
 
@@ -1041,6 +1105,9 @@ function Do-Install($g) {
     Lock-Install
     $old = Read-Manifest $g
     if ($old.version) { Ui-Log ((L "installed_now_co_op") + $old.version) }
+    # (an older co-op DLL kept as the game's original by an install over 0.1.0's files: dropped)
+    $bad = Join-Path $g "coop-backup\bin\dinput8.dll"
+    if (Is-CoopDll $bad) { Remove-Item -LiteralPath $bad -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")) { Ui-Log (L "smod_found") }
     Ui-Step "check" "done"
 
@@ -1067,8 +1134,10 @@ function Do-Install($g) {
         if ($rel -eq "coop\version.txt") { $versionFile = $item; $files.Add($rel); continue }
         $dst = Join-Path $g $rel
         Ui-Progress (3 + 17 * $i / $all.Count) $rel
-        # A file of someone else's that we replace: keep the original once.
-        if ((Test-Path -LiteralPath $dst) -and ($old.files -notcontains $rel) -and ($backups -notcontains $rel) -and -not $rel.StartsWith("coop\")) {
+        # A file of someone else's that we replace: keep the original once (an older co-op
+        # DLL is not one).
+        if ((Test-Path -LiteralPath $dst) -and ($old.files -notcontains $rel) -and ($backups -notcontains $rel) -and -not $rel.StartsWith("coop\") -and
+            -not (Is-CoopDll $dst)) {
             $bk = Join-Path $g "coop-backup\$rel"
             # A backup from an earlier, interrupted install is the real original: kept
             # (fork MAK-PIVO/jericho-coop).
@@ -1084,6 +1153,11 @@ function Do-Install($g) {
         $files.Add($rel)
     }
     Ui-Log (L "copied_file_s" $($all.Count))
+    # A release's texts in the game folder's root (0.1.0, or an archive extracted there): kept,
+    # and recorded so that the removal takes them too.
+    foreach ($o in $script:OLD_ROOT) {
+        if ($files -notcontains $o[0] -and (Has-Text (Join-Path $g $o[0]) @($o[1]))) { $files.Add($o[0]) }
+    }
     # Files of an older version that this one no longer has.
     # (by the package's list: never a file it has)
     foreach ($rel in $old.files) {
