@@ -20,6 +20,10 @@ What the launcher already out there relies on, so every later release keeps it:
   itself after a successful install, exit code 0 on success and non-zero on failure;
   `-NoShortcut` refreshes only the shortcuts the install record lists.
 - **`files\coop\version.txt`** holding the version without the `v`.
+- **`<game>\coop\install.txt`**, the install record the next installer reads: `version=`,
+  then one line per `file=`, `backup=`, `built=` and `shortcut=`. 0.2.3-0.2.4 wrote all
+  shortcuts on one `shortcut=` line joined by spaces (or an empty one with none); from 0.2.5
+  the installer splits such a line after each `.lnk` and drops empty ones, and keeps doing so.
 
 A change to any of these needs a launcher that copes with both the old and the new form, shipped
 one release before the old form is dropped.
@@ -27,4 +31,7 @@ one release before the old form is dropped.
 Testing an update without GitHub: serve a releases/latest-style JSON and the zip locally and run
 `coop-launcher.ps1 -Feed http://127.0.0.1:<port>/latest.json -NoStart` (or set
 `JERICHO_COOP_FEED` for a start through the shortcut). New shortcuts go to `-ShortcutDir <folder>`
-in tests, never to the desktop.
+in tests, never to the desktop. An update test should start from the previous published zip
+installed with two shortcut folders (as a normal install's desktop and Start menu), so the
+record looks like a player's; then check the record, that both shortcuts were refreshed, and
+that uninstalling removes them.

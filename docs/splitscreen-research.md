@@ -250,5 +250,11 @@ Approach (a) after all, in one game: `native/split.c` (alternate camera slot per
 - **Astral projection** of player 2: the engine moves only slot 0's camera by input, so the
   astral camera and player 1's camera swap slots meanwhile (each half still shows its
   player's view) and both pads act as pad 0.
+- **Pads while the view is whole** (`Net.CoopSplit(view, pads)`, `display_hooks_pads_split`):
+  in menus and scenes both pads are merged (either one drives the menu, as player 1's); while
+  player 2 waits for a body (0.2.5) the view is whole but the pads stay apart, so player 2's
+  pad does nothing instead of moving player 1. The argument: 1 merged, 0 apart, -1 split
+  screen over (pads as the game reads them), 2 merged without holding back the buttons held
+  at the change (the astral swap).
 - **The D3D hooks are installed on every launch** (0.1.2 hooked the device only when a test
   variable was set, so a player's launch showed player 2's camera full screen).

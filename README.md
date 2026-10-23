@@ -47,7 +47,10 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   28100) or Steam (no ports or IPs: join friends' games, invites from the lobby; the mod runs
   as Valve's free sample app "Spacewar", see `docs/steam-notice.txt`).
 - Two players on one PC: split screen with a gamepad for the second player
-  (`coop_split.lua`, `native/split.c`), also together with players on other PCs.
+  (`coop_split.lua`, `native/split.c`), also together with players on other PCs. While the
+  second player waits for a body (none free yet, down with nobody to revive them) the first
+  gets the whole screen and each gamepad still drives only its own player; the halves come
+  back as soon as a body is free.
 - Six languages: the mod's menus, hints and the installer follow the game's language
   (English, Russian, German, French, Spanish, Italian), also when it is changed mid-level.
 - Each player controls one squad member; the others stay AI. Players see each other move,
@@ -66,7 +69,10 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   player has loaded the level. All 33 levels load and end the real way in a row. A player
   cut off from the squad by the story can hold T to be put next to the host's character.
 - A downed player moves to a free squad member (during a story split only one on their own
-  side) or waits for Rawlings' revive, which works for all players.
+  side) or waits for Rawlings' revive, which works for all players. A wait ends when Rawlings
+  can no longer come (down herself, taken by the story, held by the last boss's rune, on the
+  other side of a split); bodies the rune holds are not free, so the game ends there as in
+  the original when every player is down.
 - Cole's and Black's slow motion slows the world for everyone; human players keep their
   normal speed, as the power's owner does in the original.
 - First-person cutscenes: every player sees the original scene camera with a caption naming
@@ -142,7 +148,9 @@ that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
   - `coop_split.lua`: split screen (second player on one PC)
   - `coop_smod.lua`: SMOD detection, one set of rules per session (the host's SMOD values or the game's), its jump for the others, SMOD texts in Russian
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
-- `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research.
+- `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research;
+  `docs/story/` the co-op story decisions (splits, player souls); `docs/releasing.md` what
+  the auto-update needs from every release.
 
 ## Build and install
 
@@ -165,7 +173,10 @@ cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\
 - `tools/run_bot.ps1`: one game instance as host + `tools/bot/coop_bot.py` (headless client).
 - `tools/run_pair.ps1`: two game instances (second one on another GPU/monitor).
 - `tools/run_single.ps1`: one instance with screenshots; `tools/record.ps1` and
-  `tools/sheet.ps1`: video recording and contact sheets.
+  `tools/sheet.ps1`: video recording and contact sheets. Environment switches for test runs:
+  `JERICHO_TEST_NOMOUSE=1` (DirectInput's mouse fails, as on a PC without one).
+- `lua/tests/*_mock_test.lua`: the Lua modules against a mock of the engine (run from `lua/`
+  with Lua 5.1); the mock errors on reads of write-only engine fields.
 
 The scripts expect the workspace layout described in `tools/paths.ps1` (the private
 `../work` folder holds the test copy of the game and run logs).
