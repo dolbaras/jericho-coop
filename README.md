@@ -3,98 +3,98 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
-Status: test release (0.2.0, see Releases): download the zip, extract it anywhere and run
-`Install Co-op.bat` (it finds the game, backs up what it replaces and can uninstall); details
-in `README-COOP.txt` inside (English and Russian). QA level: automated tests with
-two real game instances on two PCs over a LAN and a headless bot (see `tools/`); the whole
-campaign runs through level by level in a test and every in-engine cutscene is compared with
-the original frame by frame; a full human playthrough is what this release is for. Please
-report problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log`.
+Status: test builds, latest **0.2.3** (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)).
+Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
+the game, keeps a copy of every file it replaces, updates an older version in place and can
+uninstall. From 0.2.3 the installer's "Jericho Co-op" shortcut (desktop and Start menu) checks
+GitHub before each start and installs a newer release by itself (`docs/releasing.md`).
+Details, network ports and how to report a bug are in `README-COOP.txt` inside the zip
+(English and Russian). Every player needs the same mod version (the lobby says so).
+
+QA level: the whole campaign runs through level by level in tests with two real game
+instances on two PCs (a playthrough bot plays both sides, both branches of the Lost Patrol
+included), every story split is played with a real host and client, every in-engine cutscene
+is compared with the original. Human playthroughs started with 0.2.1 over Steam; please report
+problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` (and an F11
+clip if you can).
 
 Tested game: retail DVD release, `Jericho.exe` SHA-256
-`7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11.
+`7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11; SMOD
+(SkacikPL's pack) and "Clive Upscaler's Jericho" (2x textures) on top of it.
 
 ### What works (each checked in a test run)
 
-- Main menu "Co-op" entry: host, join by IP or from the list of games on the local network,
-  lobby with character, nickname, ready and chapter, session settings on their own screen;
-  all players load the level together. Menu text follows the game language (Russian or
-  English for every other language) and is laid out to fit 4:3 and widescreen.
+- Main menu "Co-op" entry: host, join, lobby with character, nickname, ready and chapter,
+  session settings on their own screen; all players load the level together.
+- Network, chosen when creating the game: local network (join from the list or by IP, UDP
+  28100) or Steam (no ports or IPs: join friends' games, invites from the lobby; the mod runs
+  as Valve's free sample app "Spacewar", see `docs/steam-notice.txt`).
+- Two players on one PC: split screen with a gamepad for the second player
+  (`coop_split.lua`, `native/split.c`), also together with players on other PCs.
+- Six languages: the mod's menus, hints and the installer follow the game's language
+  (English, Russian, German, French, Spanish, Italian), also when it is changed mid-level.
 - Each player controls one squad member; the others stay AI. Players see each other move,
-  aim and shoot, with nameplates (can be turned off).
-- Enemies are run by the host and mirrored on clients; hits from clients reach the host,
-  enemies attack every human player.
+  aim, shoot and use their powers, with nameplates (can be turned off).
+- Squad orders per player: each fire team (Alpha, Omega) follows one player; in Act 1 Ross's
+  player leads everyone, as in the original (`coop_squad.lua`).
+- Enemies are run by the host and are the same on every screen; they fight every player;
+  hits from clients reach the host. Enemy toughness per player is a session setting.
+- Breakable and movable objects (crates, barrels, furniture) break and come to rest the same
+  on every screen, also for a player who joins later (`coop_world.lua`).
 - Story triggers, scenes and level changes follow the host; a scene waits until every
-  player has loaded the level. All 33 levels of the campaign load and end the real way in
-  a row (host-run test, co-op save written at every level).
-- A downed player moves to a free squad member; Rawlings' revive works for all players.
+  player has loaded the level. All 33 levels load and end the real way in a row. A player
+  cut off from the squad by the story can hold T to be put next to the host's character.
+- A downed player moves to a free squad member (during a story split only one on their own
+  side) or waits for Rawlings' revive, which works for all players.
 - Cole's and Black's slow motion slows the world for everyone; human players keep their
   normal speed, as the power's owner does in the original.
-- First-person cutscenes: every player sees the original scene camera, through the eyes of
-  the scene's character, with a short caption naming that character. The session setting
-  "Cutscenes: own eyes (experimental)" (`povall`) shows each player the scene from their own
-  character instead: a head camera directed by the scene's dialogue (look at the speaker,
-  answer the last speaker, else what the scene camera frames), the original camera where
-  the head cannot see the scene (walls, faces, a flying set), and a full-body copy of the
-  first-person character, its scene motion retargeted (Python 3 at install time), steadied
-  against the camera shake and given a walk cycle where the camera only glided.
-- An AI character that does a first-person traversal (climb, descent, door) ends up where
-  the scene ends, as the player's character does in the original.
-- QTEs: only the player holding the scene's character sees and plays them; the branch they
-  take (success, fail, retry) is the same on every machine.
-- Cutscene skip is unanimous: every player presses Esc ("Skip scene: 1 of 2 players").
-- The pause menu does not pause the world; clients cannot restart levels. A client whose
-  host leaves is told so and goes back to the main menu.
-- Character-only objects (checked on the abyss of Rom_Palace_01, which only Church can
-  use): the players are asked to take that character; if nobody does within 30 s the AI
-  does it (lobby option: players first / players only / AI at once).
-- Players without a body (more players than bodies, story splits) fly as Ross's spirit
-  near the squad, can mark enemies and take a free body.
-- Story splits (`docs/coop-story-extensions.md`): where the squad splits, players choose
-  to follow the character who goes on or stay in their own body; the ones who stay get
-  their own content (waves, holding a position, a soul walk on the Stations of the Path).
+- First-person cutscenes: every player sees the original scene camera with a caption naming
+  the scene's character; the session setting "Cutscenes: own eyes (experimental)" shows each
+  player the scene from their own character instead (head camera, retargeted full-body copy).
+- QTEs: only the player holding the scene's character plays them (or automatic for everyone,
+  a session setting); the outcome is the same on every machine. Cutscene skip is unanimous.
+- Character-only objects (Church's abyss, ...): the players are asked to take that character;
+  otherwise the AI does it (lobby option: players first / players only / AI at once).
+- Players without a body (more players than bodies, story splits) fly as Ross's spirit near
+  the squad, can mark enemies and take a free body.
+- Story splits (`docs/coop-story-extensions.md`): where the squad splits, players choose to
+  follow the character who goes on or stay; the ones who stay get their own content (waves,
+  holding a position, a soul walk on the Stations of the Path).
 - The Lost Patrol: players who choose it play the trio (Jones, Cole, Rawlings) in their own
   instance of the session through the river, the catacombs and the chapel while the main
   group goes on, and meet the others again in the chapel.
-- Co-op save, apart from the single-player profile: checkpoints and level starts are saved
-  to `Documents\Codemasters\Clive Barker's Jericho\Coop`; "Continue" and the unlocked
-  chapters in the host menu; the single-player profile is never written during a session.
-  Clients load the host's exact state on every restart and checkpoint.
-- Session settings (host): difficulty (vanilla Easy/Normal/Hard), enemy toughness per
-  player (off / light +15% / full +30% health per extra player), who does character-only
-  actions, automatic QTEs (as in the game / automatic for everyone), how much damage AI
-  squadmates take (as in the game / 60% / 30%). Act 1: the host plays Ross,
-  from WWII on the host takes their lobby character (Delgado by default, as in the story).
-- SMOD (SkacikPL's pack) is detected and supported (`coop_smod.lua`): when every player has
-  it, the session plays by the host's SMOD values (damage, head hits, AI squadmates' damage,
-  squad health, ironman, checkpoint heal) on every machine, else by the game's own rules;
-  SMOD's jump is replicated (`jump|`), its pause, time scale, squad-menu slow motion and
-  cheat/debug menus stay off in a session, and its menu texts follow the game language.
-- Other players' flashlights: a spot light from their weapon, aimed with their view
-  (`Coop.puppetLights`).
-- Split screen in one game (`coop_split.lua`, `native/split.c`): a second player on the PC
-  with a gamepad, a seat of its own in the session. The engine kept Scrapland's split screen
-  data (four users, a camera and HUD per user, pad 2 driving user 1's body); it renders one
-  camera per frame, so the camera slot alternates every frame and split.c puts each frame
-  into its half before the HUDs are drawn (`docs/splitscreen-research.md`, `docs/scrapland-engine-audit.md`).
-- Installer: finds the game (its folder, registry, GOG, Steam libraries or asks), keeps the
-  files it replaces in `coop-backup`, updates over an older version and uninstalls.
+- Co-op save, apart from the single-player profile (`Documents\...\Coop`): checkpoints,
+  "Continue" and unlocked chapters; clients load the host's exact state.
+- Session settings (host): difficulty, enemy toughness, character-only actions, QTEs, AI
+  squadmates' damage, cutscene view. SMOD is detected; the session plays by the host's SMOD
+  values when every player has it, and its jump is replicated (`coop_smod.lua`).
+- Aspect ratio: the game's own option has Auto, 4:3, 5:4, 16:10, 16:9, 21:9 and 32:9.
+- F11 saves the last 30 seconds as a video for bug reports (`native/clip.c`).
+- Installer (`tools/installer.ps1`): finds the game (its folder, registry, GOG, Steam
+  libraries or asks), six languages, backup and uninstall, the "Jericho Co-op" shortcut with
+  the game's icon and a co-op badge; the launcher (`tools/launcher.ps1`) updates from GitHub
+  releases (SHA-256 checked) before starting the game.
 
-### Not done yet
+### Next (0.2.4)
 
-A full campaign playthrough by people; per-level fixes for story scripts that assume one
-player (`docs/usrentity-audit.md`) as playtesting finds them.
+Who the players are in the story: player 1 is Ross's soul, player 2 Jones's projection (both
+switch bodies freely), players 3-4 keep their character (`docs/story/player-souls.md`).
+Per-level fixes for story scripts that assume one player (`docs/usrentity-audit.md`) as
+playtesting finds them.
 
 ## How it works
 
 - `native/` builds `dinput8.dll`, placed next to `bin\Jericho.exe`. It forwards DirectInput,
   starts the mod's Lua on every level (`-InitLuaLine` boot line), adds `Net.Coop*` Lua
   functions on top of ENet (UDP), and has test helpers (window placement, render adapter,
-  running unfocused without reading the user's input). The game's exe is never modified.
+  running unfocused without reading the user's input), Steam networking (`steam_net.c`),
+  split screen (`split.c`), aspect ratios (`display_hooks.c`) and F11 clips (`clip.c`).
+  The game's code is not patched; the installer only sets the retail exe's large-address-aware
+  flag (4 GB of memory; the original is kept and put back on uninstall).
 - `lua/` is the mod itself, run by the game's own Lua 5.1:
   - `boot.lua`, `coop.lua`: session, squad ownership, player state at 20 Hz, puppets
   - `coop_menu.lua`: "Co-op" main menu entry, host/join, lobby (character, nickname,
-    ready, chapter); Russian/English from the game's language
+    ready, chapter); `lang_*.lua`: German, French, Spanish, Italian texts
   - `coop_enemies.lua`: host-authoritative enemies, damage, story triggers, scenes, levels
   - `coop_team.lua`: downed players, Rawlings revives, game over, shared slow motion
   - `coop_scenes.lua`: cutscenes (original camera for everyone; own-character view as an
@@ -106,7 +106,10 @@ player (`docs/usrentity-audit.md`) as playtesting finds them.
   - `coop_session.lua`: pause menu and leaving a session
   - `coop_story.lua`, `coop_splits.lua`: story steps for several players, the story splits
   - `coop_inst.lua`, `coop_patrol.lua`: side instances in one session, the Lost Patrol
-  - `coop_hud.lua`: nameplates
+  - `coop_hud.lua`: nameplates, hints
+  - `coop_squad.lua`: squad orders per player (fire team leaders)
+  - `coop_powers.lua`, `coop_ross.lua`: the squad's powers for the others, Act 1's Ross
+  - `coop_split.lua`: split screen (second player on one PC)
   - `coop_smod.lua`: SMOD detection, one set of rules per session (the host's SMOD values or the game's), its jump for the others, SMOD texts in Russian
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
 - `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research.
@@ -140,9 +143,11 @@ The scripts expect the workspace layout described in `tools/paths.ps1` (the priv
 ## Not included
 
 No game files, assets or decompiled game scripts are in this repository. You need your
-own copy of the game. The game's exe is not modified and its copy protection is not
-touched.
+own copy of the game. The game's code is not changed and its copy protection is not touched.
 
 ## License
 
-MIT (see `LICENSE`). The DLL is built against ENet 1.3.18 (MIT), downloaded separately.
+MIT (see `LICENSE`). The DLL is built against ENet 1.3.18 (MIT), downloaded separately; the
+Steam path loads `steam_api.dll` from Steamworks.NET (`docs/steam-notice.txt`). Credit: parts
+of 0.2.1 (Steam networking, shared QTEs and more) came from MAK-PIVO's fork (MIT), no longer
+public.
