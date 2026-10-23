@@ -29,7 +29,8 @@ Install
    for it), keeps a copy of every file it replaces (in <game>\coop-backup) and installs the mod.
    Its window shows each step and a progress bar; building the cutscene animations from your
    game files takes 2-5 minutes (the minutes left are shown). Running it again updates the mod
-   or removes it. Its language is Windows' (English, Russian, German, French, Spanish,
+   or removes it. It updates any earlier version of the mod, from the first test build (0.1.0)
+   on, leaving none of its files behind. Its language is Windows' (English, Russian, German, French, Spanish,
    Italian), or pick one in the list at its top.
 2. Start the game with the "Jericho Co-op+" shortcut the installer puts on the desktop and in the
    Start menu (the game's icon with a red co-op badge), or as usual. The main menu has a
@@ -218,7 +219,8 @@ game draws, in memory, and writes nothing until F11.
    спросит её), сохранит копию каждого файла, который заменяет (в <папка игры>\coop-backup), и
    установит мод. В его окне видны шаги и полоса прогресса; сборка анимаций катсцен из ваших
    файлов игры занимает 2-5 минут (показано, сколько осталось). Повторный запуск обновляет мод
-   или удаляет его. Язык окна — как у Windows (английский, русский, немецкий, французский,
+   или удаляет его. Он обновляет любую прежнюю версию мода, начиная с первой тестовой (0.1.0),
+   не оставляя её файлов. Язык окна — как у Windows (английский, русский, немецкий, французский,
    испанский, итальянский), его можно сменить в списке вверху окна.
 2. Запускайте игру ярлыком «Jericho Co-op+», который установщик кладёт на рабочий стол и в меню
    «Пуск» (значок игры с красным знаком коопа), или как обычно. В главном меню появится пункт

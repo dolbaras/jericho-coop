@@ -18,8 +18,8 @@ More than a co-op mode:
 Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names stay the same,
 so the auto-update keeps working.
 
-Status: **0.2.5**, the release candidate brought to an end: every problem found by tests and code
-reviews is fixed (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). The
+Status: **0.2.6**, the release candidate brought to an end: every problem found by tests and code
+reviews is fixed; the installer updates every earlier version, 0.1.0 included (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). The
 whole campaign has been played through in tests; by people, missions 1-8 so far.
 Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
 the game, keeps a copy of every file it replaces, updates an older version in place and can
