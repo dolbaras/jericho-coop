@@ -89,8 +89,11 @@ playtesting finds them.
   functions on top of ENet (UDP), and has test helpers (window placement, render adapter,
   running unfocused without reading the user's input), Steam networking (`steam_net.c`),
   split screen (`split.c`), aspect ratios (`display_hooks.c`) and F11 clips (`clip.c`).
-  The game's code is not patched; the installer only sets the retail exe's large-address-aware
-  flag (4 GB of memory; the original is kept and put back on uninstall).
+  The exe on disk keeps its code: the installer only sets the retail exe's large-address-aware
+  flag (4 GB of memory; the original is kept and put back on uninstall). In memory, on the
+  retail exe only, one engine call is redirected (a user lookup without a bounds check that
+  crashed split screen, `split.c`); the rest goes through import tables, Direct3D's vtable and
+  the game's own Lua.
 - `lua/` is the mod itself, run by the game's own Lua 5.1:
   - `boot.lua`, `coop.lua`: session, squad ownership, player state at 20 Hz, puppets
   - `coop_menu.lua`: "Co-op" main menu entry, host/join, lobby (character, nickname,
@@ -143,7 +146,7 @@ The scripts expect the workspace layout described in `tools/paths.ps1` (the priv
 ## Not included
 
 No game files, assets or decompiled game scripts are in this repository. You need your
-own copy of the game. The game's code is not changed and its copy protection is not touched.
+own copy of the game. Its copy protection is not touched.
 
 ## License
 
