@@ -237,6 +237,10 @@ Approach (a) after all, in one game: `native/split.c` (alternate camera slot per
   corners (weapons, powers, squad, SMOD's health) moved out onto the bars at the screen's
   edges. Fades and full-screen overlays are recognised (a 2-triangle quad over most of the
   width) and drawn plainly. The late power-icon draws are recognised by their texture.
+  0.2.6: the same for the "wide" view (screens and windows wider than 1.85, each half filled):
+  there the HUD had been drawn over the whole half, twice as wide as high (a wide crosshair,
+  stretched squad names), and without the batch rule below each player's message line came
+  out in the other half every other frame (blinking, in two styles). Test: lab/splithud.ps1.
 - **Per view state.** Before each frame Lua sets what that view should show: its player's
   first-person arms (`0FP_*`/`1FP_*` `bObjectVisible`), the other player's body, and the
   screen effect parameters of that player's powers (`Game.Set`/`Get` of ~50 effect

@@ -47,6 +47,9 @@ static SetViewport_t real_SetViewport;
 
 static volatile LONG mode;        /* 0 off, 1 top/bottom (each half drawn wide), 2 top/bottom with the
                                      whole frame fitted in the half (black sides) */
+/* Both modes lay each user's HUD out as on the whole screen (fit_vp, hud_edges): in mode 1 the
+   half's 640x240 HUD was stretched to twice its width (a wide crosshair, 0.2.6). */
+#define HUD_SHAPED (mode == 1 || mode == 2)
 static volatile LONG cam;         /* camera slot of the frame being drawn: 0 top, 1 bottom */
 static int done_this_frame;
 static IDirect3DSurface9 *composite, *resolved;
@@ -179,12 +182,12 @@ out:
 
 static UINT bbw, bbh;   /* back buffer size, read at every Present */
 
-/* Mode 2: a user's half viewport for the HUD shrunk to the picture in it (black sides), so the
-   HUD keeps the shape it has on the whole screen instead of being stretched over the bars. */
+/* A user's half viewport for the HUD shrunk to the whole screen's shape (in mode 2 the picture
+   between the black sides), so the HUD keeps the shape it has on the whole screen. */
 static D3DVIEWPORT9 fit_vp(const D3DVIEWPORT9 *v)
 {
     D3DVIEWPORT9 r = *v;
-    if (mode == 2 && bbw && bbh && v->X == 0 && v->Width == bbw && v->Height < bbh) {
+    if (HUD_SHAPED && bbw && bbh && v->X == 0 && v->Width == bbw && v->Height < bbh) {
         DWORD w = (DWORD)((double)bbw * v->Height / bbh + 0.5);
         r.X = (bbw - w) / 2;
         r.Width = w;
@@ -500,12 +503,12 @@ static int is_overlay(IDirect3DDevice9 *dev, const hud_draw *g)
 static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hud_draw *g)
 {
     real_SetViewport(dev, pic);
-    int overlay = hud_edges && mode == 2 && is_overlay(dev, g);
+    int overlay = hud_edges && HUD_SHAPED && is_overlay(dev, g);
     if (trace_frames > 0 && g->n == 2)
         coop_log("split trace: 2-triangle draw (%s), overlay %d, texture %p, vb usage 0x%lx pool %d",
                  g->indexed == 0 ? "vb" : g->indexed == 2 ? "up" : "indexed", overlay, (void *)bound_texture(dev),
                  (unsigned long)last_vb_usage, last_vb_pool);
-    if (!hud_edges || mode != 2 || overlay)
+    if (!hud_edges || !HUD_SHAPED || overlay)
         return do_draw(dev, g);
     DWORD sc = FALSE;
     RECT old = {0, 0, (LONG)bbw, (LONG)bbh};
@@ -582,7 +585,7 @@ static int hud_target(IDirect3DDevice9 *dev, const hud_draw *g, D3DVIEWPORT9 *ou
             return 1;
         }
     }
-    if (mode == 2 && cur_vp.X == 0 && cur_vp.Width == bbw && cur_vp.Height < bbh) {
+    if (HUD_SHAPED && cur_vp.X == 0 && cur_vp.Width == bbw && cur_vp.Height < bbh) {
         *out = fit_vp(&cur_vp);
         return 1;
     }
@@ -635,7 +638,7 @@ static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g);
    writes are seen. */
 static void track_hud_vb(IDirect3DDevice9 *dev, const hud_draw *g)
 {
-    if (!in_hud || g->indexed != 0 || mode != 2)
+    if (!in_hud || g->indexed != 0 || !HUD_SHAPED)
         return;
     IDirect3DVertexBuffer9 *vb = NULL;
     UINT off = 0, stride = 0;
@@ -665,7 +668,7 @@ static HRESULT draw_carried(IDirect3DDevice9 *dev, const hud_draw *g)
     cur_vp = now;
     if (now.Y == mid)
         bottom_draws = 1;
-    D3DVIEWPORT9 f = mode == 2 && in_hud ? fit_vp(&now) : now;
+    D3DVIEWPORT9 f = HUD_SHAPED && in_hud ? fit_vp(&now) : now;
     real_SetViewport(dev, &f);
     return hr;
 }
@@ -682,12 +685,6 @@ static HRESULT hud_or_plain(IDirect3DDevice9 *dev, const hud_draw *g)
     }
     if (!hud_target(dev, g, &pic))
         return do_draw(dev, g);
-    if (mode == 1) {   /* wide halves: the icons into their half, as drawn */
-        real_SetViewport(dev, &pic);
-        HRESULT hr = do_draw(dev, g);
-        real_SetViewport(dev, &cur_vp);
-        return hr;
-    }
     HRESULT hr = draw_hud(dev, &pic, g);
     D3DVIEWPORT9 back = fit_vp(&cur_vp);
     real_SetViewport(dev, &back);
@@ -748,7 +745,7 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
     if (in_hud && trace_frames > 0 && vp)
         coop_log("split trace: SetViewport %lu,%lu %lux%lu from %p", vp->X, vp->Y, vp->Width, vp->Height,
                  __builtin_return_address(0));
-    if (in_hud && mode == 2 && hud_tracked && hud_pending && vp && !carry &&
+    if (in_hud && HUD_SHAPED && hud_tracked && hud_pending && vp && !carry &&
         (vp->Y != cur_vp.Y || vp->Height != cur_vp.Height)) {
         carry = 1;
         carry_vp = cur_vp;
@@ -779,7 +776,7 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
         if (trace_frames > 0)
             coop_log("split trace: ---- HUD pass, cam %ld", (long)cam);
     }
-    if (mode == 2 && in_hud && vp) {
+    if (HUD_SHAPED && in_hud && vp) {
         D3DVIEWPORT9 f = fit_vp(vp);
         return real_SetViewport(dev, &f);
     }
