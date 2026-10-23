@@ -365,14 +365,18 @@ end
 -- does not (T.installTime), so the flight ended in the frame it started and Team.EndTravelCam
 -- deleted a camera the engine had already taken for that frame: "Check failed:
 -- GetActiveCamera() != this" (split screen, lab/splitswitch.ps1: within 40 switches). Its end
--- waits TRAVEL_MIN s of game time.
+-- waits TRAVEL_MIN s of game time, only for a flight that starts while split screen draws both
+-- views: kept up at a level's start (the move to the lobby's character, before split screen is
+-- on) the flight camera made the client crash at 0x479afd (campaign test, wwii_vigil).
 T.TRAVEL_MIN = 0.1
 function T.installTravel()
   if T.travelInstalled or not Team or not Team.TravelCam or not Team.EndTravelCam then return end
   T.travelInstalled = true
   local origTravel, origEnd = Team.TravelCam, Team.EndTravelCam
   Team.TravelCam = function(...)
-    T.travelAt = Game.GetTime()
+    -- (CoopSplit may outlive a level load: and not in a level's first seconds)
+    local split = CoopSplit and CoopSplit.on and not CoopSplit.held and Coop.frame > 90
+    T.travelAt = split and Game.GetTime() or nil
     return origTravel(...)
   end
   Team.EndTravelCam = function(Camname, ...)
