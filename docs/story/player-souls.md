@@ -5,6 +5,11 @@ Status: built in 0.2.4 (`lua/coop_souls.lua`; open questions answered below), co
 switch refused, seat 2's allowed, the projection cut and back, a downed seat 3 waiting for
 Rawlings.
 
+0.2.6: the game's AI Rawlings on the host does not always go for a seat 3-4 puppet its owner
+put down (souls test: about one run in three, the 0.2.5 build too). The host now has him heal
+it himself (`WeaponsRawlings.Cure`, the game's revive with its light and his life cost) once
+the body has waited 8 s with him within 30 m, or 30 s anywhere (`CoopTeam.helpRawlings`).
+
 0.2.5: a downed seat 3-4 waits for Rawlings only while she can come: not down, not walked or
 taken by the story, on the same side of a story split and not held by the last boss's rune
 (`CoopSplits.runeBound`: the rune's own schedule, not `Team.UnavaliablePlayers`, which the

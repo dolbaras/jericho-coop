@@ -21,6 +21,8 @@ local T = CoopTeam
 -- Bodies a story keeps down on purpose (Rawlings shot in wwii_pillboxes, coop_splits G4):
 -- their player stays in them instead of moving to another body.
 T.holdDowned = {}
+-- Downed bodies waiting for Rawlings on the host, since when (T.helpRawlings).
+T.downSince = {}
 
 local function fromHost(fn, ...)
   Coop.fromHost = true
@@ -73,6 +75,7 @@ function T.install()
       local to = Coop.isHost() and Coop.peerOf(owner) or 0   -- (a split screen player 2: its machine)
       Net.CoopSend(to, 1, "revive|" .. obj.Name)
       Coop.log("revive of " .. obj.Name .. " sent to peer " .. tostring(to))
+      if T.downSince[obj.Name] then T.downSince[obj.Name] = Game.GetTime() end   -- (T.helpRawlings: not again at once)
     end
     return r
   end
@@ -327,11 +330,42 @@ function T.recheckWait()
   pcall(Team.CheckGameOver, name)
 end
 
+-- Host, every 20 frames: a seat 3-4 player waiting for Rawlings is a puppet on the host, and
+-- the game's AI Rawlings does not always go for a puppet its owner put down (the souls test:
+-- 3 of 9 runs never revived, with the 0.2.5 DLL too). Once the AI Rawlings has let a waiting
+-- body lie HELP_WAIT s while near it (HELP_FAR s at any distance), the host has him heal it
+-- himself (WeaponsRawlings.Cure: the game's revive with its light, sound and his life cost);
+-- Team.RevivePlayer sends it to the owner as for his own heal.
+T.HELP_WAIT, T.HELP_FAR, T.HELP_RANGE = 8, 30, 3000
+function T.helpRawlings()
+  if not Coop.isHost() or not (CoopSouls and CoopSouls.waitsDowned) or not WeaponsRawlings then return end
+  local raw = Game.GetEntity("Rawlings")
+  local now = Game.GetTime()
+  for name, since in pairs(T.downSince) do
+    local e = Game.GetEntity(name)
+    if not Coop.owners[name] or not e or (e.Life or 0) > 0 then T.downSince[name] = nil end
+  end
+  if not raw or Coop.ownerOf("Rawlings") ~= nil or (raw.UsrControl or 0) >= 0 or (Scene and Scene.IsPlaying) then return end
+  for name in pairs(Coop.owners) do
+    local e = Game.GetEntity(name)
+    if e and (e.Life or 0) <= 0 and CoopSouls.waitsDowned(name) and Team.CanCure(e) then
+      T.downSince[name] = T.downSince[name] or now
+      local waited, d = now - T.downSince[name], (raw.Pos - e.Pos):mod()
+      if (waited >= T.HELP_WAIT and d <= T.HELP_RANGE) or waited >= T.HELP_FAR then
+        T.downSince[name] = now   -- (tried again later if the revive does not take)
+        Coop.log(string.format("downed: AI Rawlings heals %s after %d s, %d away", name, waited, d))
+        local ok, err = pcall(WeaponsRawlings.Cure, raw, e)
+        if not ok then Coop.log("team error: " .. tostring(err)) end
+      end
+    end
+  end
+end
+
 function T.update()
   T.install()
   if Coop.frame % 30 == 0 then T.recheckWait() end
   T.installTime()
   T.updateCompensation()
   T.watchPartner()
-  if Coop.frame % 20 == 0 then T.checkWipe() end
+  if Coop.frame % 20 == 0 then T.checkWipe(); T.helpRawlings() end
 end
