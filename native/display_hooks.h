@@ -28,7 +28,7 @@ int display_get(int *hz, int *borderless);
 void display_rates(char *out, size_t size);
 int display_set(int hz, int borderless);
 /* The game window's monitor size; 1 while the window is the borderless one. */
-int display_monitor(int *w, int *h);
+int display_monitor(int *w, int *h, int *hz);
 
 /* The chosen refresh rate into a full screen device's parameters (CreateDevice, Reset). */
 struct _D3DPRESENT_PARAMETERS_;

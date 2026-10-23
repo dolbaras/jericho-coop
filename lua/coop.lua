@@ -1695,7 +1695,7 @@ function Coop.applyDisplay()
   pcall(Net.CoopDisplay, "set", d.hz, d.mode == 3 and 1 or 0)
   if d.mode ~= s.mode then
     Game.Set("FullScreen", d.mode == 1 and 1 or 0)
-    pcall(Scorer.SetMsgText, Coop.text("restart"), Game.GetTime() + 5)
+    Coop.restartNotice = true
   elseif d.mode == 1 then
     pcall(Game.SetVideoCurrentMode, Game.GetVideoCurrentMode())
   end
@@ -1751,11 +1751,29 @@ function Coop.installDisplayMenu()
     end
   end
   Menu.VideoMenu = Coop.videoMenu
-  local proto = Menu.ConfigProto
-  if proto then
-    Menu.ConfigProto = function(...)
-      pcall(Coop.applyDisplay)
-      return proto(...)
+  -- As the game's own resolution: applied by Accept on the Configuration screen (SaveConfig2,
+  -- also after its resolution question), dropped by Cancel. A new display mode is told in the
+  -- game's message box once back in the menu (hints are not drawn in menus; the menu is built
+  -- twice after Accept, the second time by the config save's callback).
+  local save, cancel, main = Menu.SaveConfig2, Menu.CancelConfig, Menu.MainMenu
+  if save then
+    Menu.SaveConfig2 = function(...)
+      local ok, err = pcall(Coop.applyDisplay)
+      if not ok then Coop.log("display apply error: " .. tostring(err)) end
+      return save(...)
+    end
+  end
+  if cancel then
+    Menu.CancelConfig = function(...)
+      local s = Coop.dispSaved
+      if s then Coop.disp = {hz = s.hz, mode = s.mode} end
+      return cancel(...)
+    end
+  end
+  if main and Menu.AcceptMenuMultiline then
+    Menu.MainMenu = function(...)
+      if Coop.restartNotice then Coop.restartNoticeAt = Net.CoopTime() + 0.5 end
+      return main(...)
     end
   end
 end
@@ -1826,10 +1844,20 @@ function Coop.checkOwnModel(u)
   if Coop.ownModelFixes <= 10 then Coop.log("own model of " .. u.Name .. " drawn in first person: hidden") end
 end
 
+function Coop.displayNotice()
+  if not Coop.restartNoticeAt or Net.CoopTime() < Coop.restartNoticeAt then return end
+  -- (only over a menu: else at the next one)
+  if not (Menu and (Menu.isStartUpMenu or Game.Get("InGameMenu") == 1)) then return end
+  Coop.restartNotice, Coop.restartNoticeAt = nil, nil
+  local ok, err = pcall(Menu.AcceptMenuMultiline, Coop.text("restart"), "Menu.MainMenu")
+  if not ok then Coop.log("display notice error: " .. tostring(err)) end
+end
+
 function Coop.update()
   Coop.frame = Coop.frame + 1
   pcall(Coop.clipKey)
   pcall(Coop.autoAspect)
+  pcall(Coop.displayNotice)
   pcall(Coop.watchControl)
   if CoopSmod and CoopSmod.update then CoopSmod.update() end
   if Coop.inSession() then

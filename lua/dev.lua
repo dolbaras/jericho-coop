@@ -1964,6 +1964,10 @@ if cfg.disptest and Coop.level ~= "levels/menu" then
       Coop.applyDisplay()
       Coop.log("disptest: tick " .. Coop.frame .. " -> " .. tostring(Net.CoopDisplay("get")))
     end
+    if Coop.frame % 50 == 0 then
+      local w, h, on, hz = Net.CoopDisplay("monitor")
+      Coop.log(string.format("disptest: monitor %sx%s at %s Hz, borderless %s", tostring(w), tostring(h), tostring(hz), tostring(on)))
+    end
   end
 end
 

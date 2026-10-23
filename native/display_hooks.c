@@ -411,6 +411,25 @@ static void refresh_rates(int w, int h, char *out, size_t size)
         len += (size_t)snprintf(out + len, size - len, k ? ",%d" : "%d", rates[k]);
 }
 
+/* The rate full screen got with Auto (0) when the game started, and at what size: Auto chosen
+ * again while the game runs puts that one back (a Reset with 0 keeps the rate in use). */
+static int auto_hz;
+static UINT auto_w, auto_h;
+
+static void note_auto_rate(const D3DPRESENT_PARAMETERS *pp)
+{
+    int w, h, hz;
+    if (auto_hz || !pp || pp->Windowed || pp->FullScreen_RefreshRateInHz)
+        return;
+    display_monitor(&w, &h, &hz);
+    if (hz > 1) {
+        auto_hz = hz;
+        auto_w = pp->BackBufferWidth;
+        auto_h = pp->BackBufferHeight;
+        coop_log("display: Auto is %d Hz at %ux%u", hz, auto_w, auto_h);
+    }
+}
+
 /* Before CreateDevice and every Reset: the chosen refresh rate in full screen, when the
  * monitor has it at this size (else the game's own 0). */
 void display_apply_pp(D3DPRESENT_PARAMETERS *pp)
@@ -418,6 +437,9 @@ void display_apply_pp(D3DPRESENT_PARAMETERS *pp)
     display_load();
     if (pp)
         disp_windowed = pp->Windowed ? 1 : 0;
+    if (pp && !pp->Windowed && disp_hz <= 0 && auto_hz && pp->BackBufferWidth == auto_w &&
+        pp->BackBufferHeight == auto_h)
+        pp->FullScreen_RefreshRateInHz = (UINT)auto_hz;
     if (!pp || pp->Windowed || disp_hz <= 0)
         return;
     char rates[512];
@@ -481,12 +503,23 @@ void display_rates(char *out, size_t size)
     refresh_rates(w, h, out, size);
 }
 
-/* The game window's monitor, and whether the window is the borderless one now. */
-int display_monitor(int *w, int *h)
+/* The game window's monitor (its refresh rate now in *hz), and whether the window is the
+ * borderless one now. */
+int display_monitor(int *w, int *h, int *hz)
 {
     RECT r = monitor_rect();
+    MONITORINFOEXA mi;
+    DEVMODEA dm;
     *w = r.right - r.left;
     *h = r.bottom - r.top;
+    *hz = 0;
+    memset(&mi, 0, sizeof mi);
+    mi.cbSize = sizeof mi;
+    memset(&dm, 0, sizeof dm);
+    dm.dmSize = sizeof dm;
+    if (GetMonitorInfoA(game_monitor(), (MONITORINFO *)&mi) &&
+        EnumDisplaySettingsA(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
+        *hz = (int)dm.dmDisplayFrequency;
     return game_window && borderless_on() && !(GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION);
 }
 
@@ -662,6 +695,7 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
         coop_log("CreateDevice fallback to %u hr=0x%08lx", adapter, (unsigned long)hr);
     }
     if (SUCCEEDED(hr) && out) {
+        note_auto_rate(pp);
         capture_on_device(*out);
         clip_on_device(*out);    /* the last 30 s for bug reports (F11) */
         split_on_device(*out);   /* after capture: the split hooks wrap the recording */

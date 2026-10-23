@@ -681,7 +681,7 @@ int coop_data_path(const char *name, char *out, size_t size)
 
 /* Net.CoopClip("save") -> the clip being written (clip.c: the last 30 s), "" if none. */
 /* Net.CoopDisplay("get") -> hz, borderless; ("rates") -> "60,75,144"; ("monitor") -> w, h,
- * borderless now (1/0); ("set", hz, borderless) -> 1/0 */
+ * borderless now (1/0), refresh rate now; ("set", hz, borderless) -> 1/0 */
 static int l_display(lua_State *L)
 {
     const char *cmd = lua_tolstring(L, 1, NULL);
@@ -699,11 +699,12 @@ static int l_display(lua_State *L)
         return 1;
     }
     if (cmd && strcmp(cmd, "monitor") == 0) {
-        int w, h, on = display_monitor(&w, &h);
+        int w, h, hz, on = display_monitor(&w, &h, &hz);
         lua_pushnumber(L, w);
         lua_pushnumber(L, h);
         lua_pushnumber(L, on);
-        return 3;
+        lua_pushnumber(L, hz);
+        return 4;
     }
     if (cmd && strcmp(cmd, "set") == 0) {
         lua_pushnumber(L, display_set(lua_tointeger(L, 2), lua_tointeger(L, 3)));
