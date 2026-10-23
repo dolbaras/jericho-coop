@@ -649,7 +649,9 @@ function Read-Manifest($g) {
             elseif ($line -match '^file=(.*)$') { $m.files += $Matches[1] }
             elseif ($line -match '^backup=(.*)$') { $m.backups += $Matches[1] }
             elseif ($line -match '^built=(.*)$') { $m.built += $Matches[1] }
-            elseif ($line -match '^shortcut=(.*)$') { $m.shortcuts += $Matches[1] }
+            # (0.2.3-0.2.4 wrote all shortcuts on one line, space-separated, and an empty line
+            # when there were none)
+            elseif ($line -match '^shortcut=(.*)$') { $m.shortcuts += @([regex]::Split($Matches[1], '(?<=\.lnk) ') | Where-Object { $_ }) }
         }
     }
     $m
@@ -980,7 +982,7 @@ function Make-Shortcuts($g, $old) {
         $sc.Save()
         Ui-Log ((L "shortcut") + $lnk)
     }
-    , @($links)
+    $links.ToArray()
 }
 
 # One install or removal at a time (a double-clicked shortcut, a second installer window).
