@@ -425,6 +425,8 @@ function E.updateSceneLabel()
     if Menu and Menu.ShowScorer then pcall(Menu.ShowScorer) end
     E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 0), 0.4)
     Coop.log("fp scene did not start: screen back")
+    -- (and the body, its place and controls, and no caption left for the next scene)
+    if not Scene.IsPlaying then pcall(E.finishFpLeftover) end
   end
   local it = Scorer.GetItem(0, "CoopEyes")
   if E.fpLabel and (Scene.IsPlaying or E.fpBlackT) then
@@ -698,8 +700,10 @@ function E.installSceneClient()
   E.sceneAbort = Scene.AbortScene
   Scene.AbortScene = function(...)
     if Coop.fromHost then return E.sceneAbort(...) end
-    if Scene.SceneName and E.votedScene ~= Scene.SceneName then
-      E.votedScene = Scene.SceneName
+    -- (one vote per showing: a failed QTE plays the scene again)
+    local key = tostring(Scene.SceneName) .. "@" .. tostring(E.sceneStartT)
+    if Scene.SceneName and E.votedScene ~= key then
+      E.votedScene = key
       Net.CoopSend(0, 1, "skipvote|" .. Scene.SceneName)
     end
   end

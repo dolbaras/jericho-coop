@@ -1,4 +1,4 @@
-﻿# Jericho Co-op installer / uninstaller for players (shipped in the release zip as
+﻿# Jericho Co-op+ installer / uninstaller for players (shipped in the release zip as
 # "Install Co-op.bat" + coop-installer.ps1, payload in the "files" folder next to it).
 #   install: finds the game folder (this folder, install records in the registry, Steam
 #            libraries, or the player picks it), keeps the files it replaces in <game>\coop-backup,
@@ -10,7 +10,7 @@
 # the longest step, building the cutscene animations from the game's files, reports file by file.
 # -Quiet: no window, the same steps written to the console (test scripts, the SMOD bundle).
 # -Game without -Uninstall starts installing into that folder right away.
-# The window's install also makes the "Jericho Co-op" shortcut (desktop and Start menu, the game's
+# The window's install also makes the "Jericho Co-op+" shortcut (desktop and Start menu, the game's
 # icon with a co-op badge): it runs coop\coop-launcher.ps1, which installs a newer release from
 # GitHub before starting the game. The launcher runs a new release's installer as
 #   coop-installer.ps1 -Game <folder> -AutoClose -NoShortcut
@@ -36,6 +36,9 @@ $script:TEXTS = @{
         "animation_of" = "Animation {0} of {1}"
         "the_files_folder_is" = "The 'files' folder is missing next to the installer."
         "close_the_game_first" = "Close the game first."
+        "incomplete" = "The downloaded mod is incomplete: nothing was changed. Start the game again to retry."
+        "another_install" = "Another installation of the mod is running: wait until it ends."
+        "no_admin" = "Windows did not allow writing to the game folder without administrator rights."
         "installed_now_co_op" = "Installed now: co-op "
         "smod_found" = "SMOD found."
         "original_kept" = "Original kept: "
@@ -53,7 +56,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "Not a Jericho folder: {0}"
         "the_game_was_not" = "The game was not found: give its folder with -Game."
         "the_co_op_mod2" = "The co-op mod was removed; replaced files were put back."
-        "jericho_co_op_is" = "Jericho Co-op {0} is installed in {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} is installed in {1}"
         "error" = "Error: "
         "version_co_op_for" = "Version {0}  -  co-op for Clive Barker's Jericho, 2-4 players"
         "game_folder" = "Game folder"
@@ -95,11 +98,11 @@ $script:TEXTS = @{
         "removal_failed" = "Removal failed"
         "select_the_clive_barker" = "Select the Clive Barker's Jericho folder (the one with the bin folder)"
         "remove_the_co_op" = "Remove the co-op mod from`n{0} ?"
-        "remove_jericho_co_op" = "Remove Jericho Co-op {0} from this folder?`n`nThe game's original files are put back; co-op saves stay in Documents\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "Remove Jericho Co-op+ {0} from this folder?`n`nThe game's original files are put back; co-op saves stay in Documents\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Removed: "
         "shortcut" = "Shortcut: "
         "shortcut_desc" = "Clive Barker's Jericho with co-op: installs a newer version of the mod first, if there is one"
-        "the_shortcut" = "The 'Jericho Co-op' shortcut (desktop, Start menu) starts the game and installs a newer version of the mod from GitHub first, if there is one."
+        "the_shortcut" = "The 'Jericho Co-op+' shortcut (desktop, Start menu) starts the game and installs a newer version of the mod from GitHub first, if there is one."
     }
     ru = @{
         "the_co_op_mod" = "Кооп-мод не установлен в`n{0}"
@@ -110,6 +113,9 @@ $script:TEXTS = @{
         "animation_of" = "Анимация {0} из {1}"
         "the_files_folder_is" = "Рядом с установщиком нет папки 'files'."
         "close_the_game_first" = "Сначала закройте игру."
+        "incomplete" = "Загруженный мод неполный: ничего не изменено. Запустите игру снова, чтобы повторить."
+        "another_install" = "Уже идёт другая установка мода: дождитесь её окончания."
+        "no_admin" = "Windows не разрешила запись в папку игры без прав администратора."
         "installed_now_co_op" = "Сейчас установлен кооп "
         "smod_found" = "Найден SMOD."
         "original_kept" = "Оригинал сохранён: "
@@ -127,7 +133,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "Это не папка Jericho: {0}"
         "the_game_was_not" = "Игра не найдена: укажите папку через -Game."
         "the_co_op_mod2" = "Кооп-мод удалён, заменённые файлы возвращены."
-        "jericho_co_op_is" = "Jericho Co-op {0} установлен в {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} установлен в {1}"
         "error" = "Ошибка: "
         "version_co_op_for" = "Версия {0}  -  кооператив для Clive Barker's Jericho, 2-4 игрока"
         "game_folder" = "Папка игры"
@@ -169,11 +175,11 @@ $script:TEXTS = @{
         "removal_failed" = "Удаление не удалось"
         "select_the_clive_barker" = "Выберите папку Clive Barker's Jericho (в ней есть папка bin)"
         "remove_the_co_op" = "Удалить кооп-мод из`n{0} ?"
-        "remove_jericho_co_op" = "Удалить Jericho Co-op {0} из этой папки?`n`nОригинальные файлы игры будут возвращены; кооп-сохранения останутся в Документы\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "Удалить Jericho Co-op+ {0} из этой папки?`n`nОригинальные файлы игры будут возвращены; кооп-сохранения останутся в Документы\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Удалён: "
         "shortcut" = "Ярлык: "
         "shortcut_desc" = "Clive Barker's Jericho с кооперативом: сначала ставит новую версию мода, если она вышла"
-        "the_shortcut" = "Ярлык «Jericho Co-op» (рабочий стол, меню «Пуск») запускает игру, а перед этим ставит с GitHub новую версию мода, если она вышла."
+        "the_shortcut" = "Ярлык «Jericho Co-op+» (рабочий стол, меню «Пуск») запускает игру, а перед этим ставит с GitHub новую версию мода, если она вышла."
     }
     de = @{
         "the_co_op_mod" = "Der Koop-Mod ist nicht installiert in`n{0}"
@@ -184,6 +190,9 @@ $script:TEXTS = @{
         "animation_of" = "Animation {0} von {1}"
         "the_files_folder_is" = "Der Ordner 'files' fehlt neben dem Installationsprogramm."
         "close_the_game_first" = "Schließen Sie zuerst das Spiel."
+        "incomplete" = "Die heruntergeladene Mod ist unvollständig: nichts wurde geändert. Starten Sie das Spiel erneut, um es noch einmal zu versuchen."
+        "another_install" = "Eine andere Installation der Mod läuft: warten Sie, bis sie fertig ist."
+        "no_admin" = "Windows hat das Schreiben in den Spielordner ohne Administratorrechte nicht erlaubt."
         "installed_now_co_op" = "Derzeit installiert: Koop "
         "smod_found" = "SMOD gefunden."
         "original_kept" = "Original gesichert: "
@@ -201,7 +210,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "Kein Jericho-Ordner: {0}"
         "the_game_was_not" = "Das Spiel wurde nicht gefunden: geben Sie seinen Ordner mit -Game an."
         "the_co_op_mod2" = "Der Koop-Mod wurde entfernt; ersetzte Dateien wurden wiederhergestellt."
-        "jericho_co_op_is" = "Jericho Co-op {0} ist installiert in {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} ist installiert in {1}"
         "error" = "Fehler: "
         "version_co_op_for" = "Version {0}  -  Koop für Clive Barker's Jericho, 2-4 Spieler"
         "game_folder" = "Spielordner"
@@ -243,11 +252,11 @@ $script:TEXTS = @{
         "removal_failed" = "Entfernen fehlgeschlagen"
         "select_the_clive_barker" = "Wählen Sie den Ordner von Clive Barker's Jericho (den mit dem Ordner bin)"
         "remove_the_co_op" = "Den Koop-Mod entfernen aus`n{0} ?"
-        "remove_jericho_co_op" = "Jericho Co-op {0} aus diesem Ordner entfernen?`n`nDie Originaldateien des Spiels werden wiederhergestellt; Koop-Spielstände bleiben in Dokumente\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "Jericho Co-op+ {0} aus diesem Ordner entfernen?`n`nDie Originaldateien des Spiels werden wiederhergestellt; Koop-Spielstände bleiben in Dokumente\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Entfernt: "
         "shortcut" = "Verknüpfung: "
         "shortcut_desc" = "Clive Barker's Jericho mit Koop: installiert zuerst eine neuere Version des Mods, falls es eine gibt"
-        "the_shortcut" = "Die Verknüpfung 'Jericho Co-op' (Desktop, Startmenü) startet das Spiel und installiert vorher eine neuere Version des Mods von GitHub, falls es eine gibt."
+        "the_shortcut" = "Die Verknüpfung 'Jericho Co-op+' (Desktop, Startmenü) startet das Spiel und installiert vorher eine neuere Version des Mods von GitHub, falls es eine gibt."
     }
     fr = @{
         "the_co_op_mod" = "Le mod coop n'est pas installé dans`n{0}"
@@ -258,6 +267,9 @@ $script:TEXTS = @{
         "animation_of" = "Animation {0} sur {1}"
         "the_files_folder_is" = "Le dossier 'files' est absent à côté de l'installeur."
         "close_the_game_first" = "Fermez d'abord le jeu."
+        "incomplete" = "Le mod téléchargé est incomplet : rien n'a été modifié. Relancez le jeu pour réessayer."
+        "another_install" = "Une autre installation du mod est en cours : attendez qu'elle se termine."
+        "no_admin" = "Windows n'a pas autorisé l'écriture dans le dossier du jeu sans droits d'administrateur."
         "installed_now_co_op" = "Installé actuellement: coop "
         "smod_found" = "SMOD détecté."
         "original_kept" = "Original conservé: "
@@ -275,7 +287,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "Ce n'est pas un dossier Jericho: {0}"
         "the_game_was_not" = "Jeu introuvable: indiquez son dossier avec -Game."
         "the_co_op_mod2" = "Le mod coop a été supprimé; les fichiers remplacés ont été restaurés."
-        "jericho_co_op_is" = "Jericho Co-op {0} est installé dans {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} est installé dans {1}"
         "error" = "Erreur: "
         "version_co_op_for" = "Version {0}  -  coop pour Clive Barker's Jericho, 2-4 joueurs"
         "game_folder" = "Dossier du jeu"
@@ -317,11 +329,11 @@ $script:TEXTS = @{
         "removal_failed" = "Échec de la désinstallation"
         "select_the_clive_barker" = "Sélectionnez le dossier de Clive Barker's Jericho (celui qui contient le dossier bin)"
         "remove_the_co_op" = "Retirer le mod coop de`n{0} ?"
-        "remove_jericho_co_op" = "Retirer Jericho Co-op {0} de ce dossier?`n`nLes fichiers d'origine du jeu sont restaurés; les sauvegardes coop restent dans Documents\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "Retirer Jericho Co-op+ {0} de ce dossier?`n`nLes fichiers d'origine du jeu sont restaurés; les sauvegardes coop restent dans Documents\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Supprimé: "
         "shortcut" = "Raccourci: "
         "shortcut_desc" = "Clive Barker's Jericho en coop: installe d'abord une version plus récente du mod, s'il y en a une"
-        "the_shortcut" = "Le raccourci 'Jericho Co-op' (bureau, menu Démarrer) lance le jeu et installe d'abord une version plus récente du mod depuis GitHub, s'il y en a une."
+        "the_shortcut" = "Le raccourci 'Jericho Co-op+' (bureau, menu Démarrer) lance le jeu et installe d'abord une version plus récente du mod depuis GitHub, s'il y en a une."
     }
     es = @{
         "the_co_op_mod" = "El mod cooperativo no está instalado en`n{0}"
@@ -332,6 +344,9 @@ $script:TEXTS = @{
         "animation_of" = "Animación {0} de {1}"
         "the_files_folder_is" = "Falta la carpeta 'files' junto al instalador."
         "close_the_game_first" = "Cierra primero el juego."
+        "incomplete" = "El mod descargado está incompleto: no se ha cambiado nada. Inicia el juego de nuevo para reintentarlo."
+        "another_install" = "Ya hay otra instalación del mod en curso: espera a que termine."
+        "no_admin" = "Windows no permitió escribir en la carpeta del juego sin permisos de administrador."
         "installed_now_co_op" = "Instalado ahora: cooperativo "
         "smod_found" = "SMOD encontrado."
         "original_kept" = "Original conservado: "
@@ -349,7 +364,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "No es una carpeta de Jericho: {0}"
         "the_game_was_not" = "No se encontró el juego: indica su carpeta con -Game."
         "the_co_op_mod2" = "Se ha quitado el mod cooperativo; se han restaurado los archivos sustituidos."
-        "jericho_co_op_is" = "Jericho Co-op {0} está instalado en {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} está instalado en {1}"
         "error" = "Error: "
         "version_co_op_for" = "Versión {0}  -  cooperativo para Clive Barker's Jericho, 2-4 jugadores"
         "game_folder" = "Carpeta del juego"
@@ -391,11 +406,11 @@ $script:TEXTS = @{
         "removal_failed" = "Error al desinstalar"
         "select_the_clive_barker" = "Selecciona la carpeta de Clive Barker's Jericho (la que contiene la carpeta bin)"
         "remove_the_co_op" = "¿Quitar el mod cooperativo de`n{0} ?"
-        "remove_jericho_co_op" = "¿Quitar Jericho Co-op {0} de esta carpeta?`n`nSe restaurarán los archivos originales del juego; las partidas guardadas del cooperativo se conservan en Documentos\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "¿Quitar Jericho Co-op+ {0} de esta carpeta?`n`nSe restaurarán los archivos originales del juego; las partidas guardadas del cooperativo se conservan en Documentos\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Eliminado: "
         "shortcut" = "Acceso directo: "
         "shortcut_desc" = "Clive Barker's Jericho con cooperativo: primero instala una versión más reciente del mod, si la hay"
-        "the_shortcut" = "El acceso directo 'Jericho Co-op' (escritorio, menú Inicio) inicia el juego y antes instala desde GitHub una versión más reciente del mod, si la hay."
+        "the_shortcut" = "El acceso directo 'Jericho Co-op+' (escritorio, menú Inicio) inicia el juego y antes instala desde GitHub una versión más reciente del mod, si la hay."
     }
     it = @{
         "the_co_op_mod" = "La mod co-op non è installata in`n{0}"
@@ -406,6 +421,9 @@ $script:TEXTS = @{
         "animation_of" = "Animazione {0} di {1}"
         "the_files_folder_is" = "Manca la cartella 'files' accanto al programma di installazione."
         "close_the_game_first" = "Chiudi prima il gioco."
+        "incomplete" = "La mod scaricata è incompleta: non è stato modificato nulla. Avvia di nuovo il gioco per riprovare."
+        "another_install" = "È in corso un'altra installazione della mod: attendi che finisca."
+        "no_admin" = "Windows non ha consentito di scrivere nella cartella del gioco senza diritti di amministratore."
         "installed_now_co_op" = "Installato ora: co-op "
         "smod_found" = "SMOD rilevato."
         "original_kept" = "Originale conservato: "
@@ -423,7 +441,7 @@ $script:TEXTS = @{
         "not_a_jericho_folder" = "Non è una cartella di Jericho: {0}"
         "the_game_was_not" = "Gioco non trovato: indica la sua cartella con -Game."
         "the_co_op_mod2" = "La mod co-op è stata rimossa; i file sostituiti sono stati ripristinati."
-        "jericho_co_op_is" = "Jericho Co-op {0} è installato in {1}"
+        "jericho_co_op_is" = "Jericho Co-op+ {0} è installato in {1}"
         "error" = "Errore: "
         "version_co_op_for" = "Versione {0}  -  co-op per Clive Barker's Jericho, 2-4 giocatori"
         "game_folder" = "Cartella del gioco"
@@ -465,11 +483,11 @@ $script:TEXTS = @{
         "removal_failed" = "Rimozione non riuscita"
         "select_the_clive_barker" = "Seleziona la cartella di Clive Barker's Jericho (quella con la cartella bin)"
         "remove_the_co_op" = "Rimuovere la mod co-op da`n{0} ?"
-        "remove_jericho_co_op" = "Rimuovere Jericho Co-op {0} da questa cartella?`n`nI file originali del gioco vengono ripristinati; i salvataggi co-op restano in Documenti\Codemasters\Clive Barker's Jericho\Coop."
+        "remove_jericho_co_op" = "Rimuovere Jericho Co-op+ {0} da questa cartella?`n`nI file originali del gioco vengono ripristinati; i salvataggi co-op restano in Documenti\Codemasters\Clive Barker's Jericho\Coop."
         "removed" = "Rimosso: "
         "shortcut" = "Collegamento: "
         "shortcut_desc" = "Clive Barker's Jericho in co-op: prima installa una versione più recente della mod, se c'è"
-        "the_shortcut" = "Il collegamento 'Jericho Co-op' (desktop, menu Start) avvia il gioco e prima installa da GitHub una versione più recente della mod, se c'è."
+        "the_shortcut" = "Il collegamento 'Jericho Co-op+' (desktop, menu Start) avvia il gioco e prima installa da GitHub una versione più recente della mod, se c'è."
     }
 }
 # Windows' own language when there is a translation, else English; the window has a list too.
@@ -488,10 +506,10 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # Started hidden ("Install Co-op.bat"): an error outside the install's own steps (before the
 # window shows, in building it) would leave the player with nothing on screen. Said and logged.
 trap {
-    $why = "Jericho Co-op installer: " + $_.Exception.Message
+    $why = "Jericho Co-op+ installer: " + $_.Exception.Message
     try { Add-Content -LiteralPath (Join-Path ([IO.Path]::GetTempPath()) "jericho-coop-install.log") -Value $why } catch { }
     if ($Quiet) { Write-Host $why } else {
-        try { [System.Windows.Forms.MessageBox]::Show($why, "Jericho Co-op", "OK", "Error") | Out-Null } catch { }
+        try { [System.Windows.Forms.MessageBox]::Show($why, "Jericho Co-op+", "OK", "Error") | Out-Null } catch { }
     }
     exit 1
 }
@@ -667,6 +685,7 @@ function Window-Icon($g) {
 function Do-Uninstall($g) {
     $m = Read-Manifest $g
     if ($m.files.Count -eq 0) { throw (L "the_co_op_mod" $g) }
+    Lock-Install
     Ui-Step "rm" "run"
     $all = @($m.files + $m.built)
     $i = 0
@@ -676,7 +695,7 @@ function Do-Uninstall($g) {
         Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue
     }
     Ui-Log (L "removed_file_s" $($all.Count))
-    # (only "Jericho Co-op.lnk" files the install made: the record names them)
+    # (only "Jericho Co-op+.lnk" files the install made: the record names them)
     foreach ($lnk in $m.shortcuts) {
         if ($lnk -like "*.lnk" -and (Test-Path -LiteralPath $lnk)) { Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue; Ui-Log ((L "removed") + $lnk) }
     }
@@ -922,7 +941,7 @@ function New-CoopIcon($exe, $ico) {
     foreach ($fr in $frames) { $fr[1].Dispose() }
 }
 
-# "Jericho Co-op" shortcuts to coop\coop-launcher.ps1: on the desktop and in the Start menu (the
+# "Jericho Co-op+" shortcuts to coop\coop-launcher.ps1: on the desktop and in the Start menu (the
 # window's install), those an earlier install made and the player kept (refreshed), or in
 # -ShortcutDir. Returns their paths for the install record.
 function Make-Shortcuts($g, $old) {
@@ -932,13 +951,21 @@ function Make-Shortcuts($g, $old) {
         try { New-CoopIcon (Game-Exe $g) $ico; $iconAt = "$ico,0" } catch { Ui-Log "coop.ico: $($_.Exception.Message)" }
     }
     $links = New-Object System.Collections.Generic.List[string]
-    foreach ($lnk in $old.shortcuts) { if ((Test-Path -LiteralPath $lnk) -and -not $links.Contains($lnk)) { $links.Add($lnk) } }
+    foreach ($lnk in $old.shortcuts) {
+        if (-not (Test-Path -LiteralPath $lnk)) { continue }
+        # (0.2.3 named it "Jericho Co-op": the same folder gets the new name)
+        if ((Split-Path $lnk -Leaf) -eq "Jericho Co-op.lnk") {
+            Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
+            $lnk = Join-Path (Split-Path $lnk -Parent) "Jericho Co-op+.lnk"
+        }
+        if (-not $links.Contains($lnk)) { $links.Add($lnk) }
+    }
     $dirs = @()
     if ($ShortcutDir) { $dirs = @($ShortcutDir) }
     elseif (-not $Quiet -and -not $NoShortcut) { $dirs = @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFolderPath("Programs")) }
     foreach ($d in $dirs) {
         if (-not $d) { continue }
-        $lnk = Join-Path $d "Jericho Co-op.lnk"
+        $lnk = Join-Path $d "Jericho Co-op+.lnk"
         if (-not $links.Contains($lnk)) { $links.Add($lnk) }
     }
     $shell = New-Object -ComObject WScript.Shell
@@ -956,11 +983,60 @@ function Make-Shortcuts($g, $old) {
     , @($links)
 }
 
+# One install or removal at a time (a double-clicked shortcut, a second installer window).
+function Lock-Install {
+    if (-not $script:installLock) { $script:installLock = New-Object Threading.Mutex($false, "Local\JerichoCoopInstall") }
+    try { $got = $script:installLock.WaitOne(0) } catch [Threading.AbandonedMutexException] { $got = $true }
+    if (-not $got) { throw (L "another_install") }
+}
+
+# Program Files (the retail disc's default folder): writing there needs administrator rights.
+function Need-Admin($g) {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    if ((New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return $false }
+    foreach ($d in @($g, (Join-Path $g "bin"))) {
+        $probe = Join-Path $d ("coop-write-test-" + $PID + ".tmp")
+        try { [IO.File]::WriteAllText($probe, "1"); Remove-Item -LiteralPath $probe -Force }
+        catch [UnauthorizedAccessException] { return $true }
+        catch { }
+    }
+    $false
+}
+
+# This installer again with administrator rights for the same folder (Windows asks the player);
+# its exit code, -1 when the player said no.
+function Run-Elevated($g, [switch] $Remove) {
+    $a = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Quote-Arg $PSCommandPath), "-Game", (Quote-Arg $g))
+    if ($Remove) { $a += "-Uninstall" }
+    if ($AutoClose) { $a += "-AutoClose" }
+    if ($NoShortcut) { $a += "-NoShortcut" }
+    if ($ShortcutDir) { $a += @("-ShortcutDir", (Quote-Arg $ShortcutDir)) }
+    if ($Lang) { $a += @("-Lang", $Lang) }
+    try {
+        $p = Start-Process powershell -Verb RunAs -ArgumentList $a -Wait -PassThru
+        return $p.ExitCode
+    } catch { return -1 }
+}
+
 function Do-Install($g) {
     Ui-Step "check" "run"
     Ui-Progress 1 $g
     if (-not (Test-Path -LiteralPath $payload)) { throw (L "the_files_folder_is") }
+    # The payload first into a folder of this installer's own: whatever happens to the folder it
+    # came in (an old launcher started twice cleans it up) cannot take files away mid-copy.
+    $snap = Join-Path ([IO.Path]::GetTempPath()) ("jericho-coop-payload-" + $PID)
+    Remove-Item -LiteralPath $snap -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $payload $snap -Recurse -Force
+    $payload = $snap
+    # (the package's list of its files: all of them here, or the game is not touched)
+    $plist = Join-Path $payload "coop\payload.txt"
+    if (-not (Test-Path -LiteralPath $plist)) { Ui-Log "missing: coop\payload.txt"; throw (L "incomplete") }
+    $packageFiles = @(Get-Content -LiteralPath $plist | Where-Object { $_ })
+    foreach ($rel in $packageFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $payload $rel))) { Ui-Log ("missing: " + $rel); throw (L "incomplete") }
+    }
     if (-not $IgnoreRunning -and (Game-Running $g)) { throw (L "close_the_game_first") }
+    Lock-Install
     $old = Read-Manifest $g
     if ($old.version) { Ui-Log ((L "installed_now_co_op") + $old.version) }
     if (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")) { Ui-Log (L "smod_found") }
@@ -971,10 +1047,22 @@ function Do-Install($g) {
     foreach ($b in $old.backups) { $backups.Add($b) }
     $files = New-Object System.Collections.Generic.List[string]
     $all = @(Get-ChildItem -LiteralPath $payload -Recurse -File)
+    # The install record as far as it got: a failure later on can still be removed or retried.
+    # coop\version.txt goes last, once everything is in: the launcher reads it, and an update
+    # that broke off is tried again at the next start.
+    $built, $links = @($old.built), @($old.shortcuts)
+    $writeRecord = {
+        $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" }) +
+            ($built | ForEach-Object { "built=$_" }) + ($links | ForEach-Object { "shortcut=$_" })
+        New-Item -ItemType Directory -Force (Join-Path $g "coop") | Out-Null
+        Set-Content -LiteralPath (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
+    }
+    $versionFile = $null
     $i = 0
     foreach ($item in $all) {
         $i++
         $rel = $item.FullName.Substring($payload.Length + 1)
+        if ($rel -eq "coop\version.txt") { $versionFile = $item; $files.Add($rel); continue }
         $dst = Join-Path $g $rel
         Ui-Progress (3 + 17 * $i / $all.Count) $rel
         # A file of someone else's that we replace: keep the original once.
@@ -995,7 +1083,12 @@ function Do-Install($g) {
     }
     Ui-Log (L "copied_file_s" $($all.Count))
     # Files of an older version that this one no longer has.
-    foreach ($rel in $old.files) { if ($files -notcontains $rel -and $rel -ne "Pack1.packed") { Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue } }
+    # (by the package's list: never a file it has)
+    foreach ($rel in $old.files) {
+        if ($packageFiles -notcontains $rel -and $files -notcontains $rel -and $rel -ne "Pack1.packed") {
+            Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue
+        }
+    }
     # The uninstaller stays in the game folder.
     # (not onto itself when the archive was extracted into the game folder)
     foreach ($f in "coop-installer.ps1") {
@@ -1006,6 +1099,7 @@ function Do-Install($g) {
     $un = "Uninstall Co-op.bat"
     Set-Content -LiteralPath (Join-Path $g $un) -Encoding ASCII -Value '@start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0coop-installer.ps1" -Uninstall -Game "%~dp0."'
     if ($files -notcontains $un) { $files.Add($un) }
+    & $writeRecord
     Ui-Step "copy" "done"
 
     # The game's exe made large-address-aware (4 GB of address space instead of 2: SMOD, the
@@ -1038,12 +1132,13 @@ function Do-Install($g) {
         Ui-Log ((L "large_address_aware") + $exe)
     }
     if ($exeState -eq "skip") { Ui-Log (L "the_exe_is_not") }
+    & $writeRecord
     Ui-Step "exe" $exeState
 
     Ui-Step "anims" "run"
     Ui-Progress 25 (L "reading_the_game_s")
     $script:builtFiles = New-Object System.Collections.Generic.List[string]
-    $anims = Build-Anims $g
+    try { $anims = Build-Anims $g } catch { Ui-Log ("anims: " + $_.Exception.Message); $anims = "failed" }
     switch ($anims) {
         "kept"     { Ui-Log (L "the_animations_built_by"); Ui-Step "anims" "done" }
         "ok"       { Ui-Step "anims" "done" }
@@ -1051,7 +1146,10 @@ function Do-Install($g) {
         default    { Ui-Step "anims" "warn" }
     }
     if ($anims -eq "kept") { $anims = "ok" }
-    if ($anims -eq "ok" -and $files -notcontains "Pack1.packed") { $files.Add("Pack1.packed") }
+    # (ours, built now or before: removed on uninstall, also after a build that failed)
+    $pk1 = Join-Path $g "Pack1.packed"
+    if ($files -notcontains "Pack1.packed" -and (Test-Path -LiteralPath $pk1) -and
+        ($anims -eq "ok" -or (Select-String -LiteralPath $pk1 -Pattern "coopbody_" -SimpleMatch -Quiet))) { $files.Add("Pack1.packed") }
 
     Ui-Step "finish" "run"
     Ui-Progress 97 "coop\install.txt"
@@ -1073,9 +1171,9 @@ function Do-Install($g) {
     } else { Remove-Item -LiteralPath $mark -ErrorAction SilentlyContinue }
     $links = @()
     try { $links = @(Make-Shortcuts $g $old) } catch { Ui-Log "shortcut: $($_.Exception.Message)"; $links = @($old.shortcuts | Where-Object { Test-Path -LiteralPath $_ }) }
-    $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" }) +
-        ($built | ForEach-Object { "built=$_" }) + ($links | ForEach-Object { "shortcut=$_" })
-    Set-Content -LiteralPath (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
+    & $writeRecord
+    if ($versionFile) { Copy-Item -LiteralPath $versionFile.FullName (Join-Path $g "coop\version.txt") -Force }
+    Remove-Item -LiteralPath $snap -Recurse -Force -ErrorAction SilentlyContinue
     Ui-Step "finish" "done"
     Ui-Progress 100 ""
     @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); links = $links.Count }
@@ -1170,7 +1268,7 @@ $form = New-Object Windows.Forms.Form
 $form.SuspendLayout()
 $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
 $form.AutoScaleMode = "Dpi"
-$form.Text = "Jericho Co-op $version"
+$form.Text = "Jericho Co-op+ $version"
 $form.ClientSize = New-Object Drawing.Size(660, 520)
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false
 $form.StartPosition = "CenterScreen"
@@ -1288,7 +1386,7 @@ $form.Add_FormClosing({
     param($sender, $ev)
     if ($script:busy) {
         $ev.Cancel = $true
-        [Windows.Forms.MessageBox]::Show($form, (L "please_wait_until_it"), "Jericho Co-op", "OK", "Information") | Out-Null
+        [Windows.Forms.MessageBox]::Show($form, (L "please_wait_until_it"), "Jericho Co-op+", "OK", "Information") | Out-Null
     }
 })
 
@@ -1374,8 +1472,26 @@ function Show-Result($ok, $title, $text) {
     $form.Activate()
 }
 
+# A folder Windows protects (Program Files): the same work by an elevated copy of this installer,
+# this window closes with its result.
+function Elevated-Instead($g, [switch] $Remove) {
+    if (-not (Need-Admin $g)) { return $false }
+    Ui-Log (L "no_admin")
+    $form.Hide()
+    $code = Run-Elevated $g -Remove:$Remove
+    if ($code -lt 0) {
+        $form.Show()
+        Show-Result $false $(if ($Remove) { L "removal_failed" } else { L "installation_failed" }) (L "no_admin")
+        return $true
+    }
+    $script:exitCode = $code
+    $form.Close()
+    $true
+}
+
 function Start-Install($g) {
     $g = (Resolve-Path -LiteralPath $g).Path
+    if (Elevated-Instead $g) { return }
     $script:target = $g
     $ic = Window-Icon $g
     if ($ic) { $form.Icon = $ic }
@@ -1411,9 +1527,10 @@ function Start-Install($g) {
 
 function Start-Uninstall($g) {
     $g = (Resolve-Path -LiteralPath $g).Path
+    if (Elevated-Instead $g -Remove) { return }
     $script:target = $g
     if (-not $IgnoreRunning -and (Game-Running $g)) {
-        [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op", "OK", "Warning") | Out-Null
+        [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op+", "OK", "Warning") | Out-Null
         return
     }
     $ic = Window-Icon $g
@@ -1449,7 +1566,7 @@ $btGo.Add_Click({
     $g = $tbGame.Text.Trim().Trim('"')
     if (-not (Test-Game $g)) { return }
     if (-not $IgnoreRunning -and (Game-Running $g)) {
-        [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op", "OK", "Warning") | Out-Null
+        [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op+", "OK", "Warning") | Out-Null
         return
     }
     Start-Install $g
@@ -1458,7 +1575,7 @@ $btRemove.Add_Click({
     $g = $tbGame.Text.Trim().Trim('"')
     # (the uninstaller's page is the question already)
     if (-not $Uninstall) {
-        $q = [Windows.Forms.MessageBox]::Show($form, (L "remove_the_co_op" $g), "Jericho Co-op", "YesNo", "Question")
+        $q = [Windows.Forms.MessageBox]::Show($form, (L "remove_the_co_op" $g), "Jericho Co-op+", "YesNo", "Question")
         if ($q -ne "Yes") { return }
     }
     Start-Uninstall $g

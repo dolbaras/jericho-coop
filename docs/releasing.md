@@ -1,6 +1,6 @@
 # Releasing
 
-From 0.2.3 on, players start the game with the "Jericho Co-op" shortcut, which runs
+From 0.2.3 on, players start the game with the "Jericho Co-op+" shortcut, which runs
 `coop\coop-launcher.ps1` (`tools/launcher.ps1`). Before the game starts it reads
 `https://api.github.com/repos/dolbaras/jericho-coop/releases/latest` and installs that release when
 its tag is newer than `coop\version.txt`. Publishing a release therefore updates every player who

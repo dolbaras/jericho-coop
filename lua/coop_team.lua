@@ -45,6 +45,20 @@ function T.isLocallyOwned(name)
   return Coop.isMine(o)
 end
 
+-- May the player whose body `name` went down move into `other`? Alive, switched on, held by
+-- nobody, not walked or taken by the story, on the same side of a story split (no `name`:
+-- any side). The downed move and the host's wipe check use the same rule (an alive body
+-- nobody could move into kept the game from ending).
+function T.usable(other, name)
+  local e = Game.GetEntity(other)
+  if other == name or not e or (e.Life or 0) <= 0 or e.bActive == false then return false end
+  if Coop.ownerOf(other) ~= nil then return false end
+  if Coop.storyDriven and Coop.storyDriven[other] then return false end
+  if CoopStory and CoopStory.taken and CoopStory.taken(other) then return false end
+  if name and CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, other) then return false end
+  return true
+end
+
 function T.install()
   if T.installed or not Team or not Team.RevivePlayer then return end
   T.installed = true
@@ -70,19 +84,24 @@ function T.install()
       Coop.log("downed: " .. name .. " is held down by the story")
       return
     end
+    -- Act 1: Ross down, as vanilla (team.lua): Rawlings stands, Ross gets up 10 s later.
+    local raw = Game.GetEntity("Rawlings")
+    if name == "Ross" and raw and (raw.Life or 0) > 0 then
+      raw.Invulnerable = 1
+      Game.AddScheduledFunc(Game.GetTime() + 10, "ReviveRoss", "Team.ReviveThis", "Ross")
+      Coop.log("downed: Ross gets up in 10 s (Rawlings)")
+      T.down = true
+      return
+    end
     local order = {"Black", "Church", "Rawlings", "Jones", "Cole", "Delgado"}
     -- (seats 3-4 keep their body: they wait for Rawlings while he can come, coop_souls.lua)
-    if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then order = {} end
+    T.waitsFor = nil
+    if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then order = {}; T.waitsFor = name end
     if Team.isWithTheTeam() then
       for _, other in ipairs(order) do
-        local e = Game.GetEntity(other)
         -- (not a body the story holds: walked, taken or switched off; nor one on the other
         -- side of a story split in progress: the one sent on alone, the other task's team)
-        local busy = (Coop.storyDriven and Coop.storyDriven[other]) or e and e.bActive == false or
-                     (CoopStory and CoopStory.taken and CoopStory.taken(other)) or
-                     (CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, other))
-        if other ~= name and e and e.Life > 0 and not Coop.isRemoteOwned(other) and not busy
-           and Team.SwitchSoldier(name, other) then
+        if T.usable(other, name) and Team.SwitchSoldier(name, other) then
           Coop.log("downed: " .. name .. " -> moved into " .. other)
           return
         end
@@ -128,9 +147,12 @@ function T.checkWipe()
     if life <= 0 then down = down + 1 end
   end
   if humans == 0 or down < humans then return end
-  for _, name in ipairs(Coop.SQUAD) do
-    local e = Game.GetEntity(name)
-    if e and e.Life > 0 and Coop.ownerOf(name) == nil then return end
+  -- (a body some downed player can still move into; or Rawlings, who revives)
+  for name in pairs(Coop.owners) do
+    for _, other in ipairs(Coop.SQUAD) do
+      if T.usable(other, name) then return end
+    end
+    if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then return end
   end
   if T.gameOverSent then return end
   T.gameOverSent = true
@@ -290,8 +312,22 @@ function T.watchPartner()
   end
 end
 
+-- A seat 3-4 player waiting for Rawlings: when he can no longer come (dead, taken, the other
+-- side of a split), the move the game makes once at the fall is made now.
+function T.recheckWait()
+  local name = T.waitsFor
+  if not name or not T.down then T.waitsFor = nil return end
+  local e = Game.GetEntity(name)
+  if not e or (e.Life or 0) > 0 or Coop.localChar() ~= name then T.waitsFor = nil return end
+  if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then return end
+  T.waitsFor, T.down = nil, false
+  Coop.log("downed: " .. name .. " no longer waits for Rawlings")
+  pcall(Team.CheckGameOver, name)
+end
+
 function T.update()
   T.install()
+  if Coop.frame % 30 == 0 then T.recheckWait() end
   T.installTime()
   T.updateCompensation()
   T.watchPartner()

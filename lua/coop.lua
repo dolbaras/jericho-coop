@@ -15,7 +15,7 @@
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
 Coop = {}
-Coop.VERSION = "0.2.3"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.2.4"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
@@ -272,6 +272,8 @@ end
 
 -- Mod sources are UTF-8; the game's fonts use cp1251.
 function Coop.cp1251(s)
+  -- (first the punctuation cp1251 has, still UTF-8: dashes, quotes, the ellipsis)
+  s = string.gsub(s, "[\194\226][\128-\191]+", Coop.CP1251_PUNCT)
   return (string.gsub(s, "([\208\209])([\128-\191])", function(a, b)
     local code = (string.byte(a) - 192) * 64 + (string.byte(b) - 128)
     if code == 0x401 then return "\168" end      -- Ё
@@ -280,6 +282,9 @@ function Coop.cp1251(s)
     return "?"
   end))
 end
+Coop.CP1251_PUNCT = {["\226\128\148"] = "\151", ["\226\128\147"] = "\150", ["\194\171"] = "\171",
+  ["\194\187"] = "\187", ["\226\128\166"] = "\133", ["\226\128\156"] = "\147", ["\226\128\157"] = "\148",
+  ["\194\160"] = " "}
 
 function Coop.isHost() return cfg.role == "host" end
 function Coop.isClient() return cfg.role == "client" end
@@ -1614,6 +1619,15 @@ end
 -- and puts the refresh rate into the device; they apply when the Video screen is left, the
 -- display mode at the next start.
 Coop.MODES = {"full", "window", "borderless"}
+-- SMOD sets FullScreen in its autoexec.lua on every start: there the player's SMOD setting
+-- decides full screen; the window can still go borderless.
+function Coop.displayModes()
+  if CoopSmod and CoopSmod.present and CoopSmod.present() then
+    if (tonumber(Game.Get("FullScreen")) or 1) ~= 0 then return {1} end
+    return {2, 3}
+  end
+  return {1, 2, 3}
+end
 
 function Coop.displayState()
   if not Coop.disp then
@@ -1654,7 +1668,9 @@ end
 
 function Coop.displayMode(id, control, dir)
   local d = Coop.displayState()
-  d.mode = (d.mode - 1 + (dir or 1)) % #Coop.MODES + 1
+  local list, at = Coop.displayModes(), 1
+  for i, m in ipairs(list) do if m == d.mode then at = i end end
+  d.mode = list[(at - 1 + (dir or 1)) % #list + 1]
   setRow(id, "Itm4", Coop.displayModeLabel())
   setRow(id, "Itm5", Coop.displayHzLabel())
 end

@@ -683,11 +683,15 @@ function Sp.checkDown()
   if b.UsrControl ~= 1 or now - Sp.downAt < Sp.DOWN_WAIT then return end
   local usr0 = Game.UsrEntity(0)
   local hold = CoopTeam and CoopTeam.holdDowned and CoopTeam.holdDowned[b.Name]
+  -- (seats 3-4 keep their body while Rawlings can revive them, coop_souls.lua; player 2 may
+  -- be one)
+  if not hold and CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(b.Name) then hold = true end
   if not hold and (not Team.isWithTheTeam or Team.isWithTheTeam()) then
     for _, other in ipairs(Sp.ORDER) do
       local e = Game.GetEntity(other)
       if other ~= b.Name and e and e.Life > 0 and e.bActive ~= false and not Sp.isPlayer1s(other) and
-         Coop.ownerOf(other) == nil and not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) then
+         Coop.ownerOf(other) == nil and not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) and
+         not (CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(b.Name, other)) then
         Sp.downAt = nil
         Sp.takeBody(other, b.Name)
         return
@@ -724,7 +728,8 @@ end
 -- The seat of this machine's second player in the session (lobby: peer id + Coop.P2), or a
 -- test's cfg.split2 = '<char>'. Started once the level's squad is up.
 function Sp.seatChar()
-  local me = Coop.myId()
+  -- (the seat list has real ids: on the Lost Patrol's side instance myId is 0 for its authority)
+  local me = cfg.realId or Coop.myId()
   if me == nil then return nil end
   for item in string.gmatch(cfg.seats or "", "[^;]+") do
     local peer, char = string.match(item, "^(%d+):(%a+)")
@@ -739,12 +744,23 @@ function Sp.autoStart()
   if not char then Sp.tried = true return end
   local b = Game.GetEntity(char)
   local usr = Game.UsrEntity(0)
-  if not b or not usr or (Scene and Scene.IsPlaying) or Sp.sceneCamUp() then return end   -- try again next tick
-  Sp.tried = true
-  if usr.Name == char then
-    Coop.log("split: player 2's body " .. char .. " is player 1's")
-    return
+  if not usr or (Scene and Scene.IsPlaying) or Sp.sceneCamUp() then return end   -- try again next tick
+  -- The seat's body not in this level (the Lost Patrol's main group), switched off, or player
+  -- 1's: after a while another free one.
+  if not b or b.bActive == false or usr.Name == char then
+    local now = Net.CoopTime()
+    Sp.autoSince = Sp.autoSince or now
+    if now - Sp.autoSince < 8 then return end
+    local other = Sp.freeBody(usr.Name)
+    Sp.tried = true
+    if not other then
+      Coop.log("split: no free body for player 2 (seat " .. char .. ")")
+      return
+    end
+    Coop.log("split: player 2's body " .. char .. " not free, takes " .. other)
+    char = other
   end
+  Sp.tried = true
   Sp.start(char, Coop.myId() + Coop.P2)
 end
 

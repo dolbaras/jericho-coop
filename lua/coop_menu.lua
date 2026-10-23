@@ -261,10 +261,16 @@ function CoopMenu.savedGame()
   if rec and rec.level and CoopMenu.indexOf(rec.level) then return rec end
 end
 
+-- Levels that are no chapter of their own: a save made there still continues (it loads the
+-- level itself; the lobby names the chapter it belongs to). Sum_Ziggurat_05 is the scenes
+-- between the Meat and the End.
+CoopMenu.LEVEL_ALIAS = {sum_ziggurat_05 = "Sum_Ziggurat_Meat"}
 function CoopMenu.indexOf(level)
   for i, id in ipairs(CoopMenu.LEVELS) do
     if string.lower(id) == string.lower(level or "") then return i end
   end
+  local alias = CoopMenu.LEVEL_ALIAS[string.lower(level or "")]
+  if alias then return CoopMenu.indexOf(alias) end
 end
 
 -- Chapters a new session can start from: the first one, every level reached in co-op or
@@ -767,11 +773,40 @@ function CoopMenu.refreshLobby()
   setText(item("Itm3"), T("tags") .. ": " .. (cfg.tags == false and T("off") or T("on")))
   local p2 = CoopMenu.seatOf((CoopMenu.myPeer() or 0) + Coop.P2)
   setText(item("Itm4"), "< " .. T("p2") .. ": " .. (p2 and CoopMenu.charName(p2.char) or T("p2_none")) .. " >")
+  CoopMenu.portrait("CoopPortrait1", me and me.char, CoopMenu.PORTRAIT.left)
+  CoopMenu.portrait("CoopPortrait2", p2 and p2.char, CoopMenu.PORTRAIT.right)
   setText(item("Itm5"), T("ready") .. ": " .. ((me and me.ready) and T("yes") or T("no")))
   if Coop.isHost() and item("Itm7") then
     setText(item("Itm7"), CoopMenu.allReady() and T("start") or T("start_wait"))
   end
   CoopMenu.checkNick()
+end
+
+-- The picked character's picture beside the lobby's rows (owner: "character select shows the
+-- character's picture"): the game's own art of the squad (Extras, 2D/Menu/Extra_<n>_Picture_0,
+-- there whether the player unlocked it or not); this player's on the left, a split screen
+-- player 2's on the right.
+CoopMenu.PICTURE = {Ross = 0, Black = 1, Delgado = 2, Church = 3, Jones = 4, Cole = 5, Rawlings = 6}
+CoopMenu.PORTRAIT = {left = 95, right = 545, y = 335, size = 150}
+function CoopMenu.portrait(name, char, x)
+  local n = char and CoopMenu.PICTURE[char]
+  local it = item(name)
+  if not n then
+    if it then it.Visible = 0 end
+    return
+  end
+  if not it then
+    it = Scorer.NewItem(0, name, "Sprite")
+    it.Unit = 1
+    it.Pivot = V2D(0.5, 0.5)
+    it.Color = Color(255, 255, 255, 255)
+  end
+  local file = "2D/Menu/Extra_" .. n .. "_Picture_0.bmp"
+  if it.File ~= file then it.File = file end
+  local P = CoopMenu.PORTRAIT
+  it.Pos = V2D(x, P.y)
+  it.Scale = V2D(P.size, P.size)
+  it.Visible = 1
 end
 
 -- The chapter line (0) and the player lines, below the title. CentralText centres the text
@@ -1278,7 +1313,7 @@ function CoopMenu.labelItems()
   local off = (w - 640) / 2
   local x, wd = L.left * w - off, L.width * w
   local y, ht = L.top * 480, L.height * 480
-  local lines = {{"CoopLabel1", "Jericho Co-op " .. Coop.VERSION, L.font, 0.12},
+  local lines = {{"CoopLabel1", "Jericho Co-op+ " .. Coop.VERSION, L.font, 0.12},
                  {"CoopLabel2", "github.com/dolbaras/jericho-coop", L.small, 0.54}}
   for _, l in ipairs(lines) do
     local it = Scorer.GetItem(0, l[1]) or Scorer.NewItem(0, l[1], "Text")

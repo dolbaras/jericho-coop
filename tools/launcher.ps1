@@ -1,4 +1,4 @@
-﻿# Jericho Co-op launcher (shipped as <game>\coop\coop-launcher.ps1; the installer's desktop shortcut
+﻿# Jericho Co-op+ launcher (shipped as <game>\coop\coop-launcher.ps1; the installer's desktop shortcut
 # runs it). Before the game starts it asks GitHub for the latest release of the mod; when that is
 # newer than the installed one, it downloads the release's archive (checked against the SHA-256
 # GitHub gives for it), runs that version's installer for this game folder (its window shows the
@@ -19,12 +19,12 @@ function Log($s) { try { Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{
 
 $lang = (Get-UICulture).TwoLetterISOLanguageName
 $T = @{
-    en = @{ title = "Jericho Co-op"; found = "Co-op {0} is out (you have {1}). Downloading..."; verify = "Checking the download..."; failed = "The update could not be installed: {0}`nThe game starts with co-op {1}."; bad = "The download does not match the release's checksum." }
-    ru = @{ title = "Jericho Co-op"; found = "Вышел кооп {0} (у вас {1}). Загрузка..."; verify = "Проверка загрузки..."; failed = "Обновление не удалось установить: {0}`nИгра запустится с коопом {1}."; bad = "Загрузка не совпадает с контрольной суммой выпуска." }
-    de = @{ title = "Jericho Co-op"; found = "Koop {0} ist erschienen (du hast {1}). Download läuft..."; verify = "Download wird geprüft..."; failed = "Das Update konnte nicht installiert werden: {0}`nDas Spiel startet mit Koop {1}."; bad = "Der Download passt nicht zur Prüfsumme der Veröffentlichung." }
-    fr = @{ title = "Jericho Co-op"; found = "Le coop {0} est sorti (vous avez {1}). Téléchargement..."; verify = "Vérification du téléchargement..."; failed = "La mise à jour n'a pas pu être installée : {0}`nLe jeu démarre avec le coop {1}."; bad = "Le téléchargement ne correspond pas à la somme de contrôle de la version." }
-    es = @{ title = "Jericho Co-op"; found = "Ya está el cooperativo {0} (tienes {1}). Descargando..."; verify = "Comprobando la descarga..."; failed = "No se pudo instalar la actualización: {0}`nEl juego se inicia con el cooperativo {1}."; bad = "La descarga no coincide con la suma de comprobación de la versión." }
-    it = @{ title = "Jericho Co-op"; found = "È uscito il co-op {0} (hai {1}). Download in corso..."; verify = "Verifica del download..."; failed = "Impossibile installare l'aggiornamento: {0}`nIl gioco parte con il co-op {1}."; bad = "Il download non corrisponde al checksum della versione." }
+    en = @{ title = "Jericho Co-op+"; found = "Co-op {0} is out (you have {1}). Downloading..."; verify = "Checking the download..."; failed = "The update could not be installed: {0}`nThe game starts with co-op {1}."; bad = "The download does not match the release's checksum." }
+    ru = @{ title = "Jericho Co-op+"; found = "Вышел кооп {0} (у вас {1}). Загрузка..."; verify = "Проверка загрузки..."; failed = "Обновление не удалось установить: {0}`nИгра запустится с коопом {1}."; bad = "Загрузка не совпадает с контрольной суммой выпуска." }
+    de = @{ title = "Jericho Co-op+"; found = "Koop {0} ist erschienen (du hast {1}). Download läuft..."; verify = "Download wird geprüft..."; failed = "Das Update konnte nicht installiert werden: {0}`nDas Spiel startet mit Koop {1}."; bad = "Der Download passt nicht zur Prüfsumme der Veröffentlichung." }
+    fr = @{ title = "Jericho Co-op+"; found = "Le coop {0} est sorti (vous avez {1}). Téléchargement..."; verify = "Vérification du téléchargement..."; failed = "La mise à jour n'a pas pu être installée : {0}`nLe jeu démarre avec le coop {1}."; bad = "Le téléchargement ne correspond pas à la somme de contrôle de la version." }
+    es = @{ title = "Jericho Co-op+"; found = "Ya está el cooperativo {0} (tienes {1}). Descargando..."; verify = "Comprobando la descarga..."; failed = "No se pudo instalar la actualización: {0}`nEl juego se inicia con el cooperativo {1}."; bad = "La descarga no coincide con la suma de comprobación de la versión." }
+    it = @{ title = "Jericho Co-op+"; found = "È uscito il co-op {0} (hai {1}). Download in corso..."; verify = "Verifica del download..."; failed = "Impossibile installare l'aggiornamento: {0}`nIl gioco parte con il co-op {1}."; bad = "Il download non corrisponde al checksum della versione." }
 }
 if (-not $T.ContainsKey($lang)) { $lang = "en" }
 function L($k) { $T[$lang][$k] }
@@ -113,7 +113,7 @@ function Try-Update {
         Log "unexpected download url $($asset.browser_download_url)"; return
     }
     Show-Window ((L "found") -f $new, $cur)
-    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("jericho-coop-update-" + $new)
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("jericho-coop-update-" + $new + "-" + $PID)
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $tmp | Out-Null
     $zip = Join-Path $tmp $asset.name
@@ -154,6 +154,10 @@ function Try-Update {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# One launcher at a time (a double-clicked shortcut): the first one updates and starts the game.
+$script:once = New-Object Threading.Mutex($false, "Local\JerichoCoopLauncher")
+try { $first = $script:once.WaitOne(0) } catch [Threading.AbandonedMutexException] { $first = $true }
+if (-not $first) { Log "another launcher runs"; exit 0 }
 # This folder's game already running (another copy elsewhere does not count): nothing to do.
 if (Get-Process -Name Jericho, anselintegrationtestapp -ErrorAction SilentlyContinue |
         Where-Object { -not $_.Path -or $_.Path.StartsWith($game + "\", [StringComparison]::OrdinalIgnoreCase) }) { Log "the game runs already"; exit 0 }

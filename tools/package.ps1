@@ -41,8 +41,13 @@ Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encodin
 # The animation builder the installer runs for the experimental "own eyes" cutscene view.
 New-Item -ItemType Directory -Force (Join-Path $files "coop\anims") | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot "bfpk.py"), (Join-Path $PSScriptRoot "m3d.py") (Join-Path $files "coop\anims")
-# The "Jericho Co-op" shortcut's launcher: updates the mod from the GitHub releases, then starts the game.
+# The "Jericho Co-op+" shortcut's launcher: updates the mod from the GitHub releases, then starts the game.
 Copy-Item (Join-Path $PSScriptRoot "launcher.ps1") (Join-Path $files "coop\coop-launcher.ps1")
+# Every file of the payload: the installer checks the folder it got against it before touching
+# the game (a 0.2.3 launcher started twice deleted the extracted files under the first one's
+# installer, which then installed half of them and removed the rest as old).
+$list = Get-ChildItem $files -Recurse -File | ForEach-Object { $_.FullName.Substring($files.Length + 1) }
+Set-Content -Path (Join-Path $files "coop\payload.txt") -Value (@($list) + "coop\payload.txt") -Encoding ASCII
 # Installer
 Copy-Item (Join-Path $root "tools\installer.ps1") (Join-Path $stage "coop-installer.ps1")
 Set-Content -Path (Join-Path $stage "Install Co-op.bat") -Encoding ASCII `

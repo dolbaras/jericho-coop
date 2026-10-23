@@ -639,6 +639,12 @@ static void on_data(Remote *r, const char *d, int n)
     if (d[0] != 'F' && d[0] != 'L')
         return;
     size_t need = r->part_len + (size_t)n - 1;
+    /* (a message never ended by an 'L' must not grow without end: the mod's biggest, a
+       joining player's catch-up, is far below this) */
+    if (need > ((size_t)8 << 20)) {
+        r->part_len = 0;
+        return;
+    }
     if (need > r->part_cap) {
         char *g = realloc(r->part, need);
         if (!g)

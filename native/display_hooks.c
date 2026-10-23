@@ -327,6 +327,7 @@ static LRESULT CALLBACK background_wndproc(HWND hw, UINT msg, WPARAM wp, LPARAM 
  * Read when the game creates its window (not in DllMain: the folder lookup). Test runs that
  * place their window (JERICHO_WINPOS/WINSIZE) keep their own. */
 static int disp_hz, disp_borderless, disp_loaded;
+static int disp_windowed = -1;   /* the device's last Windowed (-1: no device yet) */
 
 static void display_load(void)
 {
@@ -358,9 +359,10 @@ static int display_save(void)
     return 1;
 }
 
+/* (not over a full screen game: borderless is chosen there for the next start) */
 static int borderless_on(void)
 {
-    return disp_borderless && !have_winpos && !have_winsize;
+    return disp_borderless && !have_winpos && !have_winsize && disp_windowed != 0;
 }
 
 /* The monitor the game window is on (the primary before there is a window). */
@@ -414,6 +416,8 @@ static void refresh_rates(int w, int h, char *out, size_t size)
 void display_apply_pp(D3DPRESENT_PARAMETERS *pp)
 {
     display_load();
+    if (pp)
+        disp_windowed = pp->Windowed ? 1 : 0;
     if (!pp || pp->Windowed || disp_hz <= 0)
         return;
     char rates[512];

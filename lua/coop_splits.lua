@@ -128,6 +128,9 @@ function Sp.offer(id)
   if not s or not me or not s.stays[me] then return end
   -- A story line alone (coop_storysolo.lua) is this character's line: nothing to choose.
   if cfg.storyline then return end
+  -- (taking the character who goes on is a switch by choice: not for seats 3-4, nor for
+  -- Jones's projection while he is held, coop_souls.lua)
+  if CoopSouls and CoopSouls.mayChoose and not CoopSouls.mayChoose(Coop.myId()) then return end
   -- The character going on is free: offer it; otherwise there is nothing to choose.
   if Coop.ownerOf(s.goes) ~= nil and Coop.ownerOf(s.goes) ~= Coop.myId() then return end
   Sp.choice = {id = id, target = s.goes, untilT = Net.CoopTime() + Sp.CHOICE_TIME}
@@ -640,9 +643,27 @@ Sp.G6.UNHELD = 20
 Sp.G6.SUMMON_EVERY = 35
 Sp.G6.holders = {}
 
+-- This machine's player lets go of the captive (the sacrifice began, the body changed): the
+-- controls and the pose back, or Coop.modHoldsControl kept the lock watchdog off for good.
+function Sp.G6release()
+  local g = Sp.G6
+  if not g.holding then return end
+  g.holding = false
+  local holder = g.holder and Game.GetEntity(g.holder)
+  if holder then
+    holder.IgnoreUsrControl = 0
+    holder.ForceAction = "Relax"
+  end
+  Coop.log("split G6: hold released")
+  if g.holder then
+    if Coop.isHost() then Sp.G6onHold(g.holder, false) else Net.CoopSend(0, 1, "g6hold|" .. g.holder .. "|0") end
+  end
+end
+
 function Sp.G6holdUpdate()
   local g = Sp.G6
   local me = Coop.localChar()
+  if g.holding and (g.free or not g.anchor[me or ""]) then Sp.G6release() end
   if g.free or not g.anchor[me or ""] or (Scene and Scene.IsPlaying) then return end
   local e, b = Game.GetEntity(me), Game.GetEntity("Bitchie")
   if not e or not b then return end
@@ -653,6 +674,7 @@ function Sp.G6holdUpdate()
   local d = e.Pos - b.Pos
   if not g.holding and math.sqrt(d.x * d.x + d.z * d.z) > g.HOLD_DIST then return end
   g.holding = not g.holding
+  g.holder = me
   e.IgnoreUsrControl = g.holding and 1 or 0
   e.ForceAction = g.holding and "NaziSacrifice" or "Relax"
   Coop.log("split G6: " .. me .. (g.holding and " holds" or " lets go of") .. " the captive")
@@ -745,6 +767,7 @@ function Sp.installG6(isHost)
   Sp.after("MapInit.HideRawlingsCole", function()
     Sp.G6.free = true
     Sp.setSides(nil)
+    Sp.G6release()
   end)
   Sp.after("MapInit.ReposPeople", function()
     for n in pairs(Sp.G6.hidden or {}) do
@@ -893,7 +916,8 @@ function Sp.G3update(dt)
   if not cole then return end
   local d = cole.Pos - MapInit.ColePos
   local near = math.sqrt(d.x * d.x + d.z * d.z) < g.RADIUS and (cole.Life or 0) > 0
-  if near then g.t = g.t + dt end
+  -- (Cole's player left: the AI Cole follows the squad, the hack finishes by itself)
+  if near or not human("Cole") then g.t = g.t + dt end
   local pct = math.min(100, math.floor(100 * g.t / g.TIME))
   local c = g.CHATS[g.next]
   if c and g.t >= g.TIME * c[1] / 120 then
@@ -1159,6 +1183,8 @@ function Sp.G4on() return Sp.G4.active == true end
 -- only by the host (or by the others when the host holds Rawlings).
 function Sp.G4canCure(obj)
   if not Sp.G4on() or not obj or obj.Name ~= "Rawlings" then return true end
+  -- (his player left during the walk: the soul never arrives, the squad revives him)
+  if not human("Rawlings") then return true end
   if not Sp.G4.arrived then return false end
   if Coop.ownerOf("Rawlings") == 0 then return not Coop.isHost() end
   return Coop.isHost()
@@ -1320,7 +1346,9 @@ function Sp.installG4(isHost)
     if Coop.inSession() and human("Rawlings") and CoopTeam then CoopTeam.holdDowned.Rawlings = true end
   end)
   Sp.after("MapInit.AfterRawlingKilled", function()
-    if Coop.inSession() and human("Rawlings") then Sp.G4begin() end
+    -- (a split screen player 2 in Rawlings has no soul walk of its own: the scene as vanilla)
+    local ro = Coop.ownerOf("Rawlings")
+    if Coop.inSession() and human("Rawlings") and ro and ro < Coop.P2 then Sp.G4begin() end
   end)
   Sp.after("MapInit.AfterRawlingHealed", function() if Sp.G4on() then Sp.G4end() end end)
   if Sp.G4.soulOn then Sp.G4soulFrame(Coop.TICK) end

@@ -75,6 +75,8 @@ end
 -- "ross", "jones" or "fixed" (nil: not in a session).
 function S.role(id)
   if id == nil or not Coop.inSession() then return nil end
+  -- (the Lost Patrol's side instance runs its authority as a host: its own seat counts)
+  if cfg.inst and id == 0 and cfg.instAuth then id = cfg.instAuth end
   for i, x in ipairs(S.seats()) do
     if x == id then
       if i == 1 then return "ross" elseif i == 2 then return "jones" end
@@ -84,10 +86,12 @@ function S.role(id)
   return "fixed"
 end
 
+-- Jones away (not in the level, switched off: the Lost Patrol's main branch, the cage) or
+-- taken by the story (the possession, coop_story.lua St.EVICT). Not the game's switch locks
+-- (Team.UnavaliablePlayers): those only keep single-player switching on the story's track.
 function S.jonesHeld()
   local e = Game.GetEntity("Jones")
   if not e or e.bActive == false then return true end
-  if Team and Team.UnavaliablePlayers and Team.UnavaliablePlayers.Jones then return true end
   if CoopStory and CoopStory.taken and CoopStory.taken("Jones") then return true end
   return false
 end
@@ -113,6 +117,12 @@ end
 
 local function refused(why, body)
   if why == "fixed" then S.tell("fixed", charName(body)) else S.tell(why) end
+  local key = why .. ":" .. tostring(body)
+  S.logged = S.logged or {}
+  if not S.logged[key] then
+    S.logged[key] = true
+    Coop.log("souls: " .. tostring(body) .. " may not switch by choice (" .. why .. ")")
+  end
 end
 
 function S.install()
@@ -137,6 +147,8 @@ function S.install()
   Team.SwitchCharacter = function(EntityName, ...)
     local e = Game.GetEntity(EntityName)
     if e and (e.AutoSelectedEntity or "") == "" and Team.Icons and Team.Icons[e.SelectedEntity or ""] then
+      -- (the same key vaults a low wall first, as vanilla Team.SwitchCharacter does)
+      if Soldier and Soldier.HurdleJump and Soldier.HurdleJump(e) then return end
       local ok, why = S.mayChoose(Coop.ownerOf(EntityName))
       if not ok then
         refused(why, EntityName)
@@ -171,7 +183,12 @@ end
 function S.waitsDowned(name)
   if not Coop.inSession() or cfg.souls == false or S.role(Coop.ownerOf(name)) ~= "fixed" then return false end
   local raw = Game.GetEntity("Rawlings")
-  return name ~= "Rawlings" and raw ~= nil and raw.bActive ~= false and (raw.Life or 0) > 0
+  if name == "Rawlings" or not raw or raw.bActive == false or (raw.Life or 0) <= 0 then return false end
+  -- (not walked or taken by the story, and on this player's side of a story split)
+  if Coop.storyDriven and Coop.storyDriven.Rawlings then return false end
+  if CoopStory and CoopStory.taken and CoopStory.taken("Rawlings") then return false end
+  if CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, "Rawlings") then return false end
+  return true
 end
 
 -- Once a second: the role hint (once per level, after Act 1), the projection cut and back.
@@ -193,16 +210,23 @@ function S.update()
   if (S.roleSaid or 0) > now then return end
   for _, id in ipairs(mine()) do
     local r = S.role(id)
-    if r and S.saidRole ~= r then
-      S.saidRole = r
+    -- (per seat: a split screen player on this PC may have another role than user 0)
+    S.saidRole = S.saidRole or {}
+    if r and S.saidRole[id] ~= r then
+      S.saidRole[id] = r
       S.roleSaid = now + 6
-      if r == "fixed" then S.tell("keep", charName(Coop.localChar())) else S.tell(r) end
-      Coop.log("souls: seat role " .. r)
+      local body
+      for name, o in pairs(Coop.owners or {}) do if o == id then body = name end end
+      if r == "fixed" then S.tell("keep", charName(body or Coop.localChar())) else S.tell(r) end
+      Coop.log("souls: seat " .. id .. " role " .. r)
       return
     end
     if r == "jones" then
+      -- (the same for 3 s: a body switched off for a moment, a teleport, is not a cut)
       local held = S.jonesHeld()
-      if S.held ~= held then
+      if held ~= S.heldSeen then S.heldSeen, S.heldN = held, 0 end
+      S.heldN = (S.heldN or 0) + 1
+      if S.held ~= held and (S.held == nil or S.heldN >= 3) then
         local first = S.held == nil
         S.held = held
         Coop.log("souls: Jones " .. (held and "held, projection cut" or "free"))

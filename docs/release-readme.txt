@@ -1,15 +1,20 @@
-Clive Barker's Jericho — Co-op mod (test build / тестовая версия)
-==================================================================
+Jericho Co-op+ for Clive Barker's Jericho (release candidate / релиз-кандидат)
+==============================================================================
 
 ENGLISH
 -------
 
 Co-op for the Clive Barker's Jericho (2007, PC) campaign, 2-4 players. Each player controls
 one squad member, the AI drives the rest. The host runs the world and the story; the others
-join it.
+join it. More than a co-op mode: where the squad splits, the players who stay behind get
+their own story content (waves to hold, the Stations of the Path, the Lost Patrol as a
+parallel branch); the host is Ross's soul and the second player Jones's astral projection,
+both moving between bodies, the others keep their character. It also brings settings the
+game lacks (display mode with a borderless window, refresh rate, aspect ratios up to 32:9),
+fixes, six languages, and works with SMOD, "Clive Upscaler's Jericho" and DXVK.
 
-This is a test build: the whole campaign runs through in automated tests, but human
-playthroughs have only just started. Please report problems (see below).
+This is a release candidate: the whole campaign, every story split and the Lost Patrol run
+through in tests with two real games on two PCs. Please report problems (see below).
 
 Requirements
 - Your own copy of the game. Tested: retail DVD release (Jericho.exe SHA-256
@@ -24,7 +29,7 @@ Install
    game files takes 2-5 minutes (the minutes left are shown). Running it again updates the mod
    or removes it. Its language is Windows' (English, Russian, German, French, Spanish,
    Italian), or pick one in the list at its top.
-2. Start the game with the "Jericho Co-op" shortcut the installer puts on the desktop and in the
+2. Start the game with the "Jericho Co-op+" shortcut the installer puts on the desktop and in the
    Start menu (the game's icon with a red co-op badge), or as usual. The main menu has a
    "Co-op" entry.
 Updates: the shortcut first asks GitHub for the newest release of the mod (a second or two;
@@ -168,10 +173,15 @@ game draws, in memory, and writes nothing until F11.
 
 Совместное прохождение кампании Clive Barker's Jericho (2007, PC) на 2-4 игроков.
 Каждый игрок управляет своим бойцом отряда, остальными управляет ИИ. Хост ведёт мир и
-сюжет, остальные подключаются к нему.
+сюжет, остальные подключаются к нему. Это больше, чем кооп: где отряд разделяется, у
+оставшихся игроков свой сюжет (волны, Путь душ Роулингса, «Потерянный патруль» параллельной
+веткой); хост — душа Росса, второй игрок — астральная проекция Джонса, оба переселяются
+между телами, остальные остаются в своём персонаже. Ещё мод добавляет настройки, которых в
+игре нет (режим экрана с окном без рамки, частота обновления, форматы до 32:9), исправления,
+шесть языков и работает со SMOD, «Clive Upscaler's Jericho» и DXVK.
 
-Это тестовая версия: вся кампания проходится в автоматических тестах, а живые прохождения
-людьми только начались. Ошибки возможны — пожалуйста, сообщайте о них (см. ниже).
+Это релиз-кандидат: вся кампания, все сюжетные разделения и «Потерянный патруль» пройдены в
+тестах двумя настоящими играми на двух ПК. Пожалуйста, сообщайте об ошибках (см. ниже).
 
 Что нужно
 - Своя копия игры. Проверено на розничной DVD-версии (Jericho.exe SHA-256
@@ -187,7 +197,7 @@ game draws, in memory, and writes nothing until F11.
    файлов игры занимает 2-5 минут (показано, сколько осталось). Повторный запуск обновляет мод
    или удаляет его. Язык окна — как у Windows (английский, русский, немецкий, французский,
    испанский, итальянский), его можно сменить в списке вверху окна.
-2. Запускайте игру ярлыком «Jericho Co-op», который установщик кладёт на рабочий стол и в меню
+2. Запускайте игру ярлыком «Jericho Co-op+», который установщик кладёт на рабочий стол и в меню
    «Пуск» (значок игры с красным знаком коопа), или как обычно. В главном меню появится пункт
    «Совместная игра».
 Обновления: ярлык сначала спрашивает у GitHub, вышла ли новая версия мода (секунда-две; без
