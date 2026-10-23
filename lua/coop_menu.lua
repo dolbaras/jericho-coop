@@ -1227,6 +1227,7 @@ function CoopMenu.onLanguageScreen()
 end
 
 function CoopMenu.update()
+  CoopMenu.labelTick()
   -- Back from a session that ended by itself (host gone): say why, on the co-op screen.
   if cfg.notice and Coop.frame > 40 and CoopMenu.screen == nil and not CoopMenu.onLanguageScreen() then
     local why = cfg.notice
@@ -1256,4 +1257,107 @@ function CoopMenu.update()
   CoopMenu.announce()
 end
 
+------------------------------------------------------------------------------
+-- The mod's name and version in the main menu (owner, 0.2.4): on the left of the menu, as
+-- long as SMOD shows its own on the right (SMOD's MainMenu.Init2:
+-- Scorer.PopUpMessage(0, 600, 400, "SMOD by SkacikPL...", 7)). Without SMOD, the same at
+-- the game's start.
+------------------------------------------------------------------------------
+
+-- The game shows one popup at a time (SMOD's went away under ours): ours is drawn with the
+-- menu's own items, a dark box and two lines in the popup's fonts, mirrored to SMOD's on the
+-- left. The popup is placed by fractions of the screen; menu items by 640 x 480 units of the
+-- middle 4:3, so the box is worked out from the screen's aspect ratio.
+CoopMenu.LABEL = {left = 0.082, top = 0.788, width = 0.29, height = 0.094, time = 7,
+                  font = "HoratioTiny", small = "MessageSmall"}
+function CoopMenu.labelItems()
+  local L = CoopMenu.LABEL
+  local aspect = tonumber(Game.Get("PhysicalAspectRatio")) or 0
+  if aspect < 1 then aspect = 4 / 3 end
+  local w = 480 * aspect
+  local off = (w - 640) / 2
+  local x, wd = L.left * w - off, L.width * w
+  local y, ht = L.top * 480, L.height * 480
+  local lines = {{"CoopLabel1", "Jericho Co-op " .. Coop.VERSION, L.font, 0.12},
+                 {"CoopLabel2", "github.com/dolbaras/jericho-coop", L.small, 0.54}}
+  for _, l in ipairs(lines) do
+    local it = Scorer.GetItem(0, l[1]) or Scorer.NewItem(0, l[1], "Text")
+    it.Font = l[3]
+    it.Y = y + l[4] * ht
+    Coop.setCentered(it, l[2], x + wd / 2)   -- (CentralText centres on the X set before it)
+    it.Color = Color(255, 255, 255, 255)
+    it.Visible = 1
+  end
+  -- (made after the lines: the Scorer draws the items made later first, under the others)
+  local box = Scorer.GetItem(0, "CoopLabelBox") or Scorer.NewItem(0, "CoopLabelBox", "Sprite")
+  box.Unit = 1
+  box.Pivot = V2D(0, 0)
+  box.Pos = V2D(x, y)
+  box.Scale = V2D(wd, ht)
+  box.Color = Color(0, 0, 0, 225)
+  box.Visible = 1
+  return {"CoopLabelBox", "CoopLabel1", "CoopLabel2"}
+end
+
+function CoopMenu.showLabel()
+  if CoopMenu.labelShown or cfg.menulabel == false then return end
+  CoopMenu.labelShown = true
+  local ok, err = pcall(CoopMenu.labelItems)
+  CoopMenu.labelFrom = Net.CoopTime()
+  CoopMenu.labelUntil = CoopMenu.labelFrom + CoopMenu.LABEL.time
+  Coop.log("menu label " .. (ok and "shown" or ("error: " .. tostring(err))))
+end
+
+-- Every frame: away after its time, or as soon as the main menu is left.
+function CoopMenu.labelTick()
+  if not CoopMenu.labelUntil then return end
+  if Net.CoopTime() < CoopMenu.labelUntil and CoopMenu.screen == nil then
+    -- (the menu may build its screen again after the popup: put the items back)
+    if not Scorer.GetItem(0, "CoopLabelBox") then
+      pcall(CoopMenu.labelItems)
+      CoopMenu.labelRebuilt = (CoopMenu.labelRebuilt or 0) + 1
+      if CoopMenu.labelRebuilt <= 3 then Coop.log("menu label: items put back") end
+    end
+    CoopMenu.labelFade()
+    return
+  end
+  CoopMenu.labelUntil = nil
+  for _, n in ipairs({"CoopLabelBox", "CoopLabel1", "CoopLabel2"}) do
+    local it = Scorer.GetItem(0, n)
+    if it then it.Visible = 0 end
+  end
+end
+
+-- Fades in and out as the game's popup does (0.5 s in, 1 s out).
+CoopMenu.LABEL_IN, CoopMenu.LABEL_OUT = 0.5, 1
+function CoopMenu.labelFade()
+  local now = Net.CoopTime()
+  local a = math.min((now - CoopMenu.labelFrom) / CoopMenu.LABEL_IN, (CoopMenu.labelUntil - now) / CoopMenu.LABEL_OUT, 1)
+  a = math.max(a, 0)
+  local box = Scorer.GetItem(0, "CoopLabelBox")
+  if box then box.Color = Color(0, 0, 0, math.floor(225 * a)) end
+  for _, n in ipairs({"CoopLabel1", "CoopLabel2"}) do
+    local it = Scorer.GetItem(0, n)
+    if it then it.Color = Color(255, 255, 255, math.floor(255 * a)) end
+  end
+end
+
+function CoopMenu.hookLabel()
+  if CoopMenu.labelHooked or not Scorer or not Scorer.PopUpMessage or not MainMenu or not MainMenu.Init2 then return end
+  CoopMenu.labelHooked = true
+  local origPop = Scorer.PopUpMessage
+  Scorer.PopUpMessage = function(id, x, y, text, ...)
+    local r = origPop(id, x, y, text, ...)
+    if type(text) == "string" and string.find(text, "SMOD by") then CoopMenu.showLabel() end
+    return r
+  end
+  local origInit2 = MainMenu.Init2
+  MainMenu.Init2 = function(...)
+    local r = origInit2(...)
+    CoopMenu.showLabel()
+    return r
+  end
+end
+
 CoopMenu.hookMainMenu()
+CoopMenu.hookLabel()
