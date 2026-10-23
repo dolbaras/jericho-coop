@@ -395,6 +395,8 @@ function Sp.G10wave(n)
   local hall = Sp.humansIn(g.stays)
   if hall == 0 or g.phase == "done" or (g.phase or 0) >= n then return end
   g.phase = n
+  -- (also here: Delgado through the fire without AreaTrigger_Fire_0, the story-line driver)
+  Sp.setSides("G10", {"Delgado"}, g.list)
   Coop.log("split G10: wave " .. n .. ", " .. hall .. " player(s) in the hall")
   if n == 1 then
     Sp.G10spawn("CultistaMelee", nil, 2 + hall)

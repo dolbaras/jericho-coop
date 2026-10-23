@@ -179,7 +179,7 @@ SS.LINES = {
   G11 = {level = "Rom_Palace_01", char = "Black", spawn = 1, steps = {
     {when = "CoopStorySolo.G11abyssReady", testkick = "CoopStorySolo.G11testLegion", after = 15,
      call = "CoopStorySolo.G11cross", say = "s_abyss"},
-    {when = "CoopStorySolo.G11cleared", testkick = "CoopStorySolo.G11testWave", after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
+    {when = "CoopStorySolo.G11cleared", testkick = "CoopStorySolo.G11testWave", rekick = true, after = 8, call = "CoopStorySolo.G11bridge", say = "s_bridgeopen", last = true},
   }},
   -- The kill is Church's (blood rune, first person): once this player broke free, the main
   -- line ends it.
@@ -302,7 +302,7 @@ function SS.update()
       -- Tests (dev, storykick): what the player would do to get there, done by the story.
       SS.whenSince = SS.whenSince or Game.GetTime()
       if cfg.dev and cfg.storykick and st.testkick and Game.GetTime() - SS.whenSince > cfg.storykick then
-        SS.whenSince = Game.GetTime() + 9999
+        SS.whenSince = st.rekick and Game.GetTime() or Game.GetTime() + 9999
         local k = SS.resolve(st.testkick)
         Coop.log("story solo: test kick " .. st.testkick .. (k and "" or " (not found)"))
         if k then pcall(k) end
@@ -423,9 +423,25 @@ end
 
 -- (tests: the wave on Church's side down)
 function SS.G11testWave()
+  if Legionary and Legionary.OnDamage and not SS.legionWrapped then
+    SS.legionWrapped = true
+    local orig = Legionary.OnDamage
+    Legionary.OnDamage = function(name, ...)
+      local e = Game.GetEntity(name)
+      if e and e.uData and e.uData.CoopTestKill then return end
+      return orig(name, ...)
+    end
+  end
   for _, n in ipairs(CoopSplits and CoopSplits.G11 and CoopSplits.G11.spawned or {}) do
     local e = Game.GetEntity(n)
-    if e and (e.Life or 0) > 0 then e.Invulnerable = 0; e.Life = 0 end
+    if e and (e.Life or 0) > 0 then
+      Coop.log(string.format("story solo: G11 %s life=%s active=%s act=%s at %d,%d,%d", n, tostring(e.Life),
+        tostring(e.bActive), tostring(e.Action), e.Pos.x, e.Pos.y, e.Pos.z))
+      -- (vanilla Legionary.OnDamage gives the life back when the last hit was on the shield:
+      -- the squad's AI shot at them, and Life = 0 did not stay)
+      e.uData.CoopTestKill = true
+      e.Invulnerable = 0; e.Life = 0
+    end
   end
 end
 
