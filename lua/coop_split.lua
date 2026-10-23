@@ -194,7 +194,7 @@ function Sp.start(char, owner)
   if not Sp.takeBody(char) then return false end
   Sp.buildHud()
   Sp.applyFx(true)
-  Sp.on, Sp.held = true, false
+  Sp.on, Sp.held, Sp.heldPads = true, false, 0
   pcall(Sp.installWeaponIds)
   Sp.sendHiddenUser()
   cfg.splitWasOn = true   -- the next level load resets the engine's split state
@@ -242,27 +242,32 @@ function Sp.sceneCamUp()
 end
 
 -- Full screen (user 0's view and HUD) while a scene plays or a menu is open: scenes and
--- menus are made for one screen.
+-- menus are made for one screen, and both pads act as pad 0 there. Also while player 2 waits
+-- for a body, but then each pad stays its player's (the second result): player 2's pad would
+-- steer player 1's character.
 function Sp.shouldHold()
-  if Sp.waiting then return true end
   if Scene and Scene.IsPlaying then return true end
   if Sp.sceneCamUp() then return true end
   local set = Input.GetActionSet and Input.GetActionSet()
-  return set == "Menu" or set == "Inactive"
+  if set == "Menu" or set == "Inactive" then return true end
+  if Sp.waiting then return true, true end
+  return false
 end
 
 -- Every frame (coop.lua; it can run more than once per drawn frame).
 function Sp.frame()
   if not Sp.on then return end
-  local hold = Sp.shouldHold()
+  local hold, apart = Sp.shouldHold()
   if cfg.dev then
     local set = Input.GetActionSet and Input.GetActionSet()
     if set ~= Sp.lastSet then Sp.lastSet = set; Coop.log("split: action set " .. tostring(set)) end
   end
-  if hold ~= Sp.held then
-    Sp.held = hold
-    Sp.applyEngine(not hold, hold and 1 or 0)
-    Coop.log("split: " .. (hold and "full screen (scene or menu)" or "split again"))
+  local pads = (hold and not apart) and 1 or 0
+  if hold ~= Sp.held or pads ~= Sp.heldPads then
+    Sp.held, Sp.heldPads = hold, pads
+    Sp.applyEngine(not hold, pads)
+    Coop.log("split: " .. (not hold and "split again" or apart and "full screen (player 2 waits), pads apart"
+      or "full screen (scene or menu)"))
   end
   -- Player 2's astral projection: its camera takes user 0's input only, so both pads act as
   -- pad 0 meanwhile (player 1's body waits in the "Astral" set anyway).

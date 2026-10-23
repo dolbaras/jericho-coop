@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "coop_net.h"
 #include "steam_net.h"
@@ -202,21 +203,24 @@ int steam_net_init(void)
         strcpy(error_text, "off for this run");
         return 0;
     }
-    DWORD n = GetModuleFileNameA(NULL, path, MAX_PATH);
-    char *slash = n ? strrchr(path, '\\') : NULL;
-    if (!slash || (size_t)(slash - path) + 16 >= MAX_PATH) {
+    /* (wide: a game folder outside the code page) */
+    wchar_t wpath[MAX_PATH];
+    DWORD n = GetModuleFileNameW(NULL, wpath, MAX_PATH);
+    wchar_t *slash = n && n < MAX_PATH ? wcsrchr(wpath, L'\\') : NULL;
+    if (!slash || (size_t)(slash - wpath) + 16 >= MAX_PATH) {
         strcpy(error_text, "no game folder");
         return 0;
     }
     /* <game>\coop\steam_api.dll: the mod's own copy, next to its Lua, so a steam_api.dll the
        game may have in bin is never replaced (here, unlike the fork MAK-PIVO/jericho-coop). */
     *slash = 0;
-    char *up = strrchr(path, '\\');
+    wchar_t *up = wcsrchr(wpath, L'\\');
     if (!up) {
         strcpy(error_text, "no game folder");
         return 0;
     }
-    strcpy(up + 1, "coop\\steam_api.dll");
+    wcscpy(up + 1, L"coop\\steam_api.dll");
+    path[0] = 0;
     /* Tests: native/fake_steam_api.c (Steam over localhost UDP) and its smaller packets. */
     char v[MAX_PATH];
     if (GetEnvironmentVariableA("JERICHO_STEAM_DLL", v, sizeof v) > 0)
@@ -226,7 +230,7 @@ int steam_net_init(void)
     /* Spacewar: steam_api reads the app id from the environment before steam_appid.txt. */
     SetEnvironmentVariableA("SteamAppId", "480");
     SetEnvironmentVariableA("SteamGameId", "480");
-    HMODULE dll = LoadLibraryA(path);
+    HMODULE dll = path[0] ? LoadLibraryA(path) : LoadLibraryW(wpath);
     if (!dll) {
         snprintf(error_text, sizeof error_text, "steam_api.dll not found");
         coop_log("steam: %s", error_text);

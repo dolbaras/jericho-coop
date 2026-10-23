@@ -644,10 +644,30 @@ static int l_discover(lua_State *L)
     return 1;
 }
 
+static int to_ansi(const wchar_t *w, char *out, size_t size)
+{
+    BOOL lossy = FALSE;
+    UINT cp = GetACP();
+    /* (UTF-8 as the code page: every character fits, and these flags are not allowed) */
+    int n = cp == CP_UTF8 ? WideCharToMultiByte(cp, 0, w, -1, out, (int)size, NULL, NULL)
+                          : WideCharToMultiByte(cp, WC_NO_BEST_FIT_CHARS, w, -1, out, (int)size, NULL, &lossy);
+    return n > 0 && !lossy;
+}
+
+int coop_ansi_path(const wchar_t *path, char *out, size_t size)
+{
+    if (to_ansi(path, out, size))
+        return 1;
+    wchar_t s[MAX_PATH];
+    DWORD n = GetShortPathNameW(path, s, MAX_PATH);
+    return n > 0 && n < MAX_PATH && to_ansi(s, out, size);
+}
+
 /* "coop:<name>" -> full path in the co-op save folder (created on demand); 0 if invalid. */
 static int coop_save_path(const char *name, char *out, size_t size)
 {
     char dir[MAX_PATH];
+    wchar_t wdir[MAX_PATH];
     if (strncmp(name, "coop:", 5) != 0)
         return 0;
     name += 5;
@@ -659,15 +679,18 @@ static int coop_save_path(const char *name, char *out, size_t size)
             return 0;
     DWORD n = GetEnvironmentVariableA("JERICHO_COOP_SAVEDIR", dir, sizeof dir);
     if (n == 0 || n >= sizeof dir) {
-        if (SHGetFolderPathA(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL, 0, dir) != S_OK)
+        /* (wide: a user name outside the code page, see coop_ansi_path) */
+        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL, 0, wdir) != S_OK)
             return 0;
-        static const char *const parts[] = {"\\Codemasters", "\\Clive Barker's Jericho", "\\Coop"};
+        static const wchar_t *const parts[] = {L"\\Codemasters", L"\\Clive Barker's Jericho", L"\\Coop"};
         for (size_t i = 0; i < sizeof parts / sizeof parts[0]; i++) {
-            if (strlen(dir) + strlen(parts[i]) >= sizeof dir)
+            if (wcslen(wdir) + wcslen(parts[i]) >= MAX_PATH)
                 return 0;
-            strcat(dir, parts[i]);
-            CreateDirectoryA(dir, NULL);
+            wcscat(wdir, parts[i]);
+            CreateDirectoryW(wdir, NULL);
         }
+        if (!coop_ansi_path(wdir, dir, sizeof dir))
+            return 0;
     } else {
         CreateDirectoryA(dir, NULL);
     }

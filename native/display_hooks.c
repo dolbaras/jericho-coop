@@ -834,14 +834,15 @@ static XInputGetState_t xinput_get(void)
         return real_XInputGetState;
     if (!private_tried) {
         private_tried = 1;
-        char sys[MAX_PATH], src[MAX_PATH], dst[MAX_PATH];
-        UINT n = GetSystemDirectoryA(sys, MAX_PATH);   /* SysWOW64 for this 32-bit game */
-        DWORD m = GetTempPathA(MAX_PATH, dst);
+        /* (wide: the temp folder holds the user name, which may be outside the code page) */
+        wchar_t src[MAX_PATH], dst[MAX_PATH];
+        UINT n = GetSystemDirectoryW(src, MAX_PATH);   /* SysWOW64 for this 32-bit game */
+        DWORD m = GetTempPathW(MAX_PATH, dst);
         if (n && n < MAX_PATH - 20 && m && m < MAX_PATH - 40) {
-            snprintf(src, sizeof src, "%s\\xinput1_4.dll", sys);
-            strcat(dst, "jericho-coop-xinput.dll");
-            CopyFileA(src, dst, FALSE);
-            HMODULE h = LoadLibraryA(dst);
+            wcscat(src, L"\\xinput1_4.dll");
+            wcscat(dst, L"jericho-coop-xinput.dll");
+            CopyFileW(src, dst, FALSE);
+            HMODULE h = LoadLibraryW(dst);
             private_XInputGetState = h ? (XInputGetState_t)GetProcAddress(h, "XInputGetState") : NULL;
             private_XInputSetState = h ? (XInputSetState_t)GetProcAddress(h, "XInputSetState") : NULL;
         }

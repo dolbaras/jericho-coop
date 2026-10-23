@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "boot_inject.h"
 #include "coop_net.h"
@@ -54,24 +55,52 @@ const char *boot_inject_dir(void)
  * the real boot chunk with the folder and the test config. */
 #define BOOT_LINE "assert(loadstring(Net['CoopBoot']()))()"
 
+/* <game>\coop\ for Lua's dofile, which opens files through the code page: a game folder with
+ * characters outside it (Cyrillic on an English Windows...) is given by its short name, else
+ * relative to the working directory when that is inside the game folder (the shortcut and
+ * Steam start the game there). */
+static int coop_dir_ansi(const wchar_t *wdir, const wchar_t *game)
+{
+    if (coop_ansi_path(wdir, coop_dir, sizeof coop_dir))
+        return 1;
+    wchar_t cwd[MAX_PATH];
+    DWORD n = GetCurrentDirectoryW(MAX_PATH, cwd);
+    size_t g = wcslen(game);
+    if (n == 0 || n >= MAX_PATH || _wcsnicmp(cwd, game, g) != 0 || (cwd[g] && cwd[g] != L'\\'))
+        return 0;
+    coop_dir[0] = 0;
+    for (const wchar_t *p = cwd + g; *p; p++)
+        if (*p == L'\\' && p[1] && strlen(coop_dir) + 4 < sizeof coop_dir)
+            strcat(coop_dir, "..\\");
+    strcat(coop_dir, "coop\\");
+    return 1;
+}
+
 void boot_inject_install(HINSTANCE self)
 {
+    wchar_t game[MAX_PATH], wdir[MAX_PATH + 8];
+    game[0] = 0;
     DWORD n = GetEnvironmentVariableA("JERICHO_COOP_DIR", coop_dir, sizeof coop_dir);
     if (n == 0 || n >= sizeof coop_dir) {
         /* <game>\bin\dinput8.dll -> <game>/coop/ */
-        char dir[MAX_PATH];
         coop_dir[0] = 0;
-        if (!GetModuleFileNameA(self, dir, MAX_PATH))
+        n = GetModuleFileNameW(self, game, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
             return;
-        char *slash = strrchr(dir, '\\');
+        wchar_t *slash = wcsrchr(game, L'\\');
         if (!slash)
             return;
         *slash = 0;                       /* <game>\bin */
-        slash = strrchr(dir, '\\');
+        slash = wcsrchr(game, L'\\');
         if (!slash)
             return;
-        strcpy(slash, "\\coop\\");        /* <game>\coop\ */
-        snprintf(coop_dir, sizeof coop_dir, "%s", dir);
+        *slash = 0;                       /* <game> */
+        wcscpy(wdir, game);
+        wcscat(wdir, L"\\coop\\");
+        if (!coop_dir_ansi(wdir, game)) {
+            coop_log("boot: the game folder's name does not fit the code page and has no short name");
+            return;
+        }
     }
     for (char *p = coop_dir; *p; p++)
         if (*p == '\\')
