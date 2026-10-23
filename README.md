@@ -8,7 +8,8 @@ More than a co-op mode:
   content of their own: waves to hold, the soul walk on the Stations of the Path, and the
   Lost Patrol played as a parallel branch. Players without a body play as Ross's spirit.
 - **Settings and fixes for today's PCs.** Aspect ratios up to 21:9 and 32:9 in the game's own
-  option, a 4 GB memory limit instead of 2, gamepad hot-plug, crash fixes, six languages.
+  option, a borderless window and the refresh rate in the game's Video settings, a 4 GB memory
+  limit instead of 2, gamepad hot-plug, play without a mouse, crash fixes, six languages.
 - **Gameplay improvements.** Each player commands their own fire team, breakable objects are
   shared, and F11 records the last 30 seconds for bug reports.
 - **Works with other mods.** SMOD (its rules are kept the same for every player), "Clive
@@ -17,10 +18,12 @@ More than a co-op mode:
 Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names stay the same,
 so the auto-update keeps working.
 
-Status: release candidate, latest **0.2.4** (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)).
+Status: **0.2.5**, the release candidate brought to an end: every problem found by tests and code
+reviews is fixed (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). The
+whole campaign has been played through in tests; by people, missions 1-8 so far.
 Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
 the game, keeps a copy of every file it replaces, updates an older version in place and can
-uninstall. From 0.2.3 the installer's "Jericho Co-op" shortcut (desktop and Start menu) checks
+uninstall. From 0.2.3 the installer's shortcut ("Jericho Co-op+", desktop and Start menu) checks
 GitHub before each start and installs a newer release by itself (`docs/releasing.md`).
 Details, network ports and how to report a bug are in `README-COOP.txt` inside the zip
 (English and Russian). Every player needs the same mod version (the lobby says so).
@@ -93,7 +96,7 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   mod's name and version beside SMOD's.
 - F11 saves the last 30 seconds as a video for bug reports (`native/clip.c`).
 - Installer (`tools/installer.ps1`): finds the game (its folder, registry, GOG, Steam
-  libraries or asks), six languages, backup and uninstall, the "Jericho Co-op" shortcut with
+  libraries or asks), six languages, backup and uninstall, the "Jericho Co-op+" shortcut with
   the game's icon and a co-op badge; the launcher (`tools/launcher.ps1`) updates from GitHub
   releases (SHA-256 checked) before starting the game.
 
@@ -114,7 +117,9 @@ that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
   retail exe only, one engine call is redirected (a user lookup without a bounds check that
   crashed split screen, `split.c`) and one engine read is caught (the last boss's fire spirit
   with nobody left to chase, `dinput8_proxy.c`); the rest goes through import tables,
-  Direct3D's vtable and the game's own Lua.
+  Direct3D's and DirectInput's vtables and the game's own Lua. On a PC without a mouse the
+  game gets one that never moves (it would refuse to start, `display_hooks.c`). Paths are read
+  as Unicode, so a game folder named outside Windows' code page works too.
 - `lua/` is the mod itself, run by the game's own Lua 5.1:
   - `boot.lua`, `coop.lua`: session, squad ownership, player state at 20 Hz, puppets
   - `coop_menu.lua`: "Co-op" main menu entry, host/join, lobby (character, nickname,
