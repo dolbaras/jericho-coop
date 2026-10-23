@@ -99,7 +99,8 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   ratios, a display mode (full screen, window, borderless window over the monitor) and the
   refresh rate (`display_hooks.c`).
 - Lobby: the picked character's picture (the game's own squad art); the main menu shows the
-  mod's name and version beside SMOD's.
+  mod's name and version for a few seconds, mirrored to SMOD's label (top left on 4:3 and 5:4
+  screens; after the game's "Press [ENTER] or START" line, never over it).
 - F11 saves the last 30 seconds as a video for bug reports (`native/clip.c`).
 - Installer (`tools/installer.ps1`): finds the game (its folder, registry, GOG, Steam
   libraries or asks), six languages, backup and uninstall, the "Jericho Co-op+" shortcut with
