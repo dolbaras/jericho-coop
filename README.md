@@ -3,6 +3,20 @@
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
 
+More than a co-op mode:
+- **The story, extended for co-op.** Where the squad splits, the players who stay behind get
+  content of their own: waves to hold, the soul walk on the Stations of the Path, and the
+  Lost Patrol played as a parallel branch. Players without a body play as Ross's spirit.
+- **Settings and fixes for today's PCs.** Aspect ratios up to 21:9 and 32:9 in the game's own
+  option, a 4 GB memory limit instead of 2, gamepad hot-plug, crash fixes, six languages.
+- **Gameplay improvements.** Each player commands their own fire team, breakable objects are
+  shared, and F11 records the last 30 seconds for bug reports.
+- **Works with other mods.** SMOD (its rules are kept the same for every player), "Clive
+  Upscaler's Jericho" (2x textures) and DXVK; Steam or a local network.
+
+From 0.2.4 the mod is called **Jericho Co-op+**. The repository and file names stay the
+same, so the auto-update keeps working.
+
 Status: test builds, latest **0.2.3** (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)).
 Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
 the game, keeps a copy of every file it replaces, updates an older version in place and can
