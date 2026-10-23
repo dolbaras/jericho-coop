@@ -74,9 +74,11 @@ function T.install()
     if Team.isWithTheTeam() then
       for _, other in ipairs(order) do
         local e = Game.GetEntity(other)
-        -- (not a body the story holds: walked, taken or switched off)
+        -- (not a body the story holds: walked, taken or switched off; nor one on the other
+        -- side of a story split in progress: the one sent on alone, the other task's team)
         local busy = (Coop.storyDriven and Coop.storyDriven[other]) or e and e.bActive == false or
-                     (CoopStory and CoopStory.taken and CoopStory.taken(other))
+                     (CoopStory and CoopStory.taken and CoopStory.taken(other)) or
+                     (CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, other))
         if other ~= name and e and e.Life > 0 and not Coop.isRemoteOwned(other) and not busy
            and Team.SwitchSoldier(name, other) then
           Coop.log("downed: " .. name .. " -> moved into " .. other)

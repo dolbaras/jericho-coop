@@ -349,6 +349,7 @@ function SS.G1Cthrough()
   -- the split's own end of the pocket (it follows the trigger's callback)
   if CoopSplits and CoopSplits.G1C then
     CoopSplits.G1C.done = true
+    if CoopSplits.setSides then CoopSplits.setSides(nil) end
     pcall(CoopSplits.radio, "Jones", "Rejoin_Team")
   end
   SS.triggerOff("MapCallbacks.AreaTrigger119_1")

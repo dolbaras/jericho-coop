@@ -219,6 +219,55 @@ function Sp.radio(char, category, n)
 end
 
 ------------------------------------------------------------------------------
+-- The sides of a split in progress: a player whose body goes down moves only into a body on
+-- their own side (coop_team.lua), never into the one the story sent on alone or the ones
+-- holding the other task (owner, 2026-10-23: the host's Delgado fell in G8's hall and moved
+-- into Church on his lone climb). The host sets them; every machine knows them (the downed
+-- player's own machine makes the move); resent every 10 s for a player loading later.
+--   sps|<level>|<split>|<side A chars>|<side B chars>   host -> all ("-" as split: over)
+------------------------------------------------------------------------------
+
+Sp.sides = nil   -- {id = split, a = {...}, b = {...}, of = {char = 1 or 2}}
+
+function Sp.applySides(id, a, b)
+  if not id then Sp.sides = nil return end
+  local of = {}
+  for _, c in ipairs(a) do of[c] = 1 end
+  for _, c in ipairs(b) do of[c] = 2 end
+  Sp.sides = {id = id, a = a, b = b, of = of}
+end
+
+function Sp.sendSides(to)
+  local s = Sp.sides
+  Net.CoopSend(to, 1, "sps|" .. Coop.level .. "|" .. (s and (s.id .. "|" .. table.concat(s.a, ",") .. "|" .. table.concat(s.b, ",")) or "-"))
+end
+
+-- Host: the split `id` starts with sides `a` and `b` (lists of characters); no id: it is over.
+function Sp.setSides(id, a, b)
+  if not Coop.isHost() then return end
+  if (id and Sp.sides and Sp.sides.id == id) or (not id and not Sp.sides) then return end
+  Sp.applySides(id, a, b)
+  Sp.sendSides(-1)
+  Sp.sidesSentT = Net.CoopTime()
+  Coop.log(id and ("split " .. id .. ": sides " .. table.concat(a, ",") .. " | " .. table.concat(b, ",")) or "split: sides over")
+end
+
+-- May the player whose body `from` went down move into `to`? (characters on neither side:
+-- yes)
+function Sp.sameSide(from, to)
+  local s = Sp.sides
+  if not s then return true end
+  local x, y = s.of[from], s.of[to]
+  return x == nil or y == nil or x == y
+end
+
+local function charList(s)
+  local t = {}
+  for c in string.gmatch(s or "", "[^,]+") do t[#t + 1] = c end
+  return t
+end
+
+------------------------------------------------------------------------------
 -- Hooks by name, after the original (host)
 ------------------------------------------------------------------------------
 
@@ -284,6 +333,7 @@ function Sp.installG8(isHost)
   -- Church starts the climb (use object or area trigger): the choice, then phase 1 when
   -- the scene hands control back.
   local function climb()
+    Sp.setSides("G8", {"Church"}, Sp.G8.list)
     Net.CoopSend(-1, 1, "spc|G8")
     Sp.offer("G8")
     Game.AddScheduledFunc(Game.GetTime() + 12, "CoopSplitG8", "CoopSplits.G8phase", 1)
@@ -294,6 +344,7 @@ function Sp.installG8(isHost)
   end)
   Sp.after("MapCallbacks.BloodWarGroup_0", function() Sp.G8phase(3) end)
   Sp.after("MapCallbacks.TriggerAperturaPuerta_0", function()
+    Sp.setSides(nil)
     if Sp.G8.phase and Sp.G8.phase ~= "done" then
       Sp.G8.phase = "done"
       Sp.stopHolds()
@@ -383,6 +434,7 @@ function Sp.installG10(isHost)
   end
   if not isHost then return end
   Sp.after("MapCallbacks.AreaTrigger_Fire_0", function()
+    Sp.setSides("G10", {"Delgado"}, Sp.G10.list)
     if not Sp.G10.offered then
       Sp.G10.offered = true
       Net.CoopSend(-1, 1, "spc|G10")
@@ -392,6 +444,7 @@ function Sp.installG10(isHost)
   Sp.after("MapCallbacks.puerta_delgado_1_0", function() Sp.G10wave(2) end)
   Sp.after("MapCallbacks.AreaTrigger308_0", function() Sp.G10wave(3) end)
   Sp.after("MapCallbacks.AreaTriggerDelgadoCae_0", function()
+    Sp.setSides(nil)
     if Sp.G10.phase and Sp.G10.phase ~= "done" then
       Sp.G10.phase = "done"
       Sp.notice("delgado_back", Sp.G10.list)
@@ -426,6 +479,7 @@ function Sp.G11wave()
   local g = Sp.G11
   if g.started then return end
   g.started = true
+  Sp.setSides("G11", {"Church"}, {"Black", "Cole", "Delgado", "Jones", "Rawlings"})
   local n = math.min(6, 3 + (CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() or 1))
   pcall(PhysicsObj.OpenDoor, "puertaPuzzlePuente")
   Sp.G11crank()
@@ -478,6 +532,8 @@ function Sp.installG11(isHost)
     Sp.hooked["MapCallbacks.PressChurch_0/gate"] = true
     MapCallbacks.PressChurch_0 = function(...)
       if Sp.G11.started and Sp.G11alive() then return end
+      -- (Church on his plate after the wave: the way back is opening)
+      if Sp.G11.started then Sp.setSides(nil) end
       return press(...)
     end
   end
@@ -634,6 +690,11 @@ end
 function Sp.G6afterInit()
   if Sp.G6.initDone then return end
   Sp.G6.initDone = true
+  -- (the gate top and the squad below until the sacrifice: the staged Cole and Rawlings are
+  -- living bodies too, but no place for a player who fell below)
+  if Coop.inSession() and not Sp.G6.free then
+    Sp.setSides("G6", Sp.G6.chars, {"Black", "Church", "Delgado", "Jones"})
+  end
   Sp.G6keepHumans()
   Sp.G6takeSeat()
   Sp.showNotice("captive", Sp.G6.chars)
@@ -679,7 +740,10 @@ function Sp.installG6(isHost)
       return unpack(r, 2)
     end
   end
-  Sp.after("MapInit.HideRawlingsCole", function() Sp.G6.free = true end)
+  Sp.after("MapInit.HideRawlingsCole", function()
+    Sp.G6.free = true
+    Sp.setSides(nil)
+  end)
   Sp.after("MapInit.ReposPeople", function()
     for n in pairs(Sp.G6.hidden or {}) do
       local e = Game.GetEntity(n)
@@ -816,6 +880,7 @@ function Sp.G3start()
   local g = Sp.G3
   g.human, g.t, g.next, g.lastSent = true, 0, 1, -1
   g.hacking = true
+  Sp.setSides("G3", {"Cole"}, {"Ross", "Rawlings", "Church", "Black", "Jones", "Delgado"})
   Coop.log("split G3: human Cole hacks the console")
 end
 
@@ -840,6 +905,7 @@ function Sp.G3update(dt)
   end
   if g.t >= g.TIME then
     g.hacking = false
+    Sp.setSides(nil)
     g.restoredAt = Game.GetTime()
     Coop.log("split G3: restoration complete")
     MapInit.DeactivateEnemies()
@@ -1001,6 +1067,7 @@ function Sp.G1Cwave(n)
   local alpha = Sp.humansIn(g.alpha)
   if alpha == 0 or g.done or (g.phase or 0) >= n then return end
   g.phase = n
+  Sp.setSides("G1C", g.list, {"Ross", "Church", "Rawlings", "Black"})
   Coop.log("split G1C: wave " .. n .. ", " .. alpha .. " Alpha player(s)")
   if n == 1 then
     Sp.spawnWave(g.LIST, "CultistaMelee", g.PITS, 1 + alpha)
@@ -1063,6 +1130,7 @@ function Sp.installG1C(isHost)
   end)
   Sp.after("MapCallbacks.AreaTrigger119_1", function()
     Sp.G1C.done = true
+    Sp.setSides(nil)
     Sp.radio("Jones", "Rejoin_Team")
   end)
 end
@@ -1317,6 +1385,7 @@ function Sp.G1Agoodbye()
     Game.AddScheduledFunc(Game.GetTime() + 1, "StartSayGoodbye", "MapInit.MiraDetrasDeTi")
   end
   if Coop.isHost() and Sp.humansIn(g.alpha) > 0 then
+    Sp.setSides("G1A", g.list, {"Ross", "Church", "Rawlings", "Black"})
     Sp.notice("recon", g.list)
     for i, t in ipairs(g.WAVES) do
       Game.AddScheduledFunc(Game.GetTime() + t, "CoopSplitG1A", "CoopSplits.G1Awave", i)
@@ -1373,7 +1442,10 @@ function Sp.installG1A(isHost)
     end
   end
   -- Omega reaches the blood door: the recon is over.
-  Sp.after("MapCallbacks.Borrame_cinematica_0", function() Sp.G1A.done = true end)
+  Sp.after("MapCallbacks.Borrame_cinematica_0", function()
+    Sp.G1A.done = true
+    Sp.setSides(nil)
+  end)
 end
 
 ------------------------------------------------------------------------------
@@ -1407,6 +1479,11 @@ function Sp.onMessage(peer, f)
     end
     if f[2] ~= Coop.localChar() then Sp.G15onFree(f[2]) end
     return true
+  elseif f[1] == "sps" and Coop.isClient() then
+    if f[2] == Coop.level then
+      if f[3] == "-" then Sp.applySides(nil) else Sp.applySides(f[3], charList(f[4]), charList(f[5])) end
+    end
+    return true
   elseif f[1] == "spcrank" and Coop.isClient() then
     Sp.G11crank()
     return true
@@ -1426,6 +1503,10 @@ function Sp.update()
   if Sp.LEVELS[Coop.level] and MapCallbacks and MapInit then Sp.LEVELS[Coop.level](Coop.isHost()) end
   Sp.updateChoice()
   if Sp.G15.struggle then Sp.G15updateStruggle(Coop.TICK) end
+  if Sp.sides and Coop.isHost() and Net.CoopTime() - (Sp.sidesSentT or 0) > 10 then
+    Sp.sidesSentT = Net.CoopTime()
+    Sp.sendSides(-1)
+  end
 end
 
 -- Texts of the other languages (Coop.addLangs).
