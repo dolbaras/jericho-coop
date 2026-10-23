@@ -66,7 +66,19 @@ Play
   network way still works.
 
 How it works
-- Act 1: the host plays Ross (as in the original), then Delgado after his death.
+- Act 1: the host plays Ross (as in the original), then Delgado after his death. Nobody
+  switches bodies while Ross lives.
+- Who you are: the host is Ross's soul and the second player (the first to join, or the split
+  screen player 2 when nobody joined) is Jones's astral projection (in the game Jones can
+  project himself into others). Both switch between the squad's bodies as in the original
+  (squad menu, or aim at a squad member and press the switch key), from the scene at the big
+  gates on. The third and fourth players are the squad members themselves: they keep the
+  character they picked (the others are greyed out in their squad menu) and move only when
+  they have to (the story takes their character, no Rawlings left to revive them, no body
+  left: a spirit). While Jones is lost, possessed or caged, the second player's projection
+  is cut and they stay in the body they are in.
+- A downed player moves into a free squad member; during a story split (the squad split up
+  by the story) only into one on their own side, else they wait for Rawlings.
 - Only Rawlings revives downed players (human or AI), as in the original.
 - Cole's and Black's slow motion slows the world for everyone; players keep their speed.
 - Everyone sees the cutscenes at the same time, with the original camera; a scene seen through
@@ -131,11 +143,17 @@ the co-op mod. It needs SMOD and DXVK: put x32\d3d9.dll of DXVK (the Windows bui
 checked) into the game's bin folder. Ross's model for the other players in Act 1 gets the
 upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
 
-Aspect ratio (wide and ultrawide screens)
+Screen: aspect ratio, display mode, refresh rate
 Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
 4:3, 5:4, 16:10, 16:9, 21:9 (2560x1080), 21:9 (3440x1440), 32:9. The choice is kept by the mod
 (the game's player profile used to put its own value back at the main menu, so editing game.cfg
 did not hold). Split screen fills each half on a wide screen.
+Display mode (the same screen): Full screen, Window, or Borderless window (a window without a
+frame over the whole monitor; the picture is drawn at the chosen resolution and stretched, so
+pick your monitor's own resolution). It changes at the next start of the game. With SMOD its
+autoexec.lua (FullScreen) decides full screen; the window can still be borderless.
+Refresh rate (the same screen): Auto (the game's default) or one your monitor has at the
+resolution, in full screen.
 
 Split screen
 A second player on the same PC, in the same game: the screen is split top and bottom, each
@@ -235,7 +253,18 @@ game draws, in memory, and writes nothing until F11.
   STEAM-NOTICE.txt). Если через Steam не подключается, локальная сеть по-прежнему работает.
 
 Как устроено
-- Акт 1: хост играет за Росса (как в оригинале), после его гибели — за Дельгадо.
+- Акт 1: хост играет за Росса (как в оригинале), после его гибели — за Дельгадо. Пока Росс
+  жив, никто не переселяется между телами.
+- Кто вы: хост — душа Росса, второй игрок (первый подключившийся или второй игрок сплитскрина,
+  если никто не подключился) — астральная проекция Джонса (в игре Джонс умеет вселяться в
+  других). Оба переселяются между бойцами отряда, как в оригинале (меню отряда или прицел на
+  бойца и клавиша переключения), начиная со сцены у больших ворот. Третий и четвёртый игроки —
+  сами бойцы отряда: они остаются в выбранном персонаже (остальные в их меню отряда серые) и
+  переходят в другое тело, только когда иначе нельзя (сюжет забирает их персонажа, некому их
+  поднять, не осталось тела — тогда дух). Пока Джонс потерян, одержим или в клетке, проекция
+  второго игрока обрывается, и он остаётся в том теле, где был.
+- Упавший игрок переселяется в свободного бойца; во время сюжетного разделения (сюжет разводит
+  отряд) — только в бойца на своей стороне, иначе ждёт Роулингса.
 - Поднимать упавших может только Роулингс (игрок или ИИ), как в оригинале.
 - Замедление времени Коула и Блэка действует на мир для всех, игроки двигаются с обычной скоростью.
 - Катсцены видят все одновременно, оригинальной камерой; если сцена показана глазами
@@ -300,11 +329,17 @@ SMOD
 проверена 3.1.1) в папку bin игры. Модель Росса для других игроков в акте 1 тоже получает
 увеличенные текстуры. Проверено: все 33 уровня загружены подряд, сплитскрин, клипы F11.
 
-Соотношение сторон (широкие и ультраширокие мониторы)
+Экран: формат, режим экрана, частота обновления
 Конфигурация -> Видео -> Формат: Авто (по умолчанию: по разрешению экрана), 4:3, 5:4, 16:10, 16:9,
 21:9 (2560x1080), 21:9 (3440x1440), 32:9. Выбор запоминает мод (профиль игрока раньше возвращал
 при входе в меню своё значение, поэтому правка game.cfg не держалась). Сплитскрин на широком
 экране заполняет каждую половину.
+Режим экрана (тот же экран): Полный экран, Окно или Окно без рамки (окно без рамки на весь
+монитор; картинка рисуется в выбранном разрешении и растягивается, поэтому выберите родное
+разрешение монитора). Меняется при следующем запуске игры. Со SMOD полный экран задаёт его
+autoexec.lua (FullScreen); окно всё равно можно сделать без рамки.
+Частота обновления (тот же экран): Авто (как у игры) или одна из частот монитора при этом
+разрешении, в полном экране.
 
 Сплитскрин
 Второй игрок на том же ПК, в той же игре: экран делится на верх и низ, у каждого игрока свой

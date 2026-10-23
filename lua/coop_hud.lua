@@ -62,11 +62,17 @@ function H.project(camName, p)
 end
 
 -- Just above the body's head bone (the plate then follows crouching, agony...), else a
--- fixed height over the body.
+-- fixed height over the body. A missing bone is an engine error on every read, so a body
+-- without one is remembered.
+H.BONE = {Rawlings = "Bip Rawllings Head", CoopRossBody = "Bip Ross Head"}
+H.noHead = {}
 function H.headPos(e)
-  local bone = e.Name == "Rawlings" and "Bip Rawllings Head" or ("Bip " .. e.Name .. " Head")
-  local p = e["NodePosHierarchy_" .. bone]
-  if p and p.y then return p + V3D(0, H.ABOVE_HEAD, 0) end
+  local key = tostring(Coop.level) .. ":" .. e.Name
+  if not H.noHead[key] then
+    local p = e["NodePosHierarchy_" .. (H.BONE[e.Name] or ("Bip " .. e.Name .. " Head"))]
+    if p and p.y then return p + V3D(0, H.ABOVE_HEAD, 0) end
+    H.noHead[key] = true
+  end
   return e.Pos + V3D(0, H.HEAD, 0)
 end
 

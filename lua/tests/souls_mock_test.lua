@@ -20,6 +20,10 @@ Coop = {cfg = {seats = "0:Black:1:a;1:Church:1:b;2:Cole:1:c;3:Delgado:1:d"}, P2 
 Coop.ownerOf = function(n) return Coop.owners[n] end
 local switched
 Team = {Icons = {Jones = 8, Cole = 10, Delgado = 9, Church = 6, Rawlings = 5, Black = 7}, UnavaliablePlayers = {},
+  IsPlayerAvaliable = function(n)
+    local c = ents[n]
+    return not Team.UnavaliablePlayers[n] and c ~= nil and c.Life > 0 and c.bActive
+  end,
   SetIdChar = function(e, idvar, Text, Name) e[idvar .. "OnSelect"] = "Team.SwitchSoldier" end,
   SwitchCharacter = function(n) switched = n end}
 dofile("coop_souls.lua")
@@ -38,14 +42,25 @@ assert(S.role(8) == "jones", "split screen player as the second seat")
 Coop.owners = allOwners
 Coop.cfg.seats = "0:Black:1:a;1:Church:1:b;2:Cole:1:c;3:Delgado:1:d"
 
--- squad menu: seat 3 sees the others greyed out, seat 1 does not
-local e = {Name = "Cole"}
+-- squad menu: seat 3 sees the others greyed out, seat 1 does not. The engine's menu fields are
+-- write-only from Lua (a read is an engine error), so the stub refuses reads.
+local function menu(name)
+  local written = {}
+  local e = setmetatable({}, {
+    __index = function(_, k)
+      if k == "Name" then return name end
+      error("engine field read: " .. k)
+    end,
+    __newindex = function(_, k, v) written[k] = v end})
+  return e, written
+end
+local e, ew = menu("Cole")
 Team.SetIdChar(e, "Sele_Up_", "Jones", "Jones")
-assert(e.Sele_Up_OnSelect == "", "seat 3 menu greyed")
+assert(ew.Sele_Up_OnSelect == "", "seat 3 menu greyed")
 assert(string.find(msgs[#msgs], "you are Cole"), "reason told")
-local h = {Name = "Black"}
+local h, hw = menu("Black")
 Team.SetIdChar(h, "Sele_Up_", "Jones", "Jones")
-assert(h.Sele_Up_OnSelect == "Team.SwitchSoldier", "host menu free")
+assert(hw.Sele_Up_OnSelect == "Team.SwitchSoldier", "host menu free")
 
 -- aiming switch: refused for seat 3, usable objects still used
 ents.Cole.SelectedEntity, ents.Cole.AutoSelectedEntity = "Jones", ""

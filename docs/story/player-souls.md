@@ -1,8 +1,8 @@
 # Who the players are: Ross's soul, Jones's projection, the squad (planned for 0.2.4)
 
-Status: agreed with the owner on 2026-10-23, in the works for 0.2.4 (open questions answered,
-below). 0.2.3 keeps the current rules (every player may switch to any body no other human
-holds), except that a downed player stays on their side of a story split.
+Status: built in 0.2.4 (`lua/coop_souls.lua`; open questions answered below). Tested with two
+PCs and a split screen player (lab/souls024.ps1): roles by seat, seat 3's switch refused, seat
+2's allowed, the projection cut and back, a downed seat 3 waiting for Rawlings.
 
 ## The problem
 

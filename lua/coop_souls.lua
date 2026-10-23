@@ -115,13 +115,15 @@ function S.tell(key, ...)
   pcall(Scorer.SetMsgText, s, Game.GetTime() + 5)
 end
 
-local function refused(why, body)
+-- (other: the body greyed out in the squad menu; none for the aiming switch)
+local function refused(why, body, other)
   if why == "fixed" then S.tell("fixed", charName(body)) else S.tell(why) end
-  local key = why .. ":" .. tostring(body)
+  local key = why .. ":" .. tostring(body) .. ":" .. tostring(other)
   S.logged = S.logged or {}
   if not S.logged[key] then
     S.logged[key] = true
-    Coop.log("souls: " .. tostring(body) .. " may not switch by choice (" .. why .. ")")
+    Coop.log("souls: " .. tostring(body) .. " may not switch by choice (" .. why .. ")"
+      .. (other and (", " .. other .. " greyed out in the squad menu") or ""))
   end
 end
 
@@ -129,15 +131,16 @@ function S.install()
   if S.installed or not Team or not Team.SetIdChar or not Team.SwitchCharacter then return end
   S.installed = true
   -- The squad menu: other bodies stay shown, greyed out (no OnSelect) when this player may not
-  -- choose them.
+  -- choose them. The menu's fields can only be written from Lua (reading one is an engine error),
+  -- so the vanilla test for a selectable body is repeated here.
   local origSet = Team.SetIdChar
   Team.SetIdChar = function(e, idvar, Text, Name, ...)
     local r = origSet(e, idvar, Text, Name, ...)
-    if e and Name ~= e.Name and e[idvar .. "OnSelect"] == "Team.SwitchSoldier" then
+    if e and Name ~= e.Name and Team.IsPlayerAvaliable(Name) then
       local ok, why = S.mayChoose(Coop.ownerOf(e.Name))
       if not ok then
         e[idvar .. "OnSelect"] = ""
-        refused(why, e.Name)
+        refused(why, e.Name, Name)
       end
     end
     return r

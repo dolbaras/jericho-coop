@@ -1948,6 +1948,25 @@ end
 -- (ThreadsBlack.CreateGhostBullet); the host logs where its copy flies every 5 ticks.
 -- 'abbytest' (client playing Delgado, with 'fight' on the host): from tick 400 turn to the
 -- nearest enemy within 2500 and send the Ababanili at it (Ababanili.AbabaniliStart).
+-- 'disptest=<hz>' (full screen): the Video settings' rows applied as Accept does
+-- (Coop.applyDisplay): that refresh rate at tick 300, Auto at 900, a window at 1200 (restart
+-- hint), full screen again at 1300.
+if cfg.disptest and Coop.level ~= "levels/menu" then
+  local prevDisp = Coop.dev
+  local steps = {[300] = {hz = cfg.disptest}, [900] = {hz = 0}, [1200] = {mode = 2}, [1300] = {mode = 1}}
+  function Coop.dev()
+    if prevDisp then prevDisp() end
+    local s = steps[Coop.frame]
+    if s then
+      local d = Coop.displayState()
+      if s.hz then d.hz = s.hz end
+      if s.mode then d.mode = s.mode end
+      Coop.applyDisplay()
+      Coop.log("disptest: tick " .. Coop.frame .. " -> " .. tostring(Net.CoopDisplay("get")))
+    end
+  end
+end
+
 if (cfg.gbtest or cfg.abbytest) and Coop.level ~= "levels/menu" then
   local prevPow = Coop.dev
   function Coop.dev()

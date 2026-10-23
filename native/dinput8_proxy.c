@@ -9,6 +9,7 @@
  *   JERICHO_STACKDUMP=<file>  When the game exits (its FATAL ERROR path calls ExitProcess),
  *                    write candidate return addresses found on the stack to <file>.
  *   JERICHO_WINPOS / JERICHO_ADAPTER  window placement and render adapter (display_hooks.c).
+ *   JERICHO_TEST_ABABANILI=1  makes the engine fix below happen on every Ababanili update.
  * The exe on disk is never modified.
  */
 #include <windows.h>
@@ -121,6 +122,37 @@ static DWORD WINAPI hook_GetLastError(void)
     return *(DWORD *)((BYTE *)NtCurrentTeb() + 0x34);
 }
 
+/* The last boss's Ababanili (Sum_End): their steering (0x4fc9b0) takes a new prey when theirs is
+ * gone and reads it with no check. With no prey left (every player near is down or bound by the
+ * rune, which the single player game never reaches) that read hit NULL and the game crashed
+ * (0.2.4 tests, story split G15). It resumes on the function's own "no target" path (a zero
+ * steering vector for that frame). Only on the retail exe (both places' bytes checked), in
+ * memory, for that one instruction. */
+#define ABABANILI_READ 0x004fcd47
+#define ABABANILI_NO_TARGET 0x004fcd2a
+
+static LONG CALLBACK engine_fixes(EXCEPTION_POINTERS *x)
+{
+    static LONG checked, retail, logged;
+    EXCEPTION_RECORD *r = x->ExceptionRecord;
+    CONTEXT *c = x->ContextRecord;
+    if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || (DWORD)r->ExceptionAddress != ABABANILI_READ
+        || r->ExceptionInformation[0] != 0 || c->Edx != 0)
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (!checked) {
+        static const unsigned char read[6] = {0x8b, 0x02, 0x8d, 0x4c, 0x24, 0x38};       /* mov eax,[edx] */
+        static const unsigned char none[6] = {0xd9, 0xee, 0x8b, 0x74, 0x24, 0x60};       /* fldz; mov esi,[esp+60] */
+        retail = memcmp((void *)ABABANILI_READ, read, 6) == 0 && memcmp((void *)ABABANILI_NO_TARGET, none, 6) == 0;
+        checked = 1;
+    }
+    if (!retail)
+        return EXCEPTION_CONTINUE_SEARCH;
+    c->Eip = ABABANILI_NO_TARGET;
+    if (InterlockedIncrement(&logged) == 1)
+        coop_log("engine fix: Ababanili without prey (no target this frame)");
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
 static void load_real_dinput8(void)
 {
     char path[MAX_PATH];
@@ -162,6 +194,20 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
             if (gle)
                 patch_jmp(gle, (void *)hook_GetLastError);
             AddVectoredExceptionHandler(1, log_access_violation);
+        }
+        /* added last, so it is asked first: a fixed read is not logged as a crash */
+        AddVectoredExceptionHandler(1, engine_fixes);
+        /* Test: every Ababanili loses its prey at that read (xor edx,edx over the compare). */
+        if (env_is_1("JERICHO_TEST_ABABANILI")) {
+            static const unsigned char cmp[8] = {0x3b, 0xd1, 0x75, 0x04, 0x84, 0xdb, 0x75, 0x42};
+            static const unsigned char lose[8] = {0x31, 0xd2, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+            unsigned char *p = (unsigned char *)0x004fcd3f;
+            DWORD old;
+            if (memcmp(p, cmp, 8) == 0 && VirtualProtect(p, 8, PAGE_EXECUTE_READWRITE, &old)) {
+                memcpy(p, lose, 8);
+                VirtualProtect(p, 8, old, &old);
+                FlushInstructionCache(GetCurrentProcess(), p, 8);
+            }
         }
     }
     return TRUE;

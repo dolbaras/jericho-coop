@@ -1,4 +1,4 @@
-# Jericho Co-op
+# Jericho Co-op+
 
 Online co-op (2-4 players) for **Clive Barker's Jericho** (2007, PC). Each player controls a
 squad member; the host runs the game world and the story, clients follow it.
@@ -14,10 +14,10 @@ More than a co-op mode:
 - **Works with other mods.** SMOD (its rules are kept the same for every player), "Clive
   Upscaler's Jericho" (2x textures) and DXVK; Steam or a local network.
 
-From 0.2.4 the mod is called **Jericho Co-op+**. The repository and file names stay the
-same, so the auto-update keeps working.
+Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names stay the same,
+so the auto-update keeps working.
 
-Status: test builds, latest **0.2.3** (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)).
+Status: release candidate, latest **0.2.4** (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)).
 Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
 the game, keeps a copy of every file it replaces, updates an older version in place and can
 uninstall. From 0.2.3 the installer's "Jericho Co-op" shortcut (desktop and Start menu) checks
@@ -51,6 +51,10 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   aim, shoot and use their powers, with nameplates (can be turned off).
 - Squad orders per player: each fire team (Alpha, Omega) follows one player; in Act 1 Ross's
   player leads everyone, as in the original (`coop_squad.lua`).
+- Who the players are in the story (`coop_souls.lua`, `docs/story/player-souls.md`): the host
+  is Ross's soul and the second player Jones's astral projection, both switching bodies freely
+  after Ross's death; the third and fourth keep their character (greyed out in their squad
+  menu) and move only when they must; the projection is cut while Jones is held.
 - Enemies are run by the host and are the same on every screen; they fight every player;
   hits from clients reach the host. Enemy toughness per player is a session setting.
 - Breakable and movable objects (crates, barrels, furniture) break and come to rest the same
@@ -82,19 +86,21 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 - Session settings (host): difficulty, enemy toughness, character-only actions, QTEs, AI
   squadmates' damage, cutscene view. SMOD is detected; the session plays by the host's SMOD
   values when every player has it, and its jump is replicated (`coop_smod.lua`).
-- Aspect ratio: the game's own option has Auto, 4:3, 5:4, 16:10, 16:9, 21:9 and 32:9.
+- Screen: the game's Video settings have Auto, 4:3, 5:4, 16:10, 16:9, 21:9 and 32:9 aspect
+  ratios, a display mode (full screen, window, borderless window over the monitor) and the
+  refresh rate (`display_hooks.c`).
+- Lobby: the picked character's picture (the game's own squad art); the main menu shows the
+  mod's name and version beside SMOD's.
 - F11 saves the last 30 seconds as a video for bug reports (`native/clip.c`).
 - Installer (`tools/installer.ps1`): finds the game (its folder, registry, GOG, Steam
   libraries or asks), six languages, backup and uninstall, the "Jericho Co-op" shortcut with
   the game's icon and a co-op badge; the launcher (`tools/launcher.ps1`) updates from GitHub
   releases (SHA-256 checked) before starting the game.
 
-### Next (0.2.4)
+### Next
 
-Who the players are in the story: player 1 is Ross's soul, player 2 Jones's projection (both
-switch bodies freely), players 3-4 keep their character (`docs/story/player-souls.md`).
-Per-level fixes for story scripts that assume one player (`docs/usrentity-audit.md`) as
-playtesting finds them.
+Fixes from human playthroughs (please report in Issues); per-level fixes for story scripts
+that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
 
 ## How it works
 
@@ -106,8 +112,9 @@ playtesting finds them.
   The exe on disk keeps its code: the installer only sets the retail exe's large-address-aware
   flag (4 GB of memory; the original is kept and put back on uninstall). In memory, on the
   retail exe only, one engine call is redirected (a user lookup without a bounds check that
-  crashed split screen, `split.c`); the rest goes through import tables, Direct3D's vtable and
-  the game's own Lua.
+  crashed split screen, `split.c`) and one engine read is caught (the last boss's fire spirit
+  with nobody left to chase, `dinput8_proxy.c`); the rest goes through import tables,
+  Direct3D's vtable and the game's own Lua.
 - `lua/` is the mod itself, run by the game's own Lua 5.1:
   - `boot.lua`, `coop.lua`: session, squad ownership, player state at 20 Hz, puppets
   - `coop_menu.lua`: "Co-op" main menu entry, host/join, lobby (character, nickname,
@@ -125,6 +132,7 @@ playtesting finds them.
   - `coop_inst.lua`, `coop_patrol.lua`: side instances in one session, the Lost Patrol
   - `coop_hud.lua`: nameplates, hints
   - `coop_squad.lua`: squad orders per player (fire team leaders)
+  - `coop_souls.lua`: who the players are (Ross's soul, Jones's projection, the squad)
   - `coop_powers.lua`, `coop_ross.lua`: the squad's powers for the others, Act 1's Ross
   - `coop_split.lua`: split screen (second player on one PC)
   - `coop_smod.lua`: SMOD detection, one set of rules per session (the host's SMOD values or the game's), its jump for the others, SMOD texts in Russian
