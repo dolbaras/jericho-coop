@@ -10,8 +10,17 @@
 # the longest step, building the cutscene animations from the game's files, reports file by file.
 # -Quiet: no window, the same steps written to the console (test scripts, the SMOD bundle).
 # -Game without -Uninstall starts installing into that folder right away.
+# The window's install also makes the "Jericho Co-op" shortcut (desktop and Start menu, the game's
+# icon with a co-op badge): it runs coop\coop-launcher.ps1, which installs a newer release from
+# GitHub before starting the game. The launcher runs a new release's installer as
+#   coop-installer.ps1 -Game <folder> -AutoClose -NoShortcut
+# so every later installer has to take these: -AutoClose closes the window after a successful
+# install, -NoShortcut keeps the shortcuts as they are (only those already made are refreshed).
+# -ShortcutDir puts new shortcuts in that folder instead (tests).
 # Usage: coop-installer.ps1 [-Game <folder>] [-Uninstall] [-Quiet] [-Lang en|ru|de|fr|es|it]
-param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $IgnoreRunning, [string] $Lang = "")
+#                           [-AutoClose] [-NoShortcut] [-ShortcutDir <folder>]
+param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $IgnoreRunning, [string] $Lang = "",
+      [switch] $AutoClose, [switch] $NoShortcut, [string] $ShortcutDir = "")
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $payload = Join-Path $here "files"
@@ -87,6 +96,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Select the Clive Barker's Jericho folder (the one with the bin folder)"
         "remove_the_co_op" = "Remove the co-op mod from`n{0} ?"
         "remove_jericho_co_op" = "Remove Jericho Co-op {0} from this folder?`n`nThe game's original files are put back; co-op saves stay in Documents\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Removed: "
+        "shortcut" = "Shortcut: "
+        "shortcut_desc" = "Clive Barker's Jericho with co-op: installs a newer version of the mod first, if there is one"
+        "the_shortcut" = "The 'Jericho Co-op' shortcut (desktop, Start menu) starts the game and installs a newer version of the mod from GitHub first, if there is one."
     }
     ru = @{
         "the_co_op_mod" = "Кооп-мод не установлен в`n{0}"
@@ -157,6 +170,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Выберите папку Clive Barker's Jericho (в ней есть папка bin)"
         "remove_the_co_op" = "Удалить кооп-мод из`n{0} ?"
         "remove_jericho_co_op" = "Удалить Jericho Co-op {0} из этой папки?`n`nОригинальные файлы игры будут возвращены; кооп-сохранения останутся в Документы\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Удалён: "
+        "shortcut" = "Ярлык: "
+        "shortcut_desc" = "Clive Barker's Jericho с кооперативом: сначала ставит новую версию мода, если она вышла"
+        "the_shortcut" = "Ярлык «Jericho Co-op» (рабочий стол, меню «Пуск») запускает игру, а перед этим ставит с GitHub новую версию мода, если она вышла."
     }
     de = @{
         "the_co_op_mod" = "Der Koop-Mod ist nicht installiert in`n{0}"
@@ -227,6 +244,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Wählen Sie den Ordner von Clive Barker's Jericho (den mit dem Ordner bin)"
         "remove_the_co_op" = "Den Koop-Mod entfernen aus`n{0} ?"
         "remove_jericho_co_op" = "Jericho Co-op {0} aus diesem Ordner entfernen?`n`nDie Originaldateien des Spiels werden wiederhergestellt; Koop-Spielstände bleiben in Dokumente\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Entfernt: "
+        "shortcut" = "Verknüpfung: "
+        "shortcut_desc" = "Clive Barker's Jericho mit Koop: installiert zuerst eine neuere Version des Mods, falls es eine gibt"
+        "the_shortcut" = "Die Verknüpfung 'Jericho Co-op' (Desktop, Startmenü) startet das Spiel und installiert vorher eine neuere Version des Mods von GitHub, falls es eine gibt."
     }
     fr = @{
         "the_co_op_mod" = "Le mod coop n'est pas installé dans`n{0}"
@@ -297,6 +318,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Sélectionnez le dossier de Clive Barker's Jericho (celui qui contient le dossier bin)"
         "remove_the_co_op" = "Retirer le mod coop de`n{0} ?"
         "remove_jericho_co_op" = "Retirer Jericho Co-op {0} de ce dossier?`n`nLes fichiers d'origine du jeu sont restaurés; les sauvegardes coop restent dans Documents\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Supprimé: "
+        "shortcut" = "Raccourci: "
+        "shortcut_desc" = "Clive Barker's Jericho en coop: installe d'abord une version plus récente du mod, s'il y en a une"
+        "the_shortcut" = "Le raccourci 'Jericho Co-op' (bureau, menu Démarrer) lance le jeu et installe d'abord une version plus récente du mod depuis GitHub, s'il y en a une."
     }
     es = @{
         "the_co_op_mod" = "El mod cooperativo no está instalado en`n{0}"
@@ -367,6 +392,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Selecciona la carpeta de Clive Barker's Jericho (la que contiene la carpeta bin)"
         "remove_the_co_op" = "¿Quitar el mod cooperativo de`n{0} ?"
         "remove_jericho_co_op" = "¿Quitar Jericho Co-op {0} de esta carpeta?`n`nSe restaurarán los archivos originales del juego; las partidas guardadas del cooperativo se conservan en Documentos\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Eliminado: "
+        "shortcut" = "Acceso directo: "
+        "shortcut_desc" = "Clive Barker's Jericho con cooperativo: primero instala una versión más reciente del mod, si la hay"
+        "the_shortcut" = "El acceso directo 'Jericho Co-op' (escritorio, menú Inicio) inicia el juego y antes instala desde GitHub una versión más reciente del mod, si la hay."
     }
     it = @{
         "the_co_op_mod" = "La mod co-op non è installata in`n{0}"
@@ -437,6 +466,10 @@ $script:TEXTS = @{
         "select_the_clive_barker" = "Seleziona la cartella di Clive Barker's Jericho (quella con la cartella bin)"
         "remove_the_co_op" = "Rimuovere la mod co-op da`n{0} ?"
         "remove_jericho_co_op" = "Rimuovere Jericho Co-op {0} da questa cartella?`n`nI file originali del gioco vengono ripristinati; i salvataggi co-op restano in Documenti\Codemasters\Clive Barker's Jericho\Coop."
+        "removed" = "Rimosso: "
+        "shortcut" = "Collegamento: "
+        "shortcut_desc" = "Clive Barker's Jericho in co-op: prima installa una versione più recente della mod, se c'è"
+        "the_shortcut" = "Il collegamento 'Jericho Co-op' (desktop, menu Start) avvia il gioco e prima installa da GitHub una versione più recente della mod, se c'è."
     }
 }
 # Windows' own language when there is a translation, else English; the window has a list too.
@@ -497,6 +530,8 @@ public static class CoopWin {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] public static extern int SetWindowTheme(IntPtr h, string app, string id);
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint PrivateExtractIcons(string f, int i, int cx, int cy, IntPtr[] h, uint[] id, uint n, uint flags);
+    [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr h);
     // A dark title bar (Windows 10 2004+ / 11; older ones keep theirs).
     public static void DarkTitle(IntPtr h) { int on = 1; try { DwmSetWindowAttribute(h, 20, ref on, 4); } catch { } }
 }
@@ -588,7 +623,7 @@ function Find-Games {
 }
 
 function Read-Manifest($g) {
-    $m = @{ files = @(); backups = @(); built = @(); version = "" }
+    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); version = "" }
     $f = Join-Path $g "coop\install.txt"
     if (Test-Path -LiteralPath $f) {
         foreach ($line in Get-Content -LiteralPath $f) {
@@ -596,12 +631,35 @@ function Read-Manifest($g) {
             elseif ($line -match '^file=(.*)$') { $m.files += $Matches[1] }
             elseif ($line -match '^backup=(.*)$') { $m.backups += $Matches[1] }
             elseif ($line -match '^built=(.*)$') { $m.built += $Matches[1] }
+            elseif ($line -match '^shortcut=(.*)$') { $m.shortcuts += $Matches[1] }
         }
     }
     $m
 }
 
-function Game-Running { Get-Process -Name Jericho, anselintegrationtestapp -ErrorAction SilentlyContinue }
+# The game running from this folder (a copy elsewhere does not lock these files).
+function Game-Running($g) {
+    $g = [IO.Path]::GetFullPath($g).TrimEnd('\') + "\"
+    Get-Process -Name Jericho, anselintegrationtestapp -ErrorAction SilentlyContinue |
+        Where-Object { -not $_.Path -or $_.Path.StartsWith($g, [StringComparison]::OrdinalIgnoreCase) }
+}
+
+# The game's own exe: with SMOD bin\Jericho.exe is SMOD's starter (an NVIDIA icon) and the
+# game is bin\anselintegrationtestapp.exe.
+function Game-Exe($g) {
+    $smod = Join-Path $g "bin\anselintegrationtestapp.exe"
+    if (Test-Path -LiteralPath $smod) { return $smod }
+    Join-Path $g "bin\Jericho.exe"
+}
+
+# The window's icon: the co-op one once made, else the game's.
+function Window-Icon($g) {
+    try {
+        $ico = Join-Path $g "coop\coop.ico"
+        if (Test-Path -LiteralPath $ico) { return New-Object Drawing.Icon($ico, 32, 32) }
+        [Drawing.Icon]::ExtractAssociatedIcon((Game-Exe $g))
+    } catch { $null }
+}
 
 # ---------------------------------------------------------------------------------------------
 # Remove
@@ -618,6 +676,10 @@ function Do-Uninstall($g) {
         Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue
     }
     Ui-Log (L "removed_file_s" $($all.Count))
+    # (only "Jericho Co-op.lnk" files the install made: the record names them)
+    foreach ($lnk in $m.shortcuts) {
+        if ($lnk -like "*.lnk" -and (Test-Path -LiteralPath $lnk)) { Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue; Ui-Log ((L "removed") + $lnk) }
+    }
     Ui-Step "rm" "done"
     Ui-Step "restore" "run"
     $i = 0
@@ -789,11 +851,116 @@ function Build-Anims($g) {
     "ok"
 }
 
+# The shortcut's icon: the game's own (read from the player's exe at each size, nothing of the
+# game is shipped) with a co-op badge, two figures on a red disc, in the lower right corner.
+function New-CoopIcon($exe, $ico) {
+    $frames = @()
+    foreach ($size in 16, 24, 32, 48, 64, 128, 256) {
+        $h = New-Object IntPtr[] 1; $id = New-Object UInt32[] 1
+        $n = [CoopWin]::PrivateExtractIcons($exe, 0, $size, $size, $h, $id, 1, 0)
+        if ($n -lt 1 -or $h[0] -eq [IntPtr]::Zero) { throw "no icon in $exe" }
+        $src = [Drawing.Icon]::FromHandle($h[0]).ToBitmap()
+        [CoopWin]::DestroyIcon($h[0]) | Out-Null
+        $bmp = New-Object Drawing.Bitmap($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gr = [Drawing.Graphics]::FromImage($bmp)
+        $gr.SmoothingMode = "AntiAlias"; $gr.InterpolationMode = "HighQualityBicubic"
+        $gr.DrawImage($src, 0, 0, $size, $size)
+        # (bigger on the small sizes, where it has to be seen at all)
+        $d = [single]($size * $(if ($size -le 24) { 0.62 } else { 0.46 }))
+        $x = [single]($size - $d); $y = [single]($size - $d)
+        $rim = [single][Math]::Max(1, $size / 32)
+        $gr.FillEllipse((New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(24, 24, 28))), $x, $y, $d, $d)
+        $gr.FillEllipse((New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(196, 40, 48))), $x + $rim, $y + $rim, $d - 2 * $rim, $d - 2 * $rim)
+        # head and shoulders twice, the one behind a little higher and paler
+        $u = $d / 10
+        foreach ($f in @(@(6.1, 3.0, [Drawing.Color]::FromArgb(240, 200, 200)), @(3.9, 3.6, [Drawing.Color]::White))) {
+            $br = New-Object Drawing.SolidBrush($f[2])
+            $cx = $x + $f[0] * $u; $top = $y + $f[1] * $u
+            $gr.FillEllipse($br, [single]($cx - 1.25 * $u), [single]$top, [single](2.5 * $u), [single](2.5 * $u))
+            $path = New-Object Drawing.Drawing2D.GraphicsPath
+            $path.AddPie([single]($cx - 2.4 * $u), [single]($top + 2.7 * $u), [single](4.8 * $u), [single](4.2 * $u), [single]180, [single]180)
+            $gr.FillPath($br, $path)
+            $path.Dispose(); $br.Dispose()
+        }
+        $gr.Dispose(); $src.Dispose()
+        $frames += , @($size, $bmp)
+    }
+    # ICO: 256 as PNG, the others as 32-bit DIBs (what both the shell and .NET's Icon read).
+    $blobs = @()
+    foreach ($fr in $frames) {
+        $size, $bmp = $fr
+        $p = New-Object IO.MemoryStream
+        if ($size -ge 256) { $bmp.Save($p, [Drawing.Imaging.ImageFormat]::Png) } else {
+            $bw = New-Object IO.BinaryWriter($p)
+            $mask = [int]([Math]::Ceiling($size / 32.0) * 4)
+            $bw.Write([UInt32]40); $bw.Write([Int32]$size); $bw.Write([Int32](2 * $size)); $bw.Write([UInt16]1); $bw.Write([UInt16]32)
+            $bw.Write([UInt32]0); $bw.Write([UInt32]($size * $size * 4 + $mask * $size))
+            $bw.Write([Int32]0); $bw.Write([Int32]0); $bw.Write([UInt32]0); $bw.Write([UInt32]0)
+            $data = $bmp.LockBits((New-Object Drawing.Rectangle(0, 0, $size, $size)), [Drawing.Imaging.ImageLockMode]::ReadOnly, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+            $px = New-Object byte[] ($data.Stride * $size)
+            [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $px, 0, $px.Length)
+            $bmp.UnlockBits($data)
+            for ($row = $size - 1; $row -ge 0; $row--) { $bw.Write($px, $row * $data.Stride, $size * 4) }
+            $bw.Write((New-Object byte[] ($mask * $size)))
+            $bw.Flush()
+        }
+        $blobs += , $p.ToArray()
+    }
+    $ms = New-Object IO.MemoryStream
+    $w = New-Object IO.BinaryWriter($ms)
+    $w.Write([UInt16]0); $w.Write([UInt16]1); $w.Write([UInt16]$frames.Count)
+    $off = 6 + 16 * $frames.Count
+    for ($i = 0; $i -lt $frames.Count; $i++) {
+        $size = $frames[$i][0]
+        $w.Write([byte]($size % 256)); $w.Write([byte]($size % 256)); $w.Write([byte]0); $w.Write([byte]0)
+        $w.Write([UInt16]1); $w.Write([UInt16]32); $w.Write([UInt32]$blobs[$i].Length); $w.Write([UInt32]$off)
+        $off += $blobs[$i].Length
+    }
+    foreach ($b in $blobs) { $w.Write($b) }
+    $w.Flush()
+    [IO.File]::WriteAllBytes($ico, $ms.ToArray())
+    foreach ($fr in $frames) { $fr[1].Dispose() }
+}
+
+# "Jericho Co-op" shortcuts to coop\coop-launcher.ps1: on the desktop and in the Start menu (the
+# window's install), those an earlier install made and the player kept (refreshed), or in
+# -ShortcutDir. Returns their paths for the install record.
+function Make-Shortcuts($g, $old) {
+    $ico = Join-Path $g "coop\coop.ico"
+    $iconAt = "$(Game-Exe $g),0"
+    if ($script:haveWin) {
+        try { New-CoopIcon (Game-Exe $g) $ico; $iconAt = "$ico,0" } catch { Ui-Log "coop.ico: $($_.Exception.Message)" }
+    }
+    $links = New-Object System.Collections.Generic.List[string]
+    foreach ($lnk in $old.shortcuts) { if ((Test-Path -LiteralPath $lnk) -and -not $links.Contains($lnk)) { $links.Add($lnk) } }
+    $dirs = @()
+    if ($ShortcutDir) { $dirs = @($ShortcutDir) }
+    elseif (-not $Quiet -and -not $NoShortcut) { $dirs = @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFolderPath("Programs")) }
+    foreach ($d in $dirs) {
+        if (-not $d) { continue }
+        $lnk = Join-Path $d "Jericho Co-op.lnk"
+        if (-not $links.Contains($lnk)) { $links.Add($lnk) }
+    }
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($lnk in $links) {
+        $sc = $shell.CreateShortcut($lnk)
+        $sc.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+        $sc.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $g "coop\coop-launcher.ps1") + '"'
+        $sc.WorkingDirectory = $g
+        $sc.IconLocation = $iconAt
+        $sc.Description = L "shortcut_desc"
+        $sc.WindowStyle = 7
+        $sc.Save()
+        Ui-Log ((L "shortcut") + $lnk)
+    }
+    , @($links)
+}
+
 function Do-Install($g) {
     Ui-Step "check" "run"
     Ui-Progress 1 $g
     if (-not (Test-Path -LiteralPath $payload)) { throw (L "the_files_folder_is") }
-    if (-not $IgnoreRunning -and (Game-Running)) { throw (L "close_the_game_first") }
+    if (-not $IgnoreRunning -and (Game-Running $g)) { throw (L "close_the_game_first") }
     $old = Read-Manifest $g
     if ($old.version) { Ui-Log ((L "installed_now_co_op") + $old.version) }
     if (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")) { Ui-Log (L "smod_found") }
@@ -904,16 +1071,19 @@ function Do-Install($g) {
     if ($anims -eq "ok" -and $haveModel) {
         Set-Content -LiteralPath $mark -Value "1" -Encoding ASCII
     } else { Remove-Item -LiteralPath $mark -ErrorAction SilentlyContinue }
+    $links = @()
+    try { $links = @(Make-Shortcuts $g $old) } catch { Ui-Log "shortcut: $($_.Exception.Message)"; $links = @($old.shortcuts | Where-Object { Test-Path -LiteralPath $_ }) }
     $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" }) +
-        ($built | ForEach-Object { "built=$_" })
+        ($built | ForEach-Object { "built=$_" }) + ($links | ForEach-Object { "shortcut=$_" })
     Set-Content -LiteralPath (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
     Ui-Step "finish" "done"
     Ui-Progress 100 ""
-    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")) }
+    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); links = $links.Count }
 }
 
 function Install-Message($g, $r) {
     $msg = L "start_the_game_the"
+    if ($r.links -gt 0) { $msg += "`n`n" + (L "the_shortcut") }
     if ($r.smod) { $msg += (L "smod_found_supported") }
     if ($r.anims -eq "nopython" -or $r.anims -eq "failed") {
         $msg += "`n`n"
@@ -1207,7 +1377,8 @@ function Show-Result($ok, $title, $text) {
 function Start-Install($g) {
     $g = (Resolve-Path -LiteralPath $g).Path
     $script:target = $g
-    try { $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon((Join-Path $g "bin\Jericho.exe")) } catch { }
+    $ic = Window-Icon $g
+    if ($ic) { $form.Icon = $ic }
     Show-Work (L "installing_co_op" $version) @(
         @("check", (L "checking_the_game_folder")),
         @("copy", (L "copying_the_mod_the")),
@@ -1220,7 +1391,16 @@ function Start-Install($g) {
         Save-Log $g
         $title = $(if ($r.old -and $r.old -ne $version) { L "updated_from_to" $($r.old) $version } else { L "co_op_is_installed2" $version })
         $script:exitCode = 0
+        $ic = Window-Icon $g
+        if ($ic) { $form.Icon = $ic }
         Show-Result $true $title (Install-Message $g $r)
+        # (the launcher's update: the game starts once this window is gone)
+        if ($AutoClose) {
+            $script:closer = New-Object Windows.Forms.Timer
+            $script:closer.Interval = 2000
+            $script:closer.Add_Tick({ $script:closer.Stop(); $form.Close() })
+            $script:closer.Start()
+        }
     } catch {
         Ui-Log ("ERROR: " + $_.Exception.Message)
         if ($script:ui.running) { $script:ui.running.icon.Text = [string][char]0x2716; $script:ui.running.icon.ForeColor = $C.bad }
@@ -1232,10 +1412,12 @@ function Start-Install($g) {
 function Start-Uninstall($g) {
     $g = (Resolve-Path -LiteralPath $g).Path
     $script:target = $g
-    if (-not $IgnoreRunning -and (Game-Running)) {
+    if (-not $IgnoreRunning -and (Game-Running $g)) {
         [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op", "OK", "Warning") | Out-Null
         return
     }
+    $ic = Window-Icon $g
+    if ($ic) { $form.Icon = $ic }
     Show-Work (L "removing_co_op") @(
         @("rm", (L "removing_the_mod_s")),
         @("restore", (L "putting_back_the_game")),
@@ -1266,7 +1448,7 @@ $btClose.Add_Click({ $form.Close() })
 $btGo.Add_Click({
     $g = $tbGame.Text.Trim().Trim('"')
     if (-not (Test-Game $g)) { return }
-    if (-not $IgnoreRunning -and (Game-Running)) {
+    if (-not $IgnoreRunning -and (Game-Running $g)) {
         [Windows.Forms.MessageBox]::Show($form, (L "close_the_game_first"), "Jericho Co-op", "OK", "Warning") | Out-Null
         return
     }

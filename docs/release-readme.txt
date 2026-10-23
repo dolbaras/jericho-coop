@@ -24,7 +24,13 @@ Install
    game files takes 2-5 minutes (the minutes left are shown). Running it again updates the mod
    or removes it. Its language is Windows' (English, Russian, German, French, Spanish,
    Italian), or pick one in the list at its top.
-2. Start the game as usual. The main menu has a "Co-op" entry.
+2. Start the game with the "Jericho Co-op" shortcut the installer puts on the desktop and in the
+   Start menu (the game's icon with a red co-op badge), or as usual. The main menu has a
+   "Co-op" entry.
+Updates: the shortcut first asks GitHub for the newest release of the mod (a second or two;
+offline, the game simply starts). When there is a newer one, it downloads it (checked against
+the release's SHA-256), runs its installer for your game folder and then starts the game. A log
+is in <game>\coop\launcher-log.txt. Starting the game any other way skips this check.
 Languages: the mod's menus and hints (and SMOD's) follow the game's language setting: English,
 Russian, German, French, Spanish or Italian.
 The game itself needs a mouse plugged in to start (even when you play with a gamepad).
@@ -181,7 +187,13 @@ game draws, in memory, and writes nothing until F11.
    файлов игры занимает 2-5 минут (показано, сколько осталось). Повторный запуск обновляет мод
    или удаляет его. Язык окна — как у Windows (английский, русский, немецкий, французский,
    испанский, итальянский), его можно сменить в списке вверху окна.
-2. Запустите игру как обычно. В главном меню появится пункт «Совместная игра».
+2. Запускайте игру ярлыком «Jericho Co-op», который установщик кладёт на рабочий стол и в меню
+   «Пуск» (значок игры с красным знаком коопа), или как обычно. В главном меню появится пункт
+   «Совместная игра».
+Обновления: ярлык сначала спрашивает у GitHub, вышла ли новая версия мода (секунда-две; без
+интернета игра просто запускается). Если вышла, он скачивает её (с проверкой по SHA-256
+выпуска), запускает её установщик для вашей папки игры и только потом запускает игру. Журнал —
+<папка игры>\coop\launcher-log.txt. При запуске игры другим способом проверки нет.
 Языки: меню и подсказки мода (и SMOD) следуют языку игры: английский, русский, немецкий,
 французский, испанский или итальянский.
 Самой игре для запуска нужна подключённая мышь (даже если играете на геймпаде).

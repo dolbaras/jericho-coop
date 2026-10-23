@@ -1,7 +1,8 @@
 ﻿# Build the release archive dist\jericho-coop-<version>.zip:
 #   Install Co-op.bat + coop-installer.ps1   the installer (backs up what it replaces, uninstalls)
 #   files\                                   what goes into the game folder (bin\dinput8.dll,
-#                                            coop\*.lua, the cutscene animation builder)
+#                                            coop\*.lua, the cutscene animation builder,
+#                                            coop\coop-launcher.ps1 behind the shortcut)
 #   README-COOP.txt, LICENSE.txt, ENET-LICENSE.txt, STEAM-NOTICE.txt
 # files\coop\steam_api.dll (Steam joining, native/steam_net.c) comes from
 # <workspace>\tools\steam: Steamworks.NET Standalone 2025.164.1, Windows-x86, SHA-256 checked.
@@ -40,6 +41,8 @@ Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encodin
 # The animation builder the installer runs for the experimental "own eyes" cutscene view.
 New-Item -ItemType Directory -Force (Join-Path $files "coop\anims") | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot "bfpk.py"), (Join-Path $PSScriptRoot "m3d.py") (Join-Path $files "coop\anims")
+# The "Jericho Co-op" shortcut's launcher: updates the mod from the GitHub releases, then starts the game.
+Copy-Item (Join-Path $PSScriptRoot "launcher.ps1") (Join-Path $files "coop\coop-launcher.ps1")
 # Installer
 Copy-Item (Join-Path $root "tools\installer.ps1") (Join-Path $stage "coop-installer.ps1")
 Set-Content -Path (Join-Path $stage "Install Co-op.bat") -Encoding ASCII `
