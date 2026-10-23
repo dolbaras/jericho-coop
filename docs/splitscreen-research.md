@@ -241,6 +241,20 @@ Approach (a) after all, in one game: `native/split.c` (alternate camera slot per
   there the HUD had been drawn over the whole half, twice as wide as high (a wide crosshair,
   stretched squad names), and without the batch rule below each player's message line came
   out in the other half every other frame (blinking, in two styles). Test: lab/splithud.ps1.
+  Fades and full-screen effects stay over the whole half in that view.
+- **0.2.6: hints per player.** The game has one message line (`Scorer.SetMsgText`) that each
+  user's "Msg" widget shows; a hint for one seat (`CoopSplit.tellUser`, `CoopSouls.tellSeat`,
+  and the game's own messages from player 2's code) hides the other user's widget while it lasts
+  (`Visible` takes 1/0, not a boolean).
+- **0.2.6: frame cap.** Each view is drawn every other frame, so its rate is half the game's.
+  With the game's cap off (`R_LimitFPS` 0, the default) and no vertical sync, the mod caps the
+  game at twice the screen's refresh rate in split screen and at the rate itself otherwise
+  (`Coop.frameCap`, the wait in `split.c` before Present). Measured: 120 frames a second in
+  split screen on a 60 Hz screen, about 96 where the GPU gives less.
+- **0.2.6: the squad switch's soul flight** ends in the frame it starts in co-op (the world is
+  not slowed): the game deleted the flight camera the engine was drawing with, "Check failed:
+  GetActiveCamera() != this" within 20-40 switches in split screen. The end now waits 0.1 s
+  (`CoopTeam.installTravel`); lab/splitswitch.ps1 switches 60 times.
 - **Per view state.** Before each frame Lua sets what that view should show: its player's
   first-person arms (`0FP_*`/`1FP_*` `bObjectVisible`), the other player's body, and the
   screen effect parameters of that player's powers (`Game.Set`/`Get` of ~50 effect
