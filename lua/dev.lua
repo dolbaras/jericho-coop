@@ -1950,10 +1950,13 @@ end
 -- nearest enemy within 2500 and send the Ababanili at it (Ababanili.AbabaniliStart).
 -- 'disptest=<hz>' (full screen): the Video settings' rows applied as Accept does
 -- (Coop.applyDisplay): that refresh rate at tick 300, Auto at 900, a window at 1200 (restart
--- hint), full screen again at 1300.
-if cfg.disptest and Coop.level ~= "levels/menu" then
+-- hint), full screen again at 1300. 'dispback=auto' (started full screen with a chosen rate):
+-- Auto at tick 300; 'dispback=window' (started as a borderless window): a window chosen at 300,
+-- the window staying borderless until the next start.
+if (cfg.disptest or cfg.dispback) and Coop.level ~= "levels/menu" then
   local prevDisp = Coop.dev
   local steps = {[300] = {hz = cfg.disptest}, [900] = {hz = 0}, [1200] = {mode = 2}, [1300] = {mode = 1}}
+  if cfg.dispback then steps = {[300] = cfg.dispback == "auto" and {hz = 0} or {mode = 2}} end
   function Coop.dev()
     if prevDisp then prevDisp() end
     local s = steps[Coop.frame]

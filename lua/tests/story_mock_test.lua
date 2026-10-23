@@ -17,7 +17,10 @@ Coop = {cfg = {}, frame = 1, level = "levels/wwii_biggates", storyDriven = {}, r
   localChar = function() return me.Name end,
   owners = {Church = 1, Black = 0},
   ownerOf = function(n) return Coop.owners[n] end,
-  isRemoteOwned = function(n) return Coop.owners[n] ~= nil and Coop.owners[n] ~= 0 end}
+  isRemoteOwned = function(n) return Coop.owners[n] ~= nil and Coop.owners[n] ~= 0 end,
+  addLangs = function() end,
+  isLocalBody = function(n) return n ~= nil and (n == me.Name or Coop.owners[n] == 0) end,
+  heldBy = function(n, peer) local o = Coop.owners[n or ""] return o ~= nil and o == peer end}
 CoopWorld = {isHuman = function(n) return Coop.owners[n] ~= nil end}
 MapInit = {}
 local seen

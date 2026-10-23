@@ -35,6 +35,7 @@
 
 static int win_x, win_y, have_winpos, run_in_background;
 static int kbm_off;               /* JERICHO_KBM=0 */
+static int test_nomouse;          /* JERICHO_TEST_NOMOUSE=1 */
 static int pad_map[4] = {0, 1, 2, 3};
 static int win_w, win_h, have_winsize;
 static DWORD win_style, win_exstyle;
@@ -239,9 +240,86 @@ static HRESULT WINAPI bg_GetDeviceData(void *dev, DWORD objsize, void *data, DWO
     return hr;
 }
 
+/* A PC without a mouse (gamepads only, e.g. split screen on a TV): DirectInput has no system
+ * mouse there and the game stops at its start ("Mouse not found", Input\PcMouse.cpp). It gets
+ * a mouse that is never moved or clicked instead. IDirectInputDevice8A's 32 methods, each
+ * with its own arguments (stdcall). */
+#define DI_NOMOUSE_E 0x80004001L   /* E_NOTIMPL */
+static void *idle_mouse_vtbl[32];
+static void *idle_mouse = idle_mouse_vtbl;
+static HRESULT WINAPI im_QueryInterface(void *t, REFIID r, void **o) { (void)r; *o = t; return S_OK; }
+static ULONG WINAPI im_AddRef(void *t) { (void)t; return 1; }
+static ULONG WINAPI im_Release(void *t) { (void)t; return 1; }
+static HRESULT WINAPI im_GetCapabilities(void *t, DWORD *caps)
+{
+    (void)t;
+    /* DIDEVCAPS: dwSize, dwFlags (attached), dwDevType (mouse), dwAxes, dwButtons */
+    if (caps && caps[0] >= 5 * sizeof(DWORD)) {
+        memset(caps + 1, 0, caps[0] - sizeof(DWORD));
+        caps[1] = 1, caps[2] = 0x12, caps[3] = 3, caps[4] = 3;
+    }
+    return S_OK;
+}
+static HRESULT WINAPI im_4(void *t, void *a, void *b, DWORD c) { (void)t, (void)a, (void)b, (void)c; return S_OK; }
+static HRESULT WINAPI im_2p(void *t, void *a, void *b) { (void)t, (void)a, (void)b; return S_OK; }
+static HRESULT WINAPI im_0(void *t) { (void)t; return S_OK; }
+static HRESULT WINAPI im_GetDeviceState(void *t, DWORD size, void *data)
+{
+    (void)t;
+    if (data) memset(data, 0, size);
+    return S_OK;
+}
+static HRESULT WINAPI im_GetDeviceData(void *t, DWORD objsize, void *data, DWORD *count, DWORD flags)
+{
+    (void)t, (void)objsize, (void)data, (void)flags;
+    if (count) *count = 0;
+    return S_OK;
+}
+static HRESULT WINAPI im_1p(void *t, void *a) { (void)t, (void)a; return S_OK; }
+static HRESULT WINAPI im_hw(void *t, HWND h, DWORD f) { (void)t, (void)h, (void)f; return S_OK; }
+static HRESULT WINAPI im_GetObjectInfo(void *t, void *a, DWORD b, DWORD c) { (void)t, (void)a, (void)b, (void)c; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_GetDeviceInfo(void *t, void *a) { (void)t, (void)a; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_Initialize(void *t, HINSTANCE a, DWORD b, REFGUID c) { (void)t, (void)a, (void)b, (void)c; return S_OK; }
+static HRESULT WINAPI im_CreateEffect(void *t, REFGUID a, void *b, void **c, void *d) { (void)t, (void)a, (void)b, (void)d; if (c) *c = NULL; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_EnumEffects(void *t, void *a, void *b, DWORD c) { (void)t, (void)a, (void)b, (void)c; return S_OK; }
+static HRESULT WINAPI im_GetEffectInfo(void *t, void *a, REFGUID b) { (void)t, (void)a, (void)b; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_FFState(void *t, DWORD *a) { (void)t; if (a) *a = 0; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_FFCommand(void *t, DWORD a) { (void)t, (void)a; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_SendDeviceData(void *t, DWORD a, void *b, DWORD *c, DWORD d) { (void)t, (void)a, (void)b, (void)d; if (c) *c = 0; return S_OK; }
+static HRESULT WINAPI im_EnumEffectsInFile(void *t, const char *a, void *b, void *c, DWORD d) { (void)t, (void)a, (void)b, (void)c, (void)d; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_WriteEffectToFile(void *t, const char *a, DWORD b, void *c, DWORD d) { (void)t, (void)a, (void)b, (void)c, (void)d; return DI_NOMOUSE_E; }
+static HRESULT WINAPI im_ActionMap(void *t, void *a, const char *b, DWORD c) { (void)t, (void)a, (void)b, (void)c; return DI_NOMOUSE_E; }
+
+static void *idle_mouse_device(void)
+{
+    if (!idle_mouse_vtbl[0]) {
+        void *v[32] = {
+            im_QueryInterface, im_AddRef, im_Release, im_GetCapabilities, im_4 /* EnumObjects */,
+            im_2p /* GetProperty */, im_2p /* SetProperty */, im_0 /* Acquire */, im_0 /* Unacquire */,
+            im_GetDeviceState, im_GetDeviceData, im_1p /* SetDataFormat */, im_1p /* SetEventNotification */,
+            im_hw /* SetCooperativeLevel */, im_GetObjectInfo, im_GetDeviceInfo, im_hw /* RunControlPanel */,
+            im_Initialize, im_CreateEffect, im_EnumEffects, im_GetEffectInfo, im_FFState, im_FFCommand,
+            im_4 /* EnumCreatedEffectObjects */, im_1p /* Escape */, im_0 /* Poll */, im_SendDeviceData,
+            im_EnumEffectsInFile, im_WriteEffectToFile, im_ActionMap /* BuildActionMap */,
+            im_ActionMap /* SetActionMap */, im_1p /* GetImageInfo */};
+        memcpy(idle_mouse_vtbl, v, sizeof v);
+    }
+    return &idle_mouse;
+}
+
+static const GUID guid_SysMouse = {0x6F1D2B60, 0xD5A0, 0x11CF, {0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
+
 static HRESULT WINAPI bg_DICreateDevice(void *di, const GUID *guid, void **out, void *outer)
 {
-    HRESULT hr = real_DICreateDevice(di, guid, out, outer);
+    int mouse = guid && memcmp(guid, &guid_SysMouse, sizeof *guid) == 0;
+    /* (test: JERICHO_TEST_NOMOUSE=1 acts as a PC without a mouse) */
+    HRESULT hr = mouse && test_nomouse ? 0x80040154L /* DIERR_DEVICENOTREG */
+                                                          : real_DICreateDevice(di, guid, out, outer);
+    if (mouse && FAILED(hr) && out) {
+        coop_log("input: no mouse (DirectInput %08lx), the game gets one that never moves", (unsigned long)hr);
+        *out = idle_mouse_device();
+        return S_OK;
+    }
     if (SUCCEEDED(hr) && out && *out) {
         void *o9 = patch_vtable(*out, 9, (void *)bg_GetDeviceState);
         void *o10 = patch_vtable(*out, 10, (void *)bg_GetDeviceData);
@@ -365,6 +443,16 @@ static int borderless_on(void)
     return disp_borderless && !have_winpos && !have_winsize && disp_windowed != 0;
 }
 
+/* The game window was made borderless (at its creation or when the setting was chosen): it
+ * stays so, over its monitor, until the game ends, even after the setting is changed back for
+ * the next start (a frameless window the size the game asks for would be stretched). */
+static int borderless_made;
+
+static int borderless_window(HWND hw)
+{
+    return hw && hw == game_window && borderless_made && !(GetWindowLongA(hw, GWL_STYLE) & WS_CAPTION);
+}
+
 /* The monitor the game window is on (the primary before there is a window). */
 static HMONITOR game_monitor(void)
 {
@@ -415,12 +503,16 @@ static void refresh_rates(int w, int h, char *out, size_t size)
  * again while the game runs puts that one back (a Reset with 0 keeps the rate in use). */
 static int auto_hz;
 static UINT auto_w, auto_h;
+static int device_made;
 
 static void note_auto_rate(const D3DPRESENT_PARAMETERS *pp)
 {
     int w, h, hz;
-    if (auto_hz || !pp || pp->Windowed || pp->FullScreen_RefreshRateInHz)
+    static int noted;
+    device_made = 1;
+    if (noted || !pp || pp->Windowed || pp->FullScreen_RefreshRateInHz)
         return;
+    noted = 1;
     display_monitor(&w, &h, &hz);
     if (hz > 1) {
         auto_hz = hz;
@@ -437,7 +529,25 @@ void display_apply_pp(D3DPRESENT_PARAMETERS *pp)
     display_load();
     if (pp)
         disp_windowed = pp->Windowed ? 1 : 0;
-    if (pp && !pp->Windowed && disp_hz <= 0 && auto_hz && pp->BackBufferWidth == auto_w &&
+    /* Started with a chosen rate: Auto is then the desktop's own rate at the desktop's size
+       (Windows' saved mode of the monitor), read before the game changes the mode. */
+    static int desk_read;
+    if (!desk_read) {
+        MONITORINFOEXA mi;
+        DEVMODEA dm;
+        desk_read = 1;
+        memset(&mi, 0, sizeof mi);
+        mi.cbSize = sizeof mi;
+        memset(&dm, 0, sizeof dm);
+        dm.dmSize = sizeof dm;
+        if (!auto_hz && GetMonitorInfoA(game_monitor(), (MONITORINFO *)&mi) &&
+            EnumDisplaySettingsA(mi.szDevice, ENUM_REGISTRY_SETTINGS, &dm) && dm.dmDisplayFrequency > 1) {
+            auto_hz = (int)dm.dmDisplayFrequency;
+            auto_w = dm.dmPelsWidth;
+            auto_h = dm.dmPelsHeight;
+        }
+    }
+    if (pp && device_made && !pp->Windowed && disp_hz <= 0 && auto_hz && pp->BackBufferWidth == auto_w &&
         pp->BackBufferHeight == auto_h)
         pp->FullScreen_RefreshRateInHz = (UINT)auto_hz;
     if (!pp || pp->Windowed || disp_hz <= 0)
@@ -520,7 +630,7 @@ int display_monitor(int *w, int *h, int *hz)
     if (GetMonitorInfoA(game_monitor(), (MONITORINFO *)&mi) &&
         EnumDisplaySettingsA(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
         *hz = (int)dm.dmDisplayFrequency;
-    return game_window && borderless_on() && !(GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION);
+    return borderless_window(game_window);
 }
 
 int display_set(int hz, int borderless)
@@ -531,8 +641,10 @@ int display_set(int hz, int borderless)
     disp_borderless = borderless != 0;
     coop_log("display: set hz=%d borderless=%d", disp_hz, disp_borderless);
     if (game_window && disp_borderless && !was && borderless_on() &&
-        (GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION))
+        (GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION)) {
         borderless_fit(game_window);
+        borderless_made = 1;
+    }
     return display_save();
 }
 
@@ -567,6 +679,7 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWOR
             w = r.right - r.left;
             h = r.bottom - r.top;
             coop_log("display: borderless window %dx%d at %d,%d", w, h, x, y);
+            borderless_made = 1;
         }
     }
     if (game && test_mode) {
@@ -597,7 +710,7 @@ static BOOL WINAPI hook_SetWindowPos(HWND hw, HWND after, int x, int y, int w, i
         outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
     if (hw == game_window && test_mode)
         flags |= SWP_NOACTIVATE;
-    if (hw == game_window && borderless_on() && !(GetWindowLongA(hw, GWL_STYLE) & WS_CAPTION)) {
+    if (borderless_window(hw)) {
         RECT r = monitor_rect();
         x = r.left;
         y = r.top;
@@ -615,7 +728,7 @@ static BOOL WINAPI hook_MoveWindow(HWND hw, int x, int y, int w, int h, BOOL rep
     }
     if (hw == game_window && have_winsize)
         outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
-    if (hw == game_window && borderless_on() && !(GetWindowLongA(hw, GWL_STYLE) & WS_CAPTION)) {
+    if (borderless_window(hw)) {
         RECT r = monitor_rect();
         x = r.left;
         y = r.top;
@@ -1081,6 +1194,7 @@ void display_hooks_install(void)
     run_in_background = GetEnvironmentVariableA("JERICHO_BACKGROUND", v, sizeof v) == 1 && v[0] == '1';
     test_mode = run_in_background;
     kbm_off = GetEnvironmentVariableA("JERICHO_KBM", v, sizeof v) == 1 && v[0] == '0';
+    test_nomouse = GetEnvironmentVariableA("JERICHO_TEST_NOMOUSE", v, sizeof v) == 1 && v[0] == '1';
     if (kbm_off)
         coop_log("keyboard and mouse off (split screen, second window)");
     /* The pad router is always there (pass-through until split screen or a test sets it). */

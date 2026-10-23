@@ -674,7 +674,7 @@ function Sp.checkDown()
   local now = Game.GetTime()
   if b.Life > 0 then
     if Sp.downAt then
-      Sp.downAt = nil
+      Sp.downAt, Sp.waitRaw, Sp.waitLogged = nil, nil, nil
       if b.UsrControl ~= 1 then Sp.takeBody(b.Name) end
       Coop.log("split: player 2 (" .. b.Name .. ") is up again")
     end
@@ -685,26 +685,45 @@ function Sp.checkDown()
     Coop.log("split: player 2 (" .. b.Name .. ") is down")
     return
   end
-  if b.UsrControl ~= 1 or now - Sp.downAt < Sp.DOWN_WAIT then return end
-  local usr0 = Game.UsrEntity(0)
+  if now - Sp.downAt < Sp.DOWN_WAIT then return end
+  local souls = CoopSouls and CoopSouls.waitsDowned
+  if b.UsrControl ~= 1 then
+    -- Down and waiting: looked at again once a second, as for player 1 (coop_team.lua
+    -- T.recheckWait). A wait for Rawlings is over when he can no longer come (down, taken by
+    -- the story, bound, on the other side of a split); a body may have become free.
+    if now < (Sp.waitCheckT or 0) then return end
+    Sp.waitCheckT = now + 1
+    if Sp.waitRaw == b.Name then
+      if souls and souls(b.Name) then return end
+      Sp.waitRaw = nil
+      Coop.log("split: Rawlings cannot come for player 2 any more")
+    end
+  end
   local hold = CoopTeam and CoopTeam.holdDowned and CoopTeam.holdDowned[b.Name]
   -- (seats 3-4 keep their body while Rawlings can revive them, coop_souls.lua; player 2 may
   -- be one)
-  if not hold and CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(b.Name) then hold = true end
+  local forRaw = not hold and souls and souls(b.Name)
+  if forRaw then hold = true end
   if not hold and (not Team.isWithTheTeam or Team.isWithTheTeam()) then
     for _, other in ipairs(Sp.ORDER) do
       local e = Game.GetEntity(other)
       if other ~= b.Name and e and e.Life > 0 and e.bActive ~= false and not Sp.isPlayer1s(other) and
          Coop.ownerOf(other) == nil and not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) and
          not (CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(b.Name, other)) then
-        Sp.downAt = nil
+        Sp.downAt, Sp.waitRaw, Sp.waitLogged = nil, nil, nil
         Sp.takeBody(other, b.Name)
         return
       end
     end
   end
   b.UsrControl = -1   -- Rawlings can revive it; player 2 keeps its camera on it
-  Coop.log("split: player 2 waits for Rawlings in " .. b.Name)
+  if forRaw then
+    Sp.waitRaw = b.Name
+    Coop.log("split: player 2 waits for Rawlings in " .. b.Name)
+  elseif Sp.waitLogged ~= b.Name then
+    Sp.waitLogged = b.Name
+    Coop.log("split: player 2 stays down in " .. b.Name .. " (no body to move into)")
+  end
 end
 
 -- The squad selector of user 1 calls Team.SwitchCharacter(<user 1's body>) like user 0's,
@@ -757,9 +776,13 @@ function Sp.autoStart()
     Sp.autoSince = Sp.autoSince or now
     if now - Sp.autoSince < 8 then return end
     local other = Sp.freeBody(usr.Name)
-    Sp.tried = true
     if not other then
-      Coop.log("split: no free body for player 2 (seat " .. char .. ")")
+      -- (looked at again every 8 s: a body may be freed, or the seat's body switched on)
+      if not Sp.noBodyLogged then
+        Sp.noBodyLogged = true
+        Coop.log("split: no free body for player 2 (seat " .. char .. ") yet")
+      end
+      Sp.autoSince = now
       return
     end
     Coop.log("split: player 2's body " .. char .. " not free, takes " .. other)

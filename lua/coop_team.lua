@@ -53,6 +53,8 @@ function T.usable(other, name)
   local e = Game.GetEntity(other)
   if other == name or not e or (e.Life or 0) <= 0 or e.bActive == false then return false end
   if Coop.ownerOf(other) ~= nil then return false end
+  -- (locked by the level, e.g. bound by the last boss's rune: the game's own switch refuses it)
+  if Team and Team.UnavaliablePlayers and Team.UnavaliablePlayers[other] then return false end
   if Coop.storyDriven and Coop.storyDriven[other] then return false end
   if CoopStory and CoopStory.taken and CoopStory.taken(other) then return false end
   if name and CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, other) then return false end
