@@ -1323,8 +1323,11 @@ function CoopMenu.labelItems()
   if aspect < 1 then aspect = 4 / 3 end
   local w = 480 * aspect
   local off = (w - 640) / 2
-  local x, wd = L.left * w - off, L.width * w
-  local y, ht = L.top * 480, L.height * 480
+  -- (the text needs about 190 units; on 4:3 and 5:4 that box would reach "Exit game", so it
+  -- goes to the corner below the menu there)
+  local wd = math.max(L.width * w, 196)
+  local x, y, ht = L.left * w - off, L.top * 480, L.height * 480
+  if aspect < 1.5 then x, y = 0.043 * w - off, 0.898 * 480 end
   local lines = {{"CoopLabel1", "Jericho Co-op+ " .. Coop.VERSION, L.font, 0.12},
                  {"CoopLabel2", "github.com/dolbaras/jericho-coop", L.small, 0.54}}
   for _, l in ipairs(lines) do
@@ -1346,8 +1349,21 @@ function CoopMenu.labelItems()
   return {"CoopLabelBox", "CoopLabel1", "CoopLabel2"}
 end
 
+-- The game's "Press [ENTER] or START" screen (MainMenu.PressStartMsg, from MainMenu.Init2 on
+-- PC): one menu item at Y 380, where the label would stand over it. The label waits for the
+-- main menu itself.
+function CoopMenu.onPressStart()
+  local it = item("Itm1")
+  return it ~= nil and it.Text == Game.GetLangStr("Menu_Press_Start")
+end
+
 function CoopMenu.showLabel()
   if CoopMenu.labelShown or cfg.menulabel == false then return end
+  if CoopMenu.onPressStart() then
+    CoopMenu.labelWaits = true
+    return
+  end
+  CoopMenu.labelWaits = nil
   CoopMenu.labelShown = true
   local ok, err = pcall(CoopMenu.labelItems)
   CoopMenu.labelFrom = Net.CoopTime()
@@ -1357,6 +1373,10 @@ end
 
 -- Every frame: away after its time, or as soon as the main menu is left.
 function CoopMenu.labelTick()
+  if CoopMenu.labelWaits and CoopMenu.screen == nil and not CoopMenu.onPressStart() and
+     not CoopMenu.onLanguageScreen() and item("Itm1") then
+    CoopMenu.showLabel()
+  end
   if not CoopMenu.labelUntil then return end
   if Net.CoopTime() < CoopMenu.labelUntil and CoopMenu.screen == nil then
     -- (the menu may build its screen again after the popup: put the items back)
