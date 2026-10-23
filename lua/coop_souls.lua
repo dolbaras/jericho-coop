@@ -107,17 +107,29 @@ function S.mayChoose(id)
 end
 
 function S.tell(key, ...)
+  return S.tellSeat(nil, key, ...)
+end
+
+-- A hint for one seat: in split screen only that player's view shows it (coop_split.lua).
+function S.tellSeat(id, key, ...)
   local now = Net.CoopTime()
-  if (S.told[key] or -99) + S.HINT_GAP > now then return end
-  S.told[key] = now
+  local k = key .. ":" .. tostring(id)
+  if (S.told[k] or -99) + S.HINT_GAP > now then return end
+  S.told[k] = now
   local s = text(key)
   if select("#", ...) > 0 then s = string.format(s, ...) end
-  pcall(Scorer.SetMsgText, s, Game.GetTime() + 5)
+  local split = CoopSplit and CoopSplit.on and CoopSplit.tellUser
+  if split and id ~= nil then
+    CoopSplit.tellUser(id == CoopSplit.owner and 1 or 0, s, Game.GetTime() + 5)
+  else
+    pcall(Scorer.SetMsgText, s, Game.GetTime() + 5)
+  end
 end
 
 -- (other: the body greyed out in the squad menu; none for the aiming switch)
 local function refused(why, body, other)
-  if why == "fixed" then S.tell("fixed", charName(body)) else S.tell(why) end
+  local id = Coop.ownerOf(body)
+  if why == "fixed" then S.tellSeat(id, "fixed", charName(body)) else S.tellSeat(id, why) end
   local key = why .. ":" .. tostring(body) .. ":" .. tostring(other)
   S.logged = S.logged or {}
   if not S.logged[key] then
@@ -222,7 +234,7 @@ function S.update()
       S.roleSaid = now + 6
       local body
       for name, o in pairs(Coop.owners or {}) do if o == id then body = name end end
-      if r == "fixed" then S.tell("keep", charName(body or Coop.localChar())) else S.tell(r) end
+      if r == "fixed" then S.tellSeat(id, "keep", charName(body or Coop.localChar())) else S.tellSeat(id, r) end
       Coop.log("souls: seat " .. id .. " role " .. r)
       return
     end
@@ -236,7 +248,7 @@ function S.update()
         S.held = held
         Coop.log("souls: Jones " .. (held and "held, projection cut" or "free"))
         if held then
-          S.tell("cut")
+          S.tellSeat(id, "cut")
           -- (the end of an astral projection, Jones.SwitchSoldier / AstralCamera; not when a
           -- level starts with Jones away)
           if not first then
@@ -244,7 +256,7 @@ function S.update()
             pcall(Sound.Play, "PODERJONES_END", 1)
           end
         elseif not first then
-          S.tell("back")
+          S.tellSeat(id, "back")
         end
       end
     end

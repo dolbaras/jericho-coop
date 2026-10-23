@@ -229,10 +229,17 @@ end
 -- A first-person scene gives the view back through an interpolating camera, deleted when it
 -- arrives (Scene.SetUsrPosAngEndInterpolated): split screen switched on in between, the game
 -- deleted its active camera ("Check failed: GetActiveCamera() != this", a network client at the
--- end of the desert's Landing, 0.2.1). Waited for, 3 s at most.
+-- end of the desert's Landing, 0.2.1). Waited for, 3 s at most. The same for the squad switch's
+-- flight camera (Team.EndTravelCam deletes "Cameraman" and gives "Walk" back in one call: split
+-- screen came back while it was still there; coop_team.lua T.installTravel).
 Sp.SCENE_CAM_WAIT = 3
+Sp.SCENE_CAMS = {"InterpolusCamera", "Cameraman"}
 function Sp.sceneCamUp()
-  if not Game.GetEntity("InterpolusCamera") then
+  local up = false
+  for _, n in ipairs(Sp.SCENE_CAMS) do
+    if Game.GetEntity(n) then up = true end
+  end
+  if not up then
     Sp.sceneCamSince = nil
     return false
   end
@@ -256,6 +263,7 @@ end
 
 -- Every frame (coop.lua; it can run more than once per drawn frame).
 function Sp.frame()
+  Sp.showMsg()
   if not Sp.on then return end
   local hold, apart = Sp.shouldHold()
   if cfg.dev then
@@ -731,9 +739,44 @@ end
 -- The squad selector of user 1 calls Team.SwitchCharacter(<user 1's body>) like user 0's,
 -- and Team.SwitchSoldier gives the new body to user 0: user 1 gets it here instead, and
 -- user 0 never takes user 1's body (or any other player's).
+-- The game has one message line for both views (Scorer.SetMsgText; each user's "Msg" widget
+-- shows it): a hint for one player of this PC showed in both halves (owner, 0.2.6). A hint made
+-- for one user (Sp.tellUser, or the game's own from player 2's code: Sp.inUser1) hides the
+-- other user's widget while it lasts; any other message shows in both again.
+function Sp.tellUser(user, text, untilT)
+  Sp.msgUser = user
+  pcall(Scorer.SetMsgText, text, untilT)
+  Sp.msgFor, Sp.msgUntil = Sp.on and user or nil, untilT
+  Sp.showMsg()
+end
+
+function Sp.showMsg()
+  if Sp.msgFor and Game.GetTime() >= (Sp.msgUntil or 0) then Sp.msgFor = nil end
+  local only = Sp.on and Sp.msgFor or nil
+  if only == Sp.msgShown then return end
+  Sp.msgShown = only
+  for u = 0, 1 do
+    pcall(function()
+      local m = Scorer.GetItem(u, "Msg")
+      if m then m.Visible = (only == nil or only == u) and 1 or 0 end   -- (a number: true is not taken)
+    end)
+  end
+end
+
 function Sp.installHooks()
   if Sp.hooked or not Team or not Team.SwitchSoldier then return end
   Sp.hooked = true
+  if Scorer and Scorer.SetMsgText then
+    local origMsg = Scorer.SetMsgText
+    Scorer.SetMsgText = function(text, untilT, ...)
+      local user = Sp.msgUser or (Sp.inUser1 and 1) or nil
+      Sp.msgUser = nil
+      -- (an empty text clears the line: for both)
+      if text == "" then user = nil end
+      Sp.msgFor, Sp.msgUntil = Sp.on and user or nil, untilT
+      return origMsg(text, untilT, ...)
+    end
+  end
   local origSwitch = Team.SwitchSoldier
   Team.SwitchSoldier = function(EntityName, Data, ...)
     if not Sp.on then return origSwitch(EntityName, Data, ...) end
