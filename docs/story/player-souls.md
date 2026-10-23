@@ -1,8 +1,8 @@
 # Who the players are: Ross's soul, Jones's projection, the squad (planned for 0.2.4)
 
-Status: agreed with the owner on 2026-10-23, to be planned in detail before the next release
-(probably 0.2.4). Nothing of it is built yet; 0.2.3 keeps the current rules (every player may
-switch to any body no other human holds).
+Status: agreed with the owner on 2026-10-23, in the works for 0.2.4 (open questions answered,
+below). 0.2.3 keeps the current rules (every player may switch to any body no other human
+holds), except that a downed player stays on their side of a story split.
 
 ## The problem
 
@@ -62,10 +62,24 @@ coop_spirit.lua), but only in a few level hints, and not for a player who switch
    Rawlings' revive or become the spirit near their body); players 1-2 keep the move within
    their side.
 
-## Open questions for the planning
+## Decisions on the open questions (owner, 2026-10-23)
 
-- Is Jones's body reserved for player 2 (player 2 starts as Jones; players 3-4 cannot pick
-  Jones), or may player 3 hold Jones's body while player 2's projection is elsewhere?
-- Split screen (two players on one PC): the same rules by player number?
-- What player 2 sees and hears when the projection is cut (text, astral effect, sound).
-- The squad switch UI for players 3-4: hidden, or shown greyed out with the reason.
+- **Jones's body is not reserved:** player 3 may hold Jones's body while player 2's projection
+  is elsewhere; player 2 starts in whichever body they pick in the lobby.
+- **Split screen: by seat number.** The second player on a PC is simply the next seat of the
+  session: seat 2 is Jones's projection and switches freely, seats 3-4 keep their body.
+- **When the projection is cut** (Jones lost, possessed or caged): a short hint in the six
+  languages plus the game's own end-of-projection fade and sound; player 2 stays in the body
+  they are in until Jones is free again.
+- **Squad menu for players 3-4:** the other squad members stay visible (health and so on) but
+  greyed out; trying to switch shows the reason ("only Ross's soul and Jones's projection move
+  between bodies").
+
+## Where the game decides a switch (for the build)
+
+- Voluntary switches: the squad menu (`Team.SetIdChar` puts `Team.SwitchSoldier` as the
+  icon's `OnSelect`, shown only when `Team.IsPlayerAvaliable`) and aiming at a squad member
+  and pressing the switch key (`Team.SwitchCharacter`).
+- Forced moves go straight to `Team.SwitchSoldier`: a downed body (`Team.CheckGameOver`),
+  story scripts, the mod's claims, splits, the Lost Patrol, the spirit taking a body. These
+  stay allowed for every seat.

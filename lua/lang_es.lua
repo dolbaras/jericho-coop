@@ -233,4 +233,14 @@ return {
     ross = "El comando sigue a Ross",
     other = "%s sigue a %s: las órdenes se las da ese jugador",
   },
+  ["CoopSouls.TEXT"] = {
+    fixed = "Solo el alma de Ross y la proyección de Jones pasan de un cuerpo a otro: eres %s",
+    act1 = "Ross está vivo: aún nadie pasa de un cuerpo a otro",
+    cut = "Jones está atrapado: tu proyección se ha cortado, te quedas en este cuerpo",
+    back = "Jones está libre: tu proyección vuelve a llegar al escuadrón",
+    ross = "Eres el alma de Ross: pasas de un cuerpo del escuadrón a otro",
+    jones = "Eres la proyección astral de Jones: pasas de un cuerpo del escuadrón a otro",
+    keep = "Eres %s: te quedas en este cuerpo",
+    gates = "Jones: «Ya no es solo Ross. Mi proyección también puede entrar en cualquiera de vosotros.»",
+  },
 }

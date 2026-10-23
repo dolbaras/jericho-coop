@@ -1724,6 +1724,13 @@ function Coop.update()
       Coop.log("squad error: " .. tostring(errq))
     end
   end
+  if CoopSouls then
+    local oks, errs = pcall(CoopSouls.update)
+    if not oks and (Coop.soulsErrors or 0) < 3 then
+      Coop.soulsErrors = (Coop.soulsErrors or 0) + 1
+      Coop.log("souls error: " .. tostring(errs))
+    end
+  end
   if CoopClaim then
     local ok, err = pcall(CoopClaim.update)
     if not ok and (Coop.claimErrors or 0) < 5 then
@@ -1887,6 +1894,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("claim load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_squad.lua")
   if not ok then Coop.log("squad load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_souls.lua")
+  if not ok then Coop.log("souls load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_session.lua")
   if not ok then Coop.log("session load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_story.lua")

@@ -233,4 +233,14 @@ return {
     ross = "Der Trupp folgt Ross",
     other = "%s folgt %s: Befehle an sie gibt dieser Spieler",
   },
+  ["CoopSouls.TEXT"] = {
+    fixed = "Nur Ross' Seele und Jones' Projektion wechseln die Körper: du bist %s",
+    act1 = "Ross lebt: noch wechselt niemand die Körper",
+    cut = "Jones ist gefangen: deine Projektion ist abgerissen, du bleibst in diesem Körper",
+    back = "Jones ist frei: deine Projektion erreicht den Trupp wieder",
+    ross = "Du bist Ross' Seele: du wechselst zwischen den Körpern des Trupps",
+    jones = "Du bist Jones' Astralprojektion: du wechselst zwischen den Körpern des Trupps",
+    keep = "Du bist %s: du bleibst in diesem Körper",
+    gates = "Jones: „Jetzt kann das nicht nur Ross. Meine Projektion kann auch in jeden von euch.“",
+  },
 }

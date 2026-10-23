@@ -71,6 +71,8 @@ function T.install()
       return
     end
     local order = {"Black", "Church", "Rawlings", "Jones", "Cole", "Delgado"}
+    -- (seats 3-4 keep their body: they wait for Rawlings while he can come, coop_souls.lua)
+    if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then order = {} end
     if Team.isWithTheTeam() then
       for _, other in ipairs(order) do
         local e = Game.GetEntity(other)
