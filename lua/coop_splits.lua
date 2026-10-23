@@ -802,6 +802,7 @@ end
 -- the next rune, and each bound holder is told once per rune.
 function Sp.G15schedule()
   local g = Sp.G15
+  g.schedT = Game.GetTime()
   Team.UnavaliablePlayers = Team.UnavaliablePlayers or {}
   for _, n in ipairs(g.bound) do
     local e = Game.GetEntity(n)
@@ -817,6 +818,19 @@ function Sp.G15schedule()
     end
   end
   Game.AddScheduledFunc(Game.GetTime() + 0.1, "", "EvilFirstBorn.SchMakeAllUnavailable")
+end
+
+-- Host: a squad member the rune holds now (the stun goes on every 0.1 s while it lasts). Such
+-- a body is no body for a downed player, and a bound Rawlings revives nobody: the host's game
+-- over check (coop_team.lua) must not wait for them. (Not the game's other switch locks: in
+-- the tutorials Rawlings's AI revives while she is locked.)
+function Sp.runeBound(n)
+  local g = Sp.G15
+  if not g.schedT or Game.GetTime() - g.schedT > 0.5 or g.freed[n] then return false end
+  for _, b in ipairs(g.bound) do
+    if b == n then return true end
+  end
+  return false
 end
 
 -- Any machine: its own bound body starts the struggle.

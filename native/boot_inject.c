@@ -63,15 +63,20 @@ static int coop_dir_ansi(const wchar_t *wdir, const wchar_t *game)
 {
     if (coop_ansi_path(wdir, coop_dir, sizeof coop_dir))
         return 1;
+    coop_dir[0] = 0;
     wchar_t cwd[MAX_PATH];
     DWORD n = GetCurrentDirectoryW(MAX_PATH, cwd);
     size_t g = wcslen(game);
     if (n == 0 || n >= MAX_PATH || _wcsnicmp(cwd, game, g) != 0 || (cwd[g] && cwd[g] != L'\\'))
         return 0;
-    coop_dir[0] = 0;
     for (const wchar_t *p = cwd + g; *p; p++)
-        if (*p == L'\\' && p[1] && strlen(coop_dir) + 4 < sizeof coop_dir)
+        if (*p == L'\\' && p[1]) {
+            if (strlen(coop_dir) + 3 + 6 > sizeof coop_dir) {   /* "..\" and "coop\" with its end */
+                coop_dir[0] = 0;
+                return 0;
+            }
             strcat(coop_dir, "..\\");
+        }
     strcat(coop_dir, "coop\\");
     return 1;
 }

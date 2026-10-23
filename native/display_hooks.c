@@ -256,7 +256,7 @@ static HRESULT WINAPI im_GetCapabilities(void *t, DWORD *caps)
     /* DIDEVCAPS: dwSize, dwFlags (attached), dwDevType (mouse), dwAxes, dwButtons */
     if (caps && caps[0] >= 5 * sizeof(DWORD)) {
         memset(caps + 1, 0, caps[0] - sizeof(DWORD));
-        caps[1] = 1, caps[2] = 0x12, caps[3] = 3, caps[4] = 3;
+        caps[1] = 1, caps[2] = 0x212 /* a traditional mouse */, caps[3] = 3, caps[4] = 3;
     }
     return S_OK;
 }

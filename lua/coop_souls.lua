@@ -187,9 +187,9 @@ function S.waitsDowned(name)
   if not Coop.inSession() or cfg.souls == false or S.role(Coop.ownerOf(name)) ~= "fixed" then return false end
   local raw = Game.GetEntity("Rawlings")
   if name == "Rawlings" or not raw or raw.bActive == false or (raw.Life or 0) <= 0 then return false end
-  -- (not locked by the level, as by the last boss's rune, not walked or taken by the story, and
-  -- on this player's side of a story split)
-  if Team and Team.UnavaliablePlayers and Team.UnavaliablePlayers.Rawlings then return false end
+  -- (not bound by the last boss's rune, not walked or taken by the story, and on this player's
+  -- side of a story split)
+  if CoopSplits and CoopSplits.runeBound and CoopSplits.runeBound("Rawlings") then return false end
   if Coop.storyDriven and Coop.storyDriven.Rawlings then return false end
   if CoopStory and CoopStory.taken and CoopStory.taken("Rawlings") then return false end
   if CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(name, "Rawlings") then return false end

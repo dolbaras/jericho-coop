@@ -711,6 +711,8 @@ function Sp.checkDown()
          Coop.ownerOf(other) == nil and not (Team.UnavaliablePlayers and Team.UnavaliablePlayers[other]) and
          not (CoopSplits and CoopSplits.sameSide and not CoopSplits.sameSide(b.Name, other)) then
         Sp.downAt, Sp.waitRaw, Sp.waitLogged = nil, nil, nil
+        -- (left after a wait: its AI is still off from player 2's time in it)
+        if b.UsrControl ~= 1 and b.oAI then b.oAI.bEnable = true end
         Sp.takeBody(other, b.Name)
         return
       end
