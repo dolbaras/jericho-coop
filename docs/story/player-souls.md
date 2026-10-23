@@ -56,10 +56,11 @@ coop_spirit.lua), but only in a few level hints, and not for a player who switch
    original, a player whose body goes down moves into the next living squad member no human
    holds, whichever branch of a split that member is on (seen 2026-10-23 in G8: the host's
    Delgado fell in the hall the players below hold, and the host moved into Church on his
-   lone climb). For players 1-2 (Ross's soul, Jones's projection) that is the original's
-   rule and stays. For players 3-4 it should not happen: they wait for Rawlings' revive or
-   become the spirit near their body. To decide: should players 1-2 prefer a body on their
-   own side of a split before crossing to the other side?
+   lone climb). Done in 0.2.3 at the owner's request (coop_splits.lua, Sp.sameSide): during
+   a story split nobody moves into a body on the other side; with no free body on their own
+   side they wait for Rawlings. For 0.2.4: players 3-4 should not move at all (they wait for
+   Rawlings' revive or become the spirit near their body); players 1-2 keep the move within
+   their side.
 
 ## Open questions for the planning
 
