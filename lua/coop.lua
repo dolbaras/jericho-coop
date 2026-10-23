@@ -1564,6 +1564,27 @@ function Coop.wantedAspect()
   return (Coop.screenRatio())
 end
 
+-- Frame cap (owner, 0.2.6): the game draws as fast as it can when its own cap (R_LimitFPS, 0 by
+-- default) and vertical sync are off; the mod caps it at the screen's refresh rate, twice that in
+-- split screen (each view is drawn every other frame), so every view keeps up with the screen.
+-- A cap of the player's own or vertical sync: none of the mod's. Once a second.
+function Coop.frameCap()
+  if Coop.frame % 30 ~= 2 or not Net.CoopDisplay then return end
+  local own = tonumber(Game.Get("R_LimitFPS")) or 0
+  local vsync = tonumber(Game.Get("VSync")) or 0
+  local cap = 0
+  if own <= 0 and vsync == 0 and cfg.framecap ~= false then
+    local _, _, _, hz = Net.CoopDisplay("monitor")
+    hz = tonumber(hz) or 0
+    if hz < 30 then hz = 60 end
+    cap = hz * ((CoopSplit and CoopSplit.on and not CoopSplit.held) and 2 or 1)
+  end
+  if cap ~= Coop.capSet then
+    Coop.capSet = cap
+    Net.CoopDisplay("cap", cap)
+  end
+end
+
 function Coop.autoAspect()
   if cfg.aspect == false or Coop.frame % 30 ~= 1 then return end
   Coop.installAspectMenu()
@@ -1857,6 +1878,7 @@ function Coop.update()
   Coop.frame = Coop.frame + 1
   pcall(Coop.clipKey)
   pcall(Coop.autoAspect)
+  pcall(Coop.frameCap)
   pcall(Coop.displayNotice)
   pcall(Coop.watchControl)
   if CoopSmod and CoopSmod.update then CoopSmod.update() end

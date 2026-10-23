@@ -28,6 +28,7 @@
  *                                                 coop folder) and COOP_CFG (%JERICHO_COOP_CFG%
  *                                                 in test runs, else {}), runs boot.lua
  *   Net.CoopDisplay("get" | "rates" | "set", hz, borderless)  refresh rate and borderless window
+ *   Net.CoopDisplay("cap", fps)   the mod's frame cap (split.c)
  *                                                 (display_hooks.c)
  *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
  *                                                 call (at most once a second) asks the LAN again
@@ -704,7 +705,7 @@ int coop_data_path(const char *name, char *out, size_t size)
 
 /* Net.CoopClip("save") -> the clip being written (clip.c: the last 30 s), "" if none. */
 /* Net.CoopDisplay("get") -> hz, borderless; ("rates") -> "60,75,144"; ("monitor") -> w, h,
- * borderless now (1/0), refresh rate now; ("set", hz, borderless) -> 1/0 */
+ * borderless now (1/0), refresh rate now; ("set", hz, borderless) -> 1/0; ("cap", fps) -> 1 */
 static int l_display(lua_State *L)
 {
     const char *cmd = lua_tolstring(L, 1, NULL);
@@ -731,6 +732,11 @@ static int l_display(lua_State *L)
     }
     if (cmd && strcmp(cmd, "set") == 0) {
         lua_pushnumber(L, display_set(lua_tointeger(L, 2), lua_tointeger(L, 3)));
+        return 1;
+    }
+    if (cmd && strcmp(cmd, "cap") == 0) {
+        split_frame_cap(lua_tointeger(L, 2));
+        lua_pushnumber(L, 1);
         return 1;
     }
     lua_pushnil(L);

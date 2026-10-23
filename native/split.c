@@ -508,6 +508,11 @@ static HRESULT draw_hud(IDirect3DDevice9 *dev, const D3DVIEWPORT9 *pic, const hu
         coop_log("split trace: 2-triangle draw (%s), overlay %d, texture %p, vb usage 0x%lx pool %d",
                  g->indexed == 0 ? "vb" : g->indexed == 2 ? "up" : "indexed", overlay, (void *)bound_texture(dev),
                  (unsigned long)last_vb_usage, last_vb_pool);
+    if (overlay && mode == 1) {
+        /* (a fade or full-screen effect: over the whole half, which the picture fills here) */
+        real_SetViewport(dev, &cur_vp);
+        return do_draw(dev, g);
+    }
     if (!hud_edges || !HUD_SHAPED || overlay)
         return do_draw(dev, g);
     DWORD sc = FALSE;
@@ -783,6 +788,48 @@ static HRESULT WINAPI hook_SetViewport(IDirect3DDevice9 *dev, const D3DVIEWPORT9
     return real_SetViewport(dev, vp);
 }
 
+/* Frame cap (owner, 0.2.6): with the game's own cap off (R_LimitFPS 0) and no vertical sync the
+   game draws as fast as it can, more frames than the screen shows. Lua (coop.lua Coop.frameCap)
+   sets the screen's refresh rate here, twice it in split screen (each view gets every other
+   frame); waited for before Present, sleeping while more than 2 ms are left. */
+static volatile LONG frame_cap;
+static LARGE_INTEGER cap_freq, cap_next;
+
+void split_frame_cap(int fps)
+{
+    if (fps != frame_cap)
+        coop_log("frame cap %d", fps);
+    InterlockedExchange(&frame_cap, fps > 0 ? fps : 0);
+}
+
+static void cap_wait(void)
+{
+    LONG fps = frame_cap;
+    LARGE_INTEGER now;
+    if (fps <= 0) {
+        cap_next.QuadPart = 0;
+        return;
+    }
+    if (!cap_freq.QuadPart)
+        QueryPerformanceFrequency(&cap_freq);
+    QueryPerformanceCounter(&now);
+    LONGLONG step = cap_freq.QuadPart / fps;
+    /* (late by more than a frame: no catching up, start again from now) */
+    if (!cap_next.QuadPart || now.QuadPart - cap_next.QuadPart > step) {
+        cap_next.QuadPart = now.QuadPart + step;
+        return;
+    }
+    while (now.QuadPart < cap_next.QuadPart) {
+        LONGLONG ms = (cap_next.QuadPart - now.QuadPart) * 1000 / cap_freq.QuadPart;
+        if (ms > 2)
+            Sleep((DWORD)(ms - 2));
+        else
+            SwitchToThread();
+        QueryPerformanceCounter(&now);
+    }
+    cap_next.QuadPart += step;
+}
+
 /* Frames drawn without a Lua update before them (the per-view state set in Lua would be the
    other view's): counted for the log. */
 static volatile LONG lua_calls;
@@ -800,6 +847,7 @@ static HRESULT WINAPI hook_Present(IDirect3DDevice9 *dev, const RECT *s, const R
     }
     if (in_hud && trace_frames > 0)
         trace_frames--;
+    cap_wait();
     in_hud = 0;
     carry = hud_pending = 0;
     /* A frame without the HUD (menus, scenes, HUD off): put it in its half anyway. */

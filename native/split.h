@@ -14,5 +14,7 @@ int split_set(int mode);
    view (its id set to 3, a user that does not exist) belongs to; -1 none. Puts in the
    game-code fix it needs on the first call (split_fix_user). */
 void split_hidden_fp_user(int user);
+/* Lua (Net.CoopDisplay("cap", fps)): at most fps frames a second (0: no cap of the mod's). */
+void split_frame_cap(int fps);
 
 #endif
