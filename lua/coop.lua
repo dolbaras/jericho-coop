@@ -255,8 +255,14 @@ end
 
 -- Short texts of this file and of coop_split.lua.
 Coop.TEXT = {
-  en = {clip = "Last 30 s saved as a video: ", pads = "Gamepads assigned again", auto = "Auto"},
-  ru = {clip = "Видео последних 30 с сохранено: ", pads = "Геймпады назначены заново", auto = "Авто"},
+  en = {clip = "Last 30 s saved as a video: ", pads = "Gamepads assigned again", auto = "Auto",
+        mode = "Display mode", full = "Full screen", window = "Window", borderless = "Borderless window",
+        hz = "Refresh rate", hzunit = "Hz", fullonly = "(full screen)",
+        restart = "The display mode changes at the next start of the game"},
+  ru = {clip = "Видео последних 30 с сохранено: ", pads = "Геймпады назначены заново", auto = "Авто",
+        mode = "Режим экрана", full = "Полный экран", window = "Окно", borderless = "Окно без рамки",
+        hz = "Частота обновления", hzunit = "Гц", fullonly = "(в полном экране)",
+        restart = "Режим экрана сменится при следующем запуске игры"},
 }
 Coop.addLangs(Coop.TEXT, "Coop.TEXT")
 function Coop.text(key)
@@ -1536,6 +1542,12 @@ function Coop.aspectChoice()
 end
 
 function Coop.screenRatio()
+  -- A borderless window shows the picture stretched over its whole monitor: the monitor's
+  -- ratio, whatever the resolution (coop_display, Net.CoopDisplay).
+  if Net.CoopDisplay then
+    local ok, mw, mh, on = pcall(Net.CoopDisplay, "monitor")
+    if ok and on == 1 and mw and mh and mh > 0 then return mw / mh, mw, mh end
+  end
   local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
   if w and h and h > 0 then return w / h, w, h end
 end
@@ -1550,6 +1562,7 @@ end
 function Coop.autoAspect()
   if cfg.aspect == false or Coop.frame % 30 ~= 1 then return end
   Coop.installAspectMenu()
+  Coop.installDisplayMenu()
   local r = Coop.wantedAspect()
   if not r then return end
   local cur = tonumber(Game.Get("PhysicalAspectRatio")) or 0
@@ -1590,6 +1603,144 @@ function Coop.installAspectMenu()
   Menu.Switch_Aspect_Ratio_Down = function(id, control) step(id, control, -1) end
   Menu.Get_Aspect_Ratio_Status = function()
     return Game.GetLangStr("Menu_Aspect_Ratio") .. ": " .. Coop.aspectLabel()
+  end
+end
+
+-- Display mode and refresh rate (0.2.4, owner): the game has neither in its options (full
+-- screen only through game.cfg's FullScreen). Two rows in its Video screen after the
+-- resolution: the display mode (full screen, a window, or a borderless window over the whole
+-- monitor: FullScreen 0 plus the DLL's borderless window) and the refresh rate (Auto or one
+-- the monitor has; full screen only). The DLL keeps them (Net.CoopDisplay, coop:video.txt)
+-- and puts the refresh rate into the device; they apply when the Video screen is left, the
+-- display mode at the next start.
+Coop.MODES = {"full", "window", "borderless"}
+
+function Coop.displayState()
+  if not Coop.disp then
+    local ok, hz, bl = pcall(Net.CoopDisplay, "get")
+    if not ok then hz, bl = 0, 0 end
+    local fs = tonumber(Game.Get("FullScreen")) or 1
+    Coop.disp = {hz = tonumber(hz) or 0, mode = fs ~= 0 and 1 or ((tonumber(bl) or 0) ~= 0 and 3 or 2)}
+    Coop.dispSaved = {hz = Coop.disp.hz, mode = Coop.disp.mode}
+  end
+  return Coop.disp
+end
+
+function Coop.displayRates()
+  local t = {0}
+  local ok, s = pcall(Net.CoopDisplay, "rates")
+  -- (TV modes of 24-30 Hz left out)
+  for r in string.gmatch(ok and s or "", "%d+") do
+    if tonumber(r) >= 48 then t[#t + 1] = tonumber(r) end
+  end
+  return t
+end
+
+function Coop.displayModeLabel()
+  return Coop.text("mode") .. ": " .. Coop.text(Coop.MODES[Coop.displayState().mode])
+end
+
+function Coop.displayHzLabel()
+  local d = Coop.displayState()
+  local v = d.hz > 0 and (d.hz .. " " .. Coop.text("hzunit")) or Coop.text("auto")
+  if d.mode ~= 1 then v = v .. " " .. Coop.text("fullonly") end
+  return Coop.text("hz") .. ": " .. v
+end
+
+local function setRow(id, name, text)
+  local it = Scorer.GetItem(id or 0, name)
+  if it then it.Text = text end
+end
+
+function Coop.displayMode(id, control, dir)
+  local d = Coop.displayState()
+  d.mode = (d.mode - 1 + (dir or 1)) % #Coop.MODES + 1
+  setRow(id, "Itm4", Coop.displayModeLabel())
+  setRow(id, "Itm5", Coop.displayHzLabel())
+end
+function Coop.displayModeNext(id, control) Coop.displayMode(id, control, 1) end
+function Coop.displayModePrev(id, control) Coop.displayMode(id, control, -1) end
+
+function Coop.displayHz(id, control, dir)
+  local d = Coop.displayState()
+  local rates, at = Coop.displayRates(), 1
+  for i, r in ipairs(rates) do if r == d.hz then at = i end end
+  d.hz = rates[(at - 1 + (dir or 1)) % #rates + 1]
+  setRow(id, "Itm5", Coop.displayHzLabel())
+end
+function Coop.displayHzNext(id, control) Coop.displayHz(id, control, 1) end
+function Coop.displayHzPrev(id, control) Coop.displayHz(id, control, -1) end
+
+-- Leaving the Video screen: keep what changed. A new refresh rate in full screen applies at
+-- once (the game's own mode change resets the device); the display mode at the next start.
+function Coop.applyDisplay()
+  local d, s = Coop.disp, Coop.dispSaved
+  if not d or (d.hz == s.hz and d.mode == s.mode) then return end
+  pcall(Net.CoopDisplay, "set", d.hz, d.mode == 3 and 1 or 0)
+  if d.mode ~= s.mode then
+    Game.Set("FullScreen", d.mode == 1 and 1 or 0)
+    pcall(Scorer.SetMsgText, Coop.text("restart"), Game.GetTime() + 5)
+  elseif d.mode == 1 then
+    pcall(Game.SetVideoCurrentMode, Game.GetVideoCurrentMode())
+  end
+  Coop.log(string.format("display: mode %s, %d Hz", Coop.MODES[d.mode], d.hz))
+  Coop.dispSaved = {hz = d.hz, mode = d.mode}
+end
+
+-- The rows go in through the screen's VerticalMenu call; its layout code (written for five
+-- rows: Advanced and Back side by side at the bottom) is then redone for seven.
+function Coop.layoutVideo()
+  local function it(n) return Scorer.GetItem(0, "Itm" .. n) end
+  local i2, i3, i4, i5, i6, i7 = it(2), it(3), it(4), it(5), it(6), it(7)
+  if not (i2 and i3 and i4 and i5 and i6 and i7) then return end
+  local step = i3.Y - i2.Y
+  for k, row in ipairs({i4, i5}) do
+    row.Y = i3.Y + k * step
+    row.X = 100
+    row.Left, row.Right = "", ""
+  end
+  i4.onLeft, i4.onRight = "Coop.displayModePrev", "Coop.displayModeNext"
+  i5.onLeft, i5.onRight = "Coop.displayHzPrev", "Coop.displayHzNext"
+  i3.Down, i4.Up, i4.Down, i5.Up = "Itm4", "Itm3", "Itm5", "Itm4"
+  local y = math.max(380, i5.Y + step)
+  i6.Y, i6.X, i7.Y, i7.X = y, 60, y, 440
+  Menu.LinkLR(i6, i7)
+  Menu.LinkLR(i7, i6)
+  i5.Down, i6.Up, i7.Up = "Itm6", "Itm5", "Itm5"
+end
+
+function Coop.installDisplayMenu()
+  if not Menu or not Menu.VideoMenu or Menu.VideoMenu == Coop.videoMenu or not Net.CoopDisplay then return end
+  if Game.Get("Platform") ~= "PC" then return end
+  local orig = Menu.VideoMenu
+  Coop.videoMenu = function(id, control, ...)
+    Coop.displayState()
+    local vm = Menu.VerticalMenu
+    Menu.VerticalMenu = function(title, options, ...)
+      Menu.VerticalMenu = vm
+      if type(options) == "table" and #options == 5 then
+        table.insert(options, 4, {Coop.displayModeLabel(), "Coop.displayModeNext"})
+        table.insert(options, 5, {Coop.displayHzLabel(), "Coop.displayHzNext"})
+        Coop.videoRows = true
+      end
+      return vm(title, options, ...)
+    end
+    Coop.videoRows = false
+    local ok, err = pcall(orig, id, control, ...)
+    Menu.VerticalMenu = vm
+    if not ok then Coop.log("video menu error: " .. tostring(err)) return end
+    if Coop.videoRows then
+      local okl, errl = pcall(Coop.layoutVideo)
+      if not okl then Coop.log("video menu layout error: " .. tostring(errl)) end
+    end
+  end
+  Menu.VideoMenu = Coop.videoMenu
+  local proto = Menu.ConfigProto
+  if proto then
+    Menu.ConfigProto = function(...)
+      pcall(Coop.applyDisplay)
+      return proto(...)
+    end
   end
 end
 

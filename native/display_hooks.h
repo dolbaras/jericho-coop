@@ -21,3 +21,15 @@ int display_hooks_pad_raw(int out[4]);
 /* Split screen in one game: pick the two players' pads (on), and let both act as pad 0
    (merge) while a menu or a scene is up. */
 void display_hooks_pads_split(int on, int merge);
+
+/* Display mode and refresh rate (coop:video.txt): the settings, the refresh rates of the
+ * screen's current size ("60,75,144"), a change (saved; borderless applies now). */
+int display_get(int *hz, int *borderless);
+void display_rates(char *out, size_t size);
+int display_set(int hz, int borderless);
+/* The game window's monitor size; 1 while the window is the borderless one. */
+int display_monitor(int *w, int *h);
+
+/* The chosen refresh rate into a full screen device's parameters (CreateDevice, Reset). */
+struct _D3DPRESENT_PARAMETERS_;
+void display_apply_pp(struct _D3DPRESENT_PARAMETERS_ *pp);

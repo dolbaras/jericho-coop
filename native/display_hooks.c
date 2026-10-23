@@ -319,6 +319,186 @@ static LRESULT CALLBACK background_wndproc(HWND hw, UINT msg, WPARAM wp, LPARAM 
     return CallWindowProcA(game_wndproc, hw, msg, wp, lp);
 }
 
+/* ---- Display mode and refresh rate (0.2.4, owner): the game has neither. Kept in the co-op
+ * folder (coop:video.txt) by the mod's video options (coop_display.lua, Net.CoopDisplay):
+ *   hz=<n>         full screen refresh rate (0: the adapter's default, as the game asks)
+ *   borderless=1   a windowed game (game.cfg FullScreen 0) as a window without a frame over
+ *                  its whole monitor
+ * Read when the game creates its window (not in DllMain: the folder lookup). Test runs that
+ * place their window (JERICHO_WINPOS/WINSIZE) keep their own. */
+static int disp_hz, disp_borderless, disp_loaded;
+
+static void display_load(void)
+{
+    char path[MAX_PATH + 80], line[64];
+    if (disp_loaded)
+        return;
+    disp_loaded = 1;
+    FILE *f = coop_data_path("coop:video.txt", path, sizeof path) ? fopen(path, "r") : NULL;
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        if (strncmp(line, "hz=", 3) == 0)
+            disp_hz = atoi(line + 3);
+        else if (strncmp(line, "borderless=", 11) == 0)
+            disp_borderless = atoi(line + 11) != 0;
+    }
+    fclose(f);
+    coop_log("display: hz=%d borderless=%d", disp_hz, disp_borderless);
+}
+
+static int display_save(void)
+{
+    char path[MAX_PATH + 80];
+    FILE *f = coop_data_path("coop:video.txt", path, sizeof path) ? fopen(path, "w") : NULL;
+    if (!f)
+        return 0;
+    fprintf(f, "hz=%d\nborderless=%d\n", disp_hz, disp_borderless);
+    fclose(f);
+    return 1;
+}
+
+static int borderless_on(void)
+{
+    return disp_borderless && !have_winpos && !have_winsize;
+}
+
+/* The monitor the game window is on (the primary before there is a window). */
+static HMONITOR game_monitor(void)
+{
+    return game_window ? MonitorFromWindow(game_window, MONITOR_DEFAULTTOPRIMARY)
+                       : MonitorFromPoint((POINT){0, 0}, MONITOR_DEFAULTTOPRIMARY);
+}
+
+static RECT monitor_rect(void)
+{
+    MONITORINFO mi = {sizeof mi};
+    RECT r = {0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    if (GetMonitorInfoA(game_monitor(), &mi))
+        r = mi.rcMonitor;
+    return r;
+}
+
+/* Refresh rates the game's monitor has for w x h, as "60,75,144" (ascending, no repeats). */
+static void refresh_rates(int w, int h, char *out, size_t size)
+{
+    MONITORINFOEXA mi;
+    memset(&mi, 0, sizeof mi);
+    mi.cbSize = sizeof mi;
+    out[0] = 0;
+    if (!GetMonitorInfoA(game_monitor(), (MONITORINFO *)&mi))
+        return;
+    int rates[64], n = 0;
+    DEVMODEA dm;
+    memset(&dm, 0, sizeof dm);
+    dm.dmSize = sizeof dm;
+    for (DWORD i = 0; EnumDisplaySettingsA(mi.szDevice, i, &dm); i++) {
+        if ((int)dm.dmPelsWidth != w || (int)dm.dmPelsHeight != h || dm.dmDisplayFrequency <= 1)
+            continue;
+        int hz = (int)dm.dmDisplayFrequency, k = 0;
+        while (k < n && rates[k] < hz)
+            k++;
+        if ((k < n && rates[k] == hz) || n == 64)
+            continue;
+        memmove(&rates[k + 1], &rates[k], (size_t)(n - k) * sizeof rates[0]);
+        rates[k] = hz;
+        n++;
+    }
+    size_t len = 0;
+    for (int k = 0; k < n && len + 8 < size; k++)
+        len += (size_t)snprintf(out + len, size - len, k ? ",%d" : "%d", rates[k]);
+}
+
+/* Before CreateDevice and every Reset: the chosen refresh rate in full screen, when the
+ * monitor has it at this size (else the game's own 0). */
+void display_apply_pp(D3DPRESENT_PARAMETERS *pp)
+{
+    display_load();
+    if (!pp || pp->Windowed || disp_hz <= 0)
+        return;
+    char rates[512];
+    refresh_rates((int)pp->BackBufferWidth, (int)pp->BackBufferHeight, rates, sizeof rates);
+    for (const char *t = rates; *t; ) {
+        if (atoi(t) == disp_hz) {
+            pp->FullScreen_RefreshRateInHz = (UINT)disp_hz;
+            coop_log("display: %ux%u at %d Hz", pp->BackBufferWidth, pp->BackBufferHeight, disp_hz);
+            return;
+        }
+        const char *c = strchr(t, ',');
+        if (!c)
+            break;
+        t = c + 1;
+    }
+    coop_log("display: %d Hz not offered at %ux%u (%s), the default", disp_hz, pp->BackBufferWidth,
+             pp->BackBufferHeight, rates);
+}
+
+/* A borderless window covers its monitor, whatever size the game asks for. */
+static void borderless_fit(HWND hw)
+{
+    RECT r = monitor_rect();
+    LONG st = GetWindowLongA(hw, GWL_STYLE);
+    LONG want = (st & ~(LONG)(WS_OVERLAPPEDWINDOW | WS_DLGFRAME | WS_BORDER)) | (LONG)WS_POPUP;
+    if (st != want)
+        SetWindowLongA(hw, GWL_STYLE, want);
+    LONG ex = GetWindowLongA(hw, GWL_EXSTYLE);
+    LONG wex = ex & ~(LONG)(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+    if (ex != wex)
+        SetWindowLongA(hw, GWL_EXSTYLE, wex);
+    (real_SetWindowPos ? real_SetWindowPos : SetWindowPos)(hw, HWND_TOP, r.left, r.top, r.right - r.left,
+        r.bottom - r.top, SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER);
+}
+
+/* Net.CoopDisplay (coop_net.c): the settings, the rates of the screen's current size, and
+ * a change (kept for the next start; borderless applies now to a windowed game). */
+int display_get(int *hz, int *borderless)
+{
+    display_load();
+    *hz = disp_hz;
+    *borderless = disp_borderless;
+    return 1;
+}
+
+void display_rates(char *out, size_t size)
+{
+    RECT r = monitor_rect();
+    MONITORINFOEXA mi;
+    memset(&mi, 0, sizeof mi);
+    mi.cbSize = sizeof mi;
+    DEVMODEA dm;
+    memset(&dm, 0, sizeof dm);
+    dm.dmSize = sizeof dm;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (GetMonitorInfoA(game_monitor(), (MONITORINFO *)&mi) &&
+        EnumDisplaySettingsA(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) {
+        w = (int)dm.dmPelsWidth;
+        h = (int)dm.dmPelsHeight;
+    }
+    refresh_rates(w, h, out, size);
+}
+
+/* The game window's monitor, and whether the window is the borderless one now. */
+int display_monitor(int *w, int *h)
+{
+    RECT r = monitor_rect();
+    *w = r.right - r.left;
+    *h = r.bottom - r.top;
+    return game_window && borderless_on() && !(GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION);
+}
+
+int display_set(int hz, int borderless)
+{
+    display_load();
+    int was = disp_borderless;
+    disp_hz = hz > 0 ? hz : 0;
+    disp_borderless = borderless != 0;
+    coop_log("display: set hz=%d borderless=%d", disp_hz, disp_borderless);
+    if (game_window && disp_borderless && !was && borderless_on() &&
+        (GetWindowLongA(game_window, GWL_STYLE) & WS_CAPTION))
+        borderless_fit(game_window);
+    return display_save();
+}
+
 static int show_after_create;
 
 static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, int x, int y,
@@ -338,6 +518,19 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWOR
         h = oh;
         win_style = style;
         win_exstyle = ex;
+    }
+    if (game) {
+        display_load();
+        if (borderless_on() && (style & WS_CAPTION)) {
+            RECT r = monitor_rect();
+            style = (style & WS_VISIBLE) | WS_POPUP | WS_CLIPCHILDREN;
+            ex &= ~(DWORD)(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+            x = r.left;
+            y = r.top;
+            w = r.right - r.left;
+            h = r.bottom - r.top;
+            coop_log("display: borderless window %dx%d at %d,%d", w, h, x, y);
+        }
     }
     if (game && test_mode) {
         ex |= WS_EX_NOACTIVATE;
@@ -367,6 +560,13 @@ static BOOL WINAPI hook_SetWindowPos(HWND hw, HWND after, int x, int y, int w, i
         outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
     if (hw == game_window && test_mode)
         flags |= SWP_NOACTIVATE;
+    if (hw == game_window && borderless_on() && !(GetWindowLongA(hw, GWL_STYLE) & WS_CAPTION)) {
+        RECT r = monitor_rect();
+        x = r.left;
+        y = r.top;
+        w = r.right - r.left;
+        h = r.bottom - r.top;
+    }
     return real_SetWindowPos(hw, after, x, y, w, h, flags);
 }
 
@@ -378,6 +578,13 @@ static BOOL WINAPI hook_MoveWindow(HWND hw, int x, int y, int w, int h, BOOL rep
     }
     if (hw == game_window && have_winsize)
         outer_size((DWORD)GetWindowLongA(hw, GWL_STYLE), (DWORD)GetWindowLongA(hw, GWL_EXSTYLE), &w, &h);
+    if (hw == game_window && borderless_on() && !(GetWindowLongA(hw, GWL_STYLE) & WS_CAPTION)) {
+        RECT r = monitor_rect();
+        x = r.left;
+        y = r.top;
+        w = r.right - r.left;
+        h = r.bottom - r.top;
+    }
     return real_MoveWindow(hw, x, y, w, h, repaint);
 }
 
@@ -436,7 +643,14 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
     D3DADAPTER_IDENTIFIER9 id;
     memset(&id, 0, sizeof id);
     ident(d3d, use, 0, &id);
+    display_apply_pp(pp);
     HRESULT hr = real_CreateDevice(d3d, use, type, focus, flags, pp, out);
+    if (FAILED(hr) && pp && pp->FullScreen_RefreshRateInHz) {
+        coop_log("display: CreateDevice at %u Hz failed (0x%08lx), the default", pp->FullScreen_RefreshRateInHz,
+                 (unsigned long)hr);
+        pp->FullScreen_RefreshRateInHz = 0;
+        hr = real_CreateDevice(d3d, use, type, focus, flags, pp, out);
+    }
     coop_log("CreateDevice asked=%u used=%u (%s) flags=0x%08lx hr=0x%08lx", adapter, use, id.Description,
              (unsigned long)flags, (unsigned long)hr);
     if (FAILED(hr) && use != adapter) {
@@ -838,6 +1052,12 @@ void display_hooks_install(void)
     if (!real_CreateWindowExA)
         real_CreateWindowExA = (CreateWindowExA_t)patch_iat("USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
     install_background_hooks();
+    /* The borderless window (display_load) keeps its monitor's size: the game moves and sizes
+       its window on mode changes. Pass-through otherwise. */
+    if (!real_SetWindowPos)
+        real_SetWindowPos = (SetWindowPos_t)patch_iat("USER32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
+    if (!real_MoveWindow)
+        real_MoveWindow = (MoveWindow_t)patch_iat("USER32.dll", "MoveWindow", (void *)hook_MoveWindow);
     if (GetEnvironmentVariableA("JERICHO_WINPOS", v, sizeof v) > 0) {
         char *comma = strchr(v, ',');
         if (comma) {
@@ -846,8 +1066,10 @@ void display_hooks_install(void)
             have_winpos = 1;
             if (!real_CreateWindowExA)
                 real_CreateWindowExA = (CreateWindowExA_t)patch_iat("USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
-            real_SetWindowPos = (SetWindowPos_t)patch_iat("USER32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
-            real_MoveWindow = (MoveWindow_t)patch_iat("USER32.dll", "MoveWindow", (void *)hook_MoveWindow);
+            if (!real_SetWindowPos)   /* (hooked already: patching again would make it call itself) */
+                real_SetWindowPos = (SetWindowPos_t)patch_iat("USER32.dll", "SetWindowPos", (void *)hook_SetWindowPos);
+            if (!real_MoveWindow)
+                real_MoveWindow = (MoveWindow_t)patch_iat("USER32.dll", "MoveWindow", (void *)hook_MoveWindow);
             if (!real_CreateWindowExA)
                 coop_log("winpos: CreateWindowExA not in import table");
             /* The hooks above dereference these; fall back to the real functions. */

@@ -829,7 +829,13 @@ static HRESULT WINAPI hook_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *p
 {
     icons_tex = NULL;
     release_surfaces();   /* D3DPOOL_DEFAULT: gone before a reset */
-    return real_Reset(dev, pp);
+    display_apply_pp(pp);   /* the chosen refresh rate (display_hooks.c) */
+    HRESULT hr = real_Reset(dev, pp);
+    if (FAILED(hr) && pp && pp->FullScreen_RefreshRateInHz) {
+        pp->FullScreen_RefreshRateInHz = 0;
+        hr = real_Reset(dev, pp);
+    }
+    return hr;
 }
 
 static void *patch(void **vt, int slot, void *hook)

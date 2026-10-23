@@ -27,6 +27,8 @@
  *   Net.CoopBoot()                      -> Lua chunk that starts the mod: sets COOP_DIR (the
  *                                                 coop folder) and COOP_CFG (%JERICHO_COOP_CFG%
  *                                                 in test runs, else {}), runs boot.lua
+ *   Net.CoopDisplay("get" | "rates" | "set", hz, borderless)  refresh rate and borderless window
+ *                                                 (display_hooks.c)
  *   Net.CoopDiscover()                  -> "ip|text;ip|text..."  LAN games heard so far; each
  *                                                 call (at most once a second) asks the LAN again
  *
@@ -678,6 +680,39 @@ int coop_data_path(const char *name, char *out, size_t size)
 }
 
 /* Net.CoopClip("save") -> the clip being written (clip.c: the last 30 s), "" if none. */
+/* Net.CoopDisplay("get") -> hz, borderless; ("rates") -> "60,75,144"; ("monitor") -> w, h,
+ * borderless now (1/0); ("set", hz, borderless) -> 1/0 */
+static int l_display(lua_State *L)
+{
+    const char *cmd = lua_tolstring(L, 1, NULL);
+    if (cmd && strcmp(cmd, "get") == 0) {
+        int hz, bl;
+        display_get(&hz, &bl);
+        lua_pushnumber(L, hz);
+        lua_pushnumber(L, bl);
+        return 2;
+    }
+    if (cmd && strcmp(cmd, "rates") == 0) {
+        char rates[512];
+        display_rates(rates, sizeof rates);
+        lua_pushstring(L, rates);
+        return 1;
+    }
+    if (cmd && strcmp(cmd, "monitor") == 0) {
+        int w, h, on = display_monitor(&w, &h);
+        lua_pushnumber(L, w);
+        lua_pushnumber(L, h);
+        lua_pushnumber(L, on);
+        return 3;
+    }
+    if (cmd && strcmp(cmd, "set") == 0) {
+        lua_pushnumber(L, display_set(lua_tointeger(L, 2), lua_tointeger(L, 3)));
+        return 1;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 static int l_clip(lua_State *L)
 {
     const char *cmd = lua_tolstring(L, 1, NULL);
@@ -995,6 +1030,7 @@ static const struct {
     {"ServerChangeLevel", "CoopSteam", l_steam},
     {"GetPing", "CoopConsole", l_console},
     {"IsMaster", "CoopClip", l_clip},
+    {"InitClient", "CoopDisplay", l_display},
 };
 
 int coop_net_install(void)
