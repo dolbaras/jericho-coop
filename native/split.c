@@ -850,6 +850,12 @@ static void *patch(void **vt, int slot, void *hook)
     return orig;
 }
 
+void split_release_device(void)
+{
+    icons_tex = NULL;
+    release_surfaces();
+}
+
 void split_on_device(IDirect3DDevice9 *dev)
 {
     static int hooked;

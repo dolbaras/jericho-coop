@@ -342,6 +342,14 @@ static DWORD WINAPI worker(LPVOID arg)
     }
 }
 
+void clip_release_device(void)
+{
+    if (sysmem)
+        IDirect3DSurface9_Release(sysmem);
+    sysmem = NULL;
+    sm_w = sm_h = 0;
+}
+
 void clip_on_device(IDirect3DDevice9 *dev)
 {
     static int done;

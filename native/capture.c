@@ -179,6 +179,14 @@ int capture_enabled(void)
     return path[0] != 0;
 }
 
+void capture_release_device(void)
+{
+    if (sysmem)
+        IDirect3DSurface9_Release(sysmem);
+    sysmem = NULL;
+    sw = sh = 0;
+}
+
 void capture_on_device(IDirect3DDevice9 *dev)
 {
     if (!dev || !capture_enabled() || out)

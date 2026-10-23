@@ -783,6 +783,29 @@ static UINT pick_adapter(IDirect3D9 *d3d, HWND focus, UINT asked)
     return asked;
 }
 
+/* The game's exit: its last Release of the device checks the count left and stops on "A D3D
+ * object has a non-zero reference count" (a modal box: the game does not end until it is
+ * answered) when anything else still holds the device. The mod's kept surfaces and state block
+ * (clip, capture, split screen) do, so they go first whenever the count is that low: in play
+ * it is in the thousands (every texture holds the device); early on they are made again when
+ * needed. */
+typedef ULONG (WINAPI *DevRef_t)(IDirect3DDevice9 *);
+static DevRef_t real_DevAddRef, real_DevRelease;
+static ULONG WINAPI hook_DevRelease(IDirect3DDevice9 *dev)
+{
+    static int inside;   /* (a surface let go may release the device through this slot) */
+    ULONG n = real_DevAddRef(dev);
+    real_DevRelease(dev);
+    if (n <= 16 && !inside) {
+        inside = 1;
+        clip_release_device();
+        capture_release_device();
+        split_release_device();
+        inside = 0;
+    }
+    return real_DevRelease(dev);
+}
+
 static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYPE type, HWND focus, DWORD flags,
                                         D3DPRESENT_PARAMETERS *pp, IDirect3DDevice9 **out)
 {
@@ -812,6 +835,13 @@ static HRESULT WINAPI hook_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYP
         capture_on_device(*out);
         clip_on_device(*out);    /* the last 30 s for bug reports (F11) */
         split_on_device(*out);   /* after capture: the split hooks wrap the recording */
+        if (!real_DevRelease) {
+            void **vt = *(void ***)*out;
+            real_DevAddRef = (DevRef_t)vt[1];
+            void *orig = patch_vtable(*out, 2, (void *)hook_DevRelease);
+            if (orig)
+                real_DevRelease = (DevRef_t)orig;
+        }
     }
     return hr;
 }

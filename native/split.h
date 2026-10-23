@@ -5,6 +5,8 @@
 
 /* Local split screen in one game: hooks on the game's D3D device (see split.c). */
 void split_on_device(IDirect3DDevice9 *dev);
+/* Lets go of the device: the composite and the saved state (made again when needed). */
+void split_release_device(void);
 /* Lua (Net.CoopSplit): mode 0 off / 1 top-bottom; returns the camera slot (0 top, 1 bottom)
    the frame being prepared shows. */
 int split_set(int mode);
