@@ -297,6 +297,18 @@ Unknown:
 - Whether setting `Action` every time it changes on the host restarts or blends animations correctly.
 - Whether root motion plus position correction double-moves the body.
 
+### 5.3 Action events that call into the AI (0.2.7)
+
+The client mirrors the host's enemy actions (`ForceAction`), so their animation events run on the
+client too. Four classes end "Appear" / "Disappear" with a call into their AI:
+`PsichicCommander`, `EvilFirstBorn`, `SummerianNANNA`, `SummerianUTU` (`oAI:OnAfterAppear()`,
+`oAI:OnAfterDisappear()`). With the client's AI off, that call reached a stale pointer: crash
+`AccessViolation at 04A0400B (read 00000611)`, stack `0050f4ba` (AI method "OnAfterDisappear",
+vtable +0x3a4) -> `005035f0` (AI mode 3) -> `00507c30`, from the Lua method call at `005335ed`
+(split test 0.2.7, WWII_PillBoxes G4, the psychic commander; once in about ten runs). On a
+client these events now run only their other parts: the ragdoll and the shield effects
+(`CoopEnemies.guardAIEvents`, "enemy event ... without its AI" in the log).
+
 ---
 
 ## 6. Weapons and firing

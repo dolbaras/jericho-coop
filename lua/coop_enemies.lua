@@ -863,7 +863,43 @@ local function guard(tbl, name)
   return f
 end
 
+-- Enemy action events that tell the enemy's AI an appearance ended (the psychic commander, the
+-- Firstborn, the Sumerians: oAI:OnAfterAppear / OnAfterDisappear). A client's enemies run no
+-- AI (driveEnemies), and the call reached into AI state not kept up there: the client crashed
+-- when the psychic commander's disappearance ended (WWII_PillBoxes, split test 0.2.7). On a
+-- client only the rest of the event runs (ragdoll, effects).
+E.AI_EVENTS = {
+  PsichicCommander = {OnAfterDisappear = {"DeActiveRagdoll"}, OnAfterAppear = {"ActiveRagdoll"}},
+  EvilFirstBorn = {OnAfterDisappear = {}, OnAfterAppear = {}},
+  SummerianNANNA = {OnAfterDisappear = {"FXShieldOff", "FXHeartProtectionOff"},
+                    OnAfterAppear = {"FXShieldOn", "FXHeartProtectionOn"}},
+  SummerianUTU = {OnAfterDisappear = {"FXShieldOff", "FXHeartProtectionOff"},
+                  OnAfterAppear = {"FXShieldOn", "FXHeartProtectionOn"}},
+}
+function E.guardAIEvents()
+  for cls, evs in pairs(E.AI_EVENTS) do
+    local t = _G[cls]
+    for ev, rest in pairs(evs) do
+      local orig = t and t[ev]
+      -- (the wrapper is kept to tell it from the game's function a script reload put back)
+      if type(orig) == "function" and not (t.coopAIGuard and t.coopAIGuard[ev] == orig) then
+        t.coopAIGuard = t.coopAIGuard or {}
+        t[ev] = function(name, ...)
+          if not (Coop.isClient() and Coop.cfg.myId) then return orig(name, ...) end
+          Coop.log("enemy event " .. cls .. "." .. ev .. " of " .. tostring(name) .. " without its AI (host-driven)")
+          for _, f in ipairs(rest) do
+            local ok, err = pcall(t[f], name)
+            if not ok then Coop.log("enemy event " .. cls .. "." .. f .. ": " .. tostring(err)) end
+          end
+        end
+        t.coopAIGuard[ev] = t[ev]
+      end
+    end
+  end
+end
+
 function E.installClient()
+  E.guardAIEvents()
   -- Every map callback (area triggers, use actions, scene ends, pulsers).
   local n = 0
   if MapCallbacks then
@@ -1191,6 +1227,8 @@ function E.update()
       Net.CoopSend(0, 1, "lready|" .. string.sub(Game.GetLevelPath(), 8))
     end
     if Coop.frame % 10 == 0 then E.freezeLocalEnemies() end
+    -- (an enemy class whose script loads later in the level)
+    if Coop.frame % 90 == 0 then E.guardAIEvents() end
   end
 end
 
