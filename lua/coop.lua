@@ -39,6 +39,7 @@ Coop.owners = {}           -- char name -> peer id (0 = host)
 Coop.remote = {}           -- char name -> latest received state
 Coop.storyDriven = {}      -- char name -> true while a story walk drives it (coop_story.lua)
 Coop.frame = 0
+Coop.oldStates = 0         -- states from the last level dropped at this one's start (Coop.onMessage)
 
 local cfg = Coop.cfg
 
@@ -775,6 +776,7 @@ function Coop.drivePuppets(dt)
         if err > Coop.SNAP_DIST or math.abs(dy) > Coop.SNAP_DIST then
           e.Pos = V3D(tg.x, tg.y, tg.z)
           Coop.snaps = (Coop.snaps or 0) + 1
+          if err > 5000 then Coop.log(string.format("puppet %s moved %.0f", name, err)) end
         else
           -- The body walks on its own inputs (animation, collision); this keeps it on the
           -- interpolated path every frame, without a dead zone that would make it jump.
@@ -900,6 +902,18 @@ function Coop.onMessage(peer, data)
     -- Only the owner (or the host for unowned bodies) may drive a body.
     local owner = Coop.owners[name]
     if Coop.isHost() and Coop.peerOf(owner) ~= peer then return end
+    -- States sent in the last level and delivered after the load hold that level's places: a
+    -- body put there fell through the map (0.2.7 campaign test: player 2 at Rom_Coloseum, the
+    -- host relayed the client's own old state back before split screen took the body). The
+    -- host takes a peer's states once it said it loaded this level (lready), a client after
+    -- its first second; and nobody's relayed copy of this machine's own bodies.
+    local ready = CoopEnemies and CoopEnemies.readyPeers
+    if (Coop.isHost() and ready and not ready[peer] and Coop.frame < 300) or (not Coop.isHost() and Coop.frame < 30) then
+      Coop.oldStates = (Coop.oldStates or 0) + 1
+      if Coop.oldStates == 1 then Coop.log("state of " .. tostring(name) .. " from before this level dropped") end
+      return
+    end
+    if not Coop.isHost() and Coop.isLocalBody(name) and not Coop.storyDriven[name] then return end
     local st = {
       x = tonumber(f[3]), y = tonumber(f[4]), z = tonumber(f[5]),
       yaw = tonumber(f[6]), pitch = tonumber(f[7]),

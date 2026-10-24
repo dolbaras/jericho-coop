@@ -237,24 +237,32 @@ Approach (a) after all, in one game: `native/split.c` (alternate camera slot per
   corners (weapons, powers, squad, SMOD's health) moved out onto the bars at the screen's
   edges. Fades and full-screen overlays are recognised (a 2-triangle quad over most of the
   width) and drawn plainly. The late power-icon draws are recognised by their texture.
-  0.2.6: the same for the "wide" view (screens and windows wider than 1.85, each half filled):
+  0.2.7: the same for the "wide" view (screens and windows wider than 1.85, each half filled):
   there the HUD had been drawn over the whole half, twice as wide as high (a wide crosshair,
   stretched squad names), and without the batch rule below each player's message line came
   out in the other half every other frame (blinking, in two styles). Test: lab/splithud.ps1.
   Fades and full-screen effects stay over the whole half in that view.
-- **0.2.6: hints per player.** The game has one message line (`Scorer.SetMsgText`) that each
+- **0.2.7: hints per player.** The game has one message line (`Scorer.SetMsgText`) that each
   user's "Msg" widget shows; a hint for one seat (`CoopSplit.tellUser`, `CoopSouls.tellSeat`,
   and the game's own messages from player 2's code) hides the other user's widget while it lasts
   (`Visible` takes 1/0, not a boolean).
-- **0.2.6: frame cap.** Each view is drawn every other frame, so its rate is half the game's.
+- **0.2.7: frame cap.** Each view is drawn every other frame, so its rate is half the game's.
   With the game's cap off (`R_LimitFPS` 0, the default) and no vertical sync, the mod caps the
   game at twice the screen's refresh rate in split screen and at the rate itself otherwise
   (`Coop.frameCap`, the wait in `split.c` before Present). Measured: 120 frames a second in
   split screen on a 60 Hz screen, about 96 where the GPU gives less.
-- **0.2.6: the squad switch's soul flight** ends in the frame it starts in co-op (the world is
+- **0.2.7: the squad switch's soul flight** ends in the frame it starts in co-op (the world is
   not slowed): the game deleted the flight camera the engine was drawing with, "Check failed:
   GetActiveCamera() != this" within 20-40 switches in split screen. The end now waits 0.1 s
   (`CoopTeam.installTravel`); lab/splitswitch.ps1 switches 60 times.
+- **0.2.7: player 2 under the map at a level's start** (owner, campaign test, Rom_Coloseum).
+  States a client sent in the last level reached the host after its load; the host relays
+  every player's state to everyone, so the client got its own player 2's old place back, and
+  until split screen took the body (about a second) the body was a puppet and was put there,
+  outside the new map. Client logs showed jumps of 6000-87000 units at 10 of 33 level starts.
+  The host now takes a peer's states only after its `lready` (first 300 frames), a client none
+  in its first 30 frames and no relayed copy of its own bodies (`Coop.onMessage`, "state of X
+  from before this level dropped"); a puppet moved more than 5000 is logged.
 - **Per view state.** Before each frame Lua sets what that view should show: its player's
   first-person arms (`0FP_*`/`1FP_*` `bObjectVisible`), the other player's body, and the
   screen effect parameters of that player's powers (`Game.Set`/`Get` of ~50 effect
