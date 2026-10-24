@@ -255,6 +255,8 @@ Three ways, from least to most certain:
 
 ### 2.10 Synchronisation and QTE routing (implementation notes)
 
+> Written before the code; the built scene and QTE messages are in `architecture.md` (section 4, "Cutscene branches and QTEs").
+
 **Start:**
 - The host wraps `Scene.Play`/`PlayFP*` and broadcasts `scene <Class>`. Clients call the same function locally.
 - Clients must not run their own triggers (`enemies-and-triggers.md` §5).

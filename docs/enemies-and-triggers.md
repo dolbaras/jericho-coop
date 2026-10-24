@@ -355,6 +355,8 @@ Unknown:
 
 ## 7. Recommended design: host-authoritative enemies
 
+> Written before the code (2026-10-18/19). The messages and functions named here were built differently or not at all; the built protocol is in `architecture.md` (section 4).
+
 ### 7.1 Principles
 
 1. **The host is the only simulator** of enemy AI, spawning, damage resolution, deaths, group counters, triggers, use actions, scenes, doors, checkpoints and level changes.

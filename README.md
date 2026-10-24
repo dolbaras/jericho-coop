@@ -96,7 +96,7 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   values when every player has it, and its jump is replicated (`coop_smod.lua`).
 - Screen: the game's Video settings have Auto, 4:3, 5:4, 16:10, 16:9, 21:9 and 32:9 aspect
   ratios, a display mode (full screen, window, borderless window over the monitor) and the
-  refresh rate (`display_hooks.c`).
+  refresh rate (`coop.lua` `Coop.installDisplayMenu`, `display_hooks.c`).
 - Lobby: the picked character's picture (the game's own squad art); the main menu shows the
   mod's name and version for a few seconds, mirrored to SMOD's label (top left on 4:3 and 5:4
   screens; after the game's "Press [ENTER] or START" line, never over it).
@@ -109,7 +109,10 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
 ### Next
 
 Fixes from human playthroughs (please report in Issues); per-level fixes for story scripts
-that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
+that assume one player (`docs/usrentity-audit.md`) as playtesting finds them. Not yet tested:
+a Steam session between two different networks (relay) and joining from the Steam friends list.
+A rare split-screen flicker was reported once and could not be reproduced: an F11 clip of it
+would help.
 
 ## How it works
 
@@ -117,7 +120,7 @@ that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
   starts the mod's Lua on every level (`-InitLuaLine` boot line), adds `Net.Coop*` Lua
   functions on top of ENet (UDP), and has test helpers (window placement, render adapter,
   running unfocused without reading the user's input), Steam networking (`steam_net.c`),
-  split screen (`split.c`), aspect ratios (`display_hooks.c`) and F11 clips (`clip.c`).
+  split screen (`split.c`), display mode and refresh rate (`display_hooks.c`) and F11 clips (`clip.c`).
   The exe on disk keeps its code: the installer only sets the retail exe's large-address-aware
   flag (4 GB of memory; the original is kept and put back on uninstall). In memory, on the
   retail exe only, one engine call is redirected (a user lookup without a bounds check that
@@ -148,6 +151,8 @@ that assume one player (`docs/usrentity-audit.md`) as playtesting finds them.
   - `coop_split.lua`: split screen (second player on one PC)
   - `coop_smod.lua`: SMOD detection, one set of rules per session (the host's SMOD values or the game's), its jump for the others, SMOD texts in Russian
   - `dev.lua`: test bots and experiments (loaded only with `dev=true`)
+- `docs/architecture.md`: how the parts fit together (load order, frame loop, network
+  messages, authority, native hooks) and where to start for common changes.
 - `docs/`: analysis of the campaign, enemies and triggers, cutscenes, co-op UX research;
   `docs/story/` the co-op story decisions (splits, player souls); `docs/releasing.md` what
   the auto-update needs from every release.

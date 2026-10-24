@@ -29,6 +29,8 @@ Corrections they make to the table below:
 
 ## Implementation status (2026-10-19, `lua/coop_splits.lua`)
 
+> Status as of 2026-10-19. Since 0.2.3 every story split is built and played with a real host and client in the release tests (`lua/coop_splits.lua`, `coop_patrol.lua`); see the README.
+
 | Split | Line | State |
 |---|---|---|
 | G1 leg C | alk_city: Alpha holds its pocket until Omega breaks through | tested on the test PC (three waves) |

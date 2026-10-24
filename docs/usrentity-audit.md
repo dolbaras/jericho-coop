@@ -241,6 +241,8 @@ separately):
 
 ## Suggested generic mechanisms
 
+> Pre-build proposals (2026-10-19). What was built: `architecture.md` (sections 4 and 9).
+
 All of them can be installed by name, the same way `CoopWorld.installHost` wraps
 `MapCallbacks`. A table `{ "MapInit.TestWard" = {as = "Church"}, ... }` per level is enough.
 
