@@ -134,6 +134,7 @@ function St.clientWalks()
       if e and dest and dest.x then
         local dx, dz = dest.x - e.Pos.x, dest.z - e.Pos.z
         if dx * dx + dz * dz > St.FAR_WALK * St.FAR_WALK then
+          Coop.notePos(name, "story.farWalk")
           e.Pos = dest
           pcall(Game.SetOnFloor, name)
           Coop.log(string.format("story: my body put at its walk's end (%.0f away)", math.sqrt(dx * dx + dz * dz)))

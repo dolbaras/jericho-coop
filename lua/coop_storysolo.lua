@@ -473,6 +473,7 @@ function SS.G4cure()
     if e and e.Life > 0 and e.bActive ~= false then
       -- (Team.CurePlayer is a player's cure, of AI bodies only: the player's own body is
       -- revived as co-op revives a body its machine holds)
+      Coop.notePos(n, "storysolo.raw")
       e.Pos = raw.Pos + V3D(80, 0, 0)
       pcall(Health.DoCure, n, "Rawlings")
       if CoopTeam then CoopTeam.holdDowned.Rawlings = nil end

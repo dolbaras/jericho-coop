@@ -94,6 +94,7 @@ function C.updateHost()
     Coop.log("claim: the AI did not reach " .. p.gate .. " in time, " .. p.char .. " is moved there")
     if body and o then
       if (body.Life or 0) <= 0 and Team and Team.RevivePlayer then pcall(Team.RevivePlayer, body) end
+      Coop.notePos(p.char, "claim.gate")
       body.Pos = o.Pos + V3D(60, 0, 0)
     end
     C.aiArrived()

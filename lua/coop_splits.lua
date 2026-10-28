@@ -600,6 +600,7 @@ function Sp.G6stage(origShow, origEnsure)
     if e and not human(n) and bitchie then
       pcall(AITeamList.DeleteMember, e.oAI.Team, n)
       e.bIgnoreCollision = true
+      Coop.notePos(n, "splits.G4bitchie")
       e.Pos = bitchie.Pos + offs[n]
       e.bActive = true
       e.oAI.bEnable = false
@@ -628,6 +629,7 @@ function Sp.G6leash()
   if not e or (e.Life or 0) <= 0 then return end
   local d = e.Pos - a
   if math.sqrt(d.x * d.x + d.z * d.z) > Sp.G6.LEASH or d.y < -250 then
+    Coop.notePos(me, "splits.leash")
     e.Pos = a
     Game.SetOnFloor(me)
     Coop.log("split G6: " .. me .. " back on the gate top")
@@ -1394,6 +1396,7 @@ function Sp.G1Agoodbye()
       if n == Coop.localChar() or (Coop.isHost() and not Coop.isRemoteOwned(n)) then
         local e = Game.GetEntity(n)
         if e then
+          Coop.notePos(n, "splits.walkStart")
           e.Pos = w[1]
           e.Ang = V3D(0, w[2], 0)
           Game.SetOnFloor(n)
@@ -1416,6 +1419,7 @@ function Sp.G1Agoodbye()
   for n, p in pairs(places) do
     local e = Game.GetEntity(n)
     if e and (n == Coop.localChar() or not human(n)) then
+      Coop.notePos(n, "splits.places")
       e.Pos = p
       Game.SetOnFloor(n)
     end

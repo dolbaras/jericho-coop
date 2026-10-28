@@ -454,6 +454,7 @@ function W.updateRejoin()
     if t - W.rejoinHeld >= W.REJOIN_HOLD then
       local back2 = V3D(u.Pos.x - h.x, 0, u.Pos.z - h.z)
       local l = math.max(1, math.sqrt(back2.x * back2.x + back2.z * back2.z))
+      Coop.notePos(u.Name, "world.rejoin")
       u.Pos = h + V3D(back2.x / l * 90, 30, back2.z / l * 90)
       pcall(Game.SetOnFloor, u.Name)
       W.rejoins = (W.rejoins or 0) + 1
@@ -465,6 +466,60 @@ function W.updateRejoin()
   else
     W.rejoinHeld = nil
   end
+end
+
+-- Diagnostics (coop.lua, a vertical snap storm): the doors, blockers and lift-like props of the map
+-- as they stand here, in one line. Cheap enough for a rate-limited log line, not for a frame.
+function W.context()
+  local t, n = {}, 0
+  for name, open in pairs(W.doors) do
+    n = n + 1
+    if n <= 10 then
+      t[#t + 1] = string.format("door %s=%s/real %s", name, open and "open" or "shut", tostring(W.doorOpen(name)))
+    end
+  end
+  n = 0
+  for name, on in pairs(W.blockers) do
+    n = n + 1
+    if n <= 10 then t[#t + 1] = "blk " .. name .. "=" .. (on and "on" or "off") end
+  end
+  n = 0
+  for name in pairs(W.mapNames()) do
+    local l = string.lower(name)
+    if n < 6 and (string.find(l, "lift", 1, true) or string.find(l, "elev", 1, true) or
+                  string.find(l, "platform", 1, true) or string.find(l, "cage", 1, true)) then
+      local e = Game.GetEntity(name)
+      if e then
+        n = n + 1
+        local ok, a, y = pcall(function() return tostring(e.Action), e.Pos.y end)
+        t[#t + 1] = string.format("lift %s act=%s y=%.0f", name, ok and a or "?", ok and y or 0)
+      end
+    end
+  end
+  return #t > 0 and table.concat(t, "; ") or "no doors, blockers or lifts"
+end
+
+-- Diagnostics: the doors and blockers within R units (flat) of a place, nearest first, with the
+-- state this machine has for them (blockers: on = collides), e.g. around a body that is stuck.
+function W.near(pos, R)
+  local list = {}
+  local function add(kind, name, state)
+    local e = Game.GetEntity(name)
+    local ok, p = pcall(function() return e and e.Pos end)
+    if ok and p then
+      local d = math.sqrt((p.x - pos.x) ^ 2 + (p.z - pos.z) ^ 2)
+      if d <= (R or 800) then list[#list + 1] = {d = d, text = string.format("%s %s=%s %.0fu dy=%.0f", kind, name, state, d, p.y - pos.y)} end
+    end
+  end
+  for name, open in pairs(W.doors) do add("door", name, W.doorOpen(name) and "open" or "shut") end
+  for name, on in pairs(W.blockers) do
+    local ok, live = pcall(function() return Game.GetEntity(name).bMapCollision end)
+    add("blk", name, (ok and live ~= nil and live or on) and "on" or "off")
+  end
+  table.sort(list, function(a, b) return a.d < b.d end)
+  local t = {}
+  for i = 1, math.min(#list, 8) do t[i] = list[i].text end
+  return #t > 0 and table.concat(t, "; ") or "none near"
 end
 
 function W.setDoor(name, open)
@@ -669,7 +724,13 @@ function W.update()
     Coop.log("world: rejoin error " .. tostring(errr))
   end
   if Coop.isHost() and now() >= (W.nextDigest or now() + W.DIGEST_EVERY) then
-    local n, sum = W.digest(W.entries())
+    local entries = W.entries()
+    local n, sum = W.digest(entries)
+    if sum ~= W.lastSum and (W.changeShown or 0) < 30 then
+      W.changeShown = (W.changeShown or 0) + 1
+      Coop.log("world: entries changed (" .. n .. "): " .. string.sub(table.concat(entries, " "), 1, 1200))
+    end
+    W.lastSum = sum
     Net.CoopSend(-1, 1, "wd|" .. n .. "|" .. sum)
     W.nextDigest = now() + W.DIGEST_EVERY
   elseif Coop.isHost() and not W.nextDigest then
@@ -716,6 +777,11 @@ function W.onObjectMessage(peer, f)
       W.mismatch = (W.mismatch or 0) + 1
       W.digestMisses = (W.digestMisses or 0) + 1
       Coop.log("world: digest differs (host " .. tostring(f[2]) .. " entries, here " .. n .. ")")
+      -- (what this machine has, a few times: to compare with the host's "entries changed" lines)
+      if (W.digestShown or 0) < 12 then
+        W.digestShown = (W.digestShown or 0) + 1
+        Coop.log("world: entries here: " .. string.sub(table.concat(W.entries(), " "), 1, 1200))
+      end
       if W.mismatch >= 2 then
         W.mismatch = 0
         Net.CoopSend(0, 1, "wdneed")

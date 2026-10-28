@@ -745,9 +745,161 @@ function Coop.syncCrouch(e, name, st)
   end
 end
 
+-- Diagnostics for puppets that keep being snapped (owner's 0.2.7 log: 90-290 snaps per 5 s for
+-- minutes with a horizontal error of 0-20, so a body whose height kept leaving the host's).
+-- Per puppet (Coop.pd[name], one table per level): the place this driver last wrote, how many
+-- snaps and of which kind, how far the engine (or another module) moved the body between two
+-- writes. Log lines are rate limited: the first PD_FIRST snaps of a puppet, then one per
+-- PD_EVERY seconds; a storm (PD_STORM snaps within PD_WINDOW seconds) adds the map's doors,
+-- blockers and lifts, once per PD_QUIET seconds.
+Coop.pd = Coop.pd or {}
+Coop.posWriters = Coop.posWriters or {}
+Coop.PD_FIRST, Coop.PD_EVERY, Coop.PD_STORM, Coop.PD_WINDOW, Coop.PD_QUIET = 3, 2, 20, 5, 30
+Coop.PD_MOVED = 40       -- units the body moved between two writes that were not this driver's
+
+-- Other modules that put a body somewhere say so, so a log line can name who wrote last.
+function Coop.notePos(name, tag)
+  if name then Coop.posWriters[name] = {tag = tag, t = Net.CoopTime()} end
+end
+
+local function pdOf(name)
+  local d = Coop.pd[name]
+  if not d then
+    d = {snaps = 0, vsnaps = 0, win = 0, winT = 0, logT = -100, stormT = -100, movedT = -100,
+         movedN = 0, eSum = 0, eN = 0}
+    Coop.pd[name] = d
+  end
+  return d
+end
+
+-- The body's own view (Action, velocity, collision, AI, life, active), read only when logging.
+local function pdBody(e)
+  local function g(f) local ok, v = pcall(f) return ok and v ~= nil and tostring(v) or "-" end
+  local vel = g(function() local v = e.Vel return string.format("%.0f,%.0f,%.0f", v.x, v.y, v.z) end)
+  return string.format("act=%s vel=%s life=%s ign=%s ai=%s active=%s", g(function() return e.Action end), vel,
+    g(function() return e.Life end), g(function() return e.bIgnoreCollision end),
+    g(function() return e.oAI.bEnable end), g(function() return e.bActive end))
+end
+
+local function pdWriter(name, now)
+  local w = Coop.posWriters[name]
+  return w and string.format("%s %.1fs ago", w.tag, now - w.t) or "none"
+end
+
+local function pdSnap(name, e, d, tg, err, dy, pos, now)
+  d.snaps = d.snaps + 1
+  if math.abs(dy) > Coop.SNAP_DIST and err <= Coop.SNAP_DIST then d.vsnaps = d.vsnaps + 1 end
+  if now - d.winT > Coop.PD_WINDOW then d.win, d.winT = 0, now end
+  d.win = d.win + 1
+  if d.snaps <= Coop.PD_FIRST or now - d.logT >= Coop.PD_EVERY then
+    d.logT = now
+    Coop.log(string.format("snap %s #%d %s err=%.0f dy=%.0f local.y=%.0f target.y=%.0f wrote.y=%s lastWriter=%s | %s",
+      name, d.snaps, math.abs(dy) > Coop.SNAP_DIST and err <= Coop.SNAP_DIST and "VERTICAL" or "horizontal",
+      err, dy, pos.y, tg.y, d.wy and string.format("%.0f", d.wy) or "-", pdWriter(name, now), pdBody(e)))
+  end
+  if d.win >= Coop.PD_STORM and now - d.stormT >= Coop.PD_QUIET then
+    d.stormT = now
+    Coop.log(string.format("snap storm %s: %d snaps in %.1fs (vertical %d of %d), action here %s, owner's %s; %s",
+      name, d.win, now - d.winT, d.vsnaps, d.snaps, tostring(e.Action),
+      tostring(Coop.remote[name] and Coop.remote[name].action),
+      CoopWorld and CoopWorld.context and CoopWorld.context() or "no world module"))
+    if CoopWorld and CoopWorld.near then
+      Coop.log("snap storm " .. name .. " near the body: " .. CoopWorld.near(pos, 1000))
+    end
+  end
+end
+
+-- The body is not where this driver put it: the engine (gravity, floor, an action) or another
+-- module moved it.
+local function pdMoved(name, e, d, pos, now)
+  local mx, my, mz = pos.x - d.wx, pos.y - d.wy, pos.z - d.wz
+  d.eSum, d.eN = d.eSum + my, d.eN + 1
+  if math.abs(mx) + math.abs(my) + math.abs(mz) > Coop.PD_MOVED and d.movedN < 30 and now - d.movedT >= Coop.PD_EVERY then
+    d.movedT, d.movedN = now, d.movedN + 1
+    Coop.log(string.format("puppet %s moved outside the driver by %.0f,%.0f,%.0f (%.2fs after the write); lastWriter=%s | %s",
+      name, mx, my, mz, now - d.wt, pdWriter(name, now), pdBody(e)))
+  end
+end
+
+-- Where the host's copy of a client's own body stands (hp, once a second per remote body, host to
+-- its owner): a client that is stuck at an invisible wall, or runs through a texture, is somewhere
+-- other than the host's copy of it. The owner logs a difference above PD_OWN units.
+Coop.PD_OWN, Coop.PD_OWN_Y = 300, 150
+Coop.pdOwn = Coop.pdOwn or {}
+function Coop.sendHostPos()
+  if cfg.pdiag == false then return end
+  for name, owner in pairs(Coop.owners) do
+    local peer = Coop.peerOf(owner)
+    if owner ~= nil and not Coop.isMine(owner) and peer and peer ~= 0 then
+      local e = Coop.squadEnt(name)
+      local ok, line = pcall(function()
+        local p = e.Pos
+        return string.format("hp|%s|%.0f|%.0f|%.0f|%s", name, p.x, p.y, p.z, tostring(e.Action))
+      end)
+      if e and ok then Net.CoopSend(peer, 0, line) end
+    end
+  end
+end
+
+function Coop.onHostPos(f)
+  local name = f[2]
+  local e = name and Coop.isLocalBody(name) and Game.GetEntity(name)
+  local hx, hy, hz = tonumber(f[3]), tonumber(f[4]), tonumber(f[5])
+  if not e or not hx or not hy or not hz then return end
+  local p = e.Pos
+  local h = math.sqrt((p.x - hx) ^ 2 + (p.z - hz) ^ 2)
+  local dy = p.y - hy
+  local d = Coop.pdOwn[name]
+  if not d then d = {n = 0, logT = -100} Coop.pdOwn[name] = d end
+  d.host = {x = hx, y = hy, z = hz, t = Net.CoopTime()}
+  local now = Net.CoopTime()
+  if (h > Coop.PD_OWN or math.abs(dy) > Coop.PD_OWN_Y) and now - d.logT >= 5 and d.n < 40 then
+    d.n, d.logT = d.n + 1, now
+    Coop.log(string.format("own body %s differs from the host's copy of it by %.0f flat, dy=%.0f (here %.0f,%.0f,%.0f; host's copy %.0f,%.0f,%.0f action %s; mine %s) | %s",
+      name, h, dy, p.x, p.y, p.z, hx, hy, hz, tostring(f[6]), tostring(e.Action), pdBody(e)))
+  end
+end
+
+-- A local player's body that is pushed into something and does not move (an invisible wall, a
+-- door that is shut here only, a floor that is not there): input on, almost no movement for
+-- PD_STUCK seconds. Logs the body's place, what is near it and where the host's copy of it is.
+Coop.PD_STUCK = 2
+function Coop.pdStuck(now)
+  if cfg.pdiag == false then return end
+  local bodies = {Game.UsrEntity(0)}
+  if CoopSplit and CoopSplit.on and CoopSplit.body then bodies[2] = CoopSplit.body() end
+  for i = 1, 2 do
+    local e = bodies[i]
+    if e and (e.Life or 0) > 0 then
+      local name = e.Name
+      local d = Coop.pdOwn[name]
+      if not d then d = {n = 0, logT = -100} Coop.pdOwn[name] = d end
+      local p = e.Pos
+      if not d.t then
+        d.t, d.x, d.z, d.stuck, d.sn, d.sT = now, p.x, p.z, 0, 0, -100
+      elseif now - d.t >= 1 then
+        local moved = math.sqrt((p.x - d.x) ^ 2 + (p.z - d.z) ^ 2)
+        local pushing = math.abs(tonumber(e.InCtrl_Walk) or 0) > 0.5 or math.abs(tonumber(e.InCtrl_Str) or 0) > 0.5
+        d.t, d.x, d.z = now, p.x, p.z
+        if pushing and moved < 30 and tonumber(e.IgnoreUsrControl) ~= 1 then d.stuck = d.stuck + 1 else d.stuck = 0 end
+        if d.stuck >= Coop.PD_STUCK and now - d.sT >= 5 and d.sn < 40 then
+          d.sT, d.sn = now, d.sn + 1
+          local hc = d.host and now - d.host.t < 3 and
+            string.format("host's copy %.0f,%.0f,%.0f (%.0f flat away)", d.host.x, d.host.y, d.host.z,
+              math.sqrt((p.x - d.host.x) ^ 2 + (p.z - d.host.z) ^ 2)) or "no host copy"
+          Coop.log(string.format("stuck: %s at %.0f,%.0f,%.0f for %ds, walk=%.2f str=%.2f; %s; floorDist=%s | %s | near: %s",
+            name, p.x, p.y, p.z, d.stuck, tonumber(e.InCtrl_Walk) or 0, tonumber(e.InCtrl_Str) or 0, hc,
+            tostring(e.FloorDist), pdBody(e), CoopWorld and CoopWorld.near and CoopWorld.near(p, 800) or "-"))
+        end
+      end
+    end
+  end
+end
+
 function Coop.drivePuppets(dt)
   -- Scenes freeze and hide the squad (Scene.HideChars); puppets resume afterwards.
   if Scene and Scene.IsPlaying then return end
+  pcall(Coop.pdStuck, Net.CoopTime())
   -- FOLLOW is the share of the error removed per 0.05 s; scale it to this frame's length.
   local follow = 1 - (1 - Coop.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
   local now = Net.CoopTime()
@@ -771,18 +923,24 @@ function Coop.drivePuppets(dt)
         end
         Coop.suppressRootMotion(e, localKeys)
         local pos = e.Pos
+        local d = pdOf(name)
+        if d.wy and (pos.x ~= d.wx or pos.y ~= d.wy or pos.z ~= d.wz) then pdMoved(name, e, d, pos, now) end
         local dx, dy, dz = tg.x - pos.x, tg.y - pos.y, tg.z - pos.z
         local err = math.sqrt(dx * dx + dz * dz)
+        local wx, wy, wz
         if err > Coop.SNAP_DIST or math.abs(dy) > Coop.SNAP_DIST then
-          e.Pos = V3D(tg.x, tg.y, tg.z)
+          wx, wy, wz = tg.x, tg.y, tg.z
           Coop.snaps = (Coop.snaps or 0) + 1
           if err > 5000 then Coop.log(string.format("puppet %s moved %.0f", name, err)) end
+          pdSnap(name, e, d, tg, err, dy, pos, now)
         else
           -- The body walks on its own inputs (animation, collision); this keeps it on the
           -- interpolated path every frame, without a dead zone that would make it jump.
-          local y = math.abs(dy) > Coop.FOLLOW_Y and pos.y + dy * follow or pos.y
-          e.Pos = V3D(pos.x + dx * follow, y, pos.z + dz * follow)
+          wx, wy, wz = pos.x + dx * follow, math.abs(dy) > Coop.FOLLOW_Y and pos.y + dy * follow or pos.y, pos.z + dz * follow
         end
+        e.Pos = V3D(wx, wy, wz)
+        d.wx, d.wy, d.wz, d.wt = wx, wy, wz, now
+        Coop.notePos(name, "drivePuppets")
         e.Ang = V3D(0, tg.yaw, 0)
         e.ViewAng = V3D(tg.pitch, tg.yaw, 0)
         -- Firing through the body's own control makes the engine play the shot (sound,
@@ -925,6 +1083,8 @@ function Coop.onMessage(peer, data)
     if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
+  elseif kind == "hp" and Coop.isClient() then
+    pcall(Coop.onHostPos, f)
   elseif kind == "jump" then
     -- Another player jumped (SMOD's jump, coop_smod.lua): the same push for their body here.
     local name = f[2]
@@ -2016,6 +2176,7 @@ function Coop.update()
     end
     if Coop.frame % Coop.SEND_EVERY == 0 then Coop.sendStates() end
     if Coop.isHost() and Coop.frame % 40 == 0 then Coop.broadcastOwners() end
+    if Coop.isHost() and Coop.frame % 20 == 7 then pcall(Coop.sendHostPos) end
   end
   if Coop.menuMode() then CoopMenu.update() end
   if Coop.bot then Coop.bot() end
@@ -2040,6 +2201,12 @@ function Coop.report()
     if st and e and Coop.isPuppet(name) then
       parts[#parts + 1] = name .. ":err=" .. string.format("%.0f", Coop.perr and Coop.perr[name] or -1) ..
                           ",act=" .. tostring(e.Action)
+      local d = Coop.pd[name]
+      if d and d.snaps > 0 then
+        parts[#parts] = parts[#parts] .. string.format(",snaps=%d,vsnaps=%d,engDy=%.1f", d.snaps, d.vsnaps,
+                                                       d.eN > 0 and d.eSum / d.eN or 0)
+        d.eSum, d.eN = 0, 0
+      end
     end
   end
   Coop.log(table.concat(parts, " "))
