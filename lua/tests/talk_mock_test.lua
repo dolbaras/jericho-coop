@@ -9,7 +9,7 @@ local LANG = {
   Ross = "Ross", Black = "Black", Cole = "Cole",
   Chat0 = "Ross>Move up.", Chat1 = "Black>Roger.", Chat2 = "Ross>Quiet.",
   Talk_Black_View_Enemy = "1>Enemy ahead!",
-  Talk_Black_View_Enemy_RU = "1>x",
+  Talk_Black_View_Enemy_RU = "1>x", Talk_Cole_View_Enemy = "1>Hostile.",
 }
 local RU = {Ross = "Росс", Black = "Блэк", Chat0 = "Ross>Вперёд.", Chat1 = "Black>Понял.", Chat2 = "Ross>Тихо.",
   Talk_Black_View_Enemy = "1>Враг впереди!"}
@@ -22,8 +22,8 @@ local function split(s)
   return t
 end
 
-local function newMachine(role, lang)
-  local m = {role = role, sched = {}, inbox = {}, log = {}, spoken = {}, subs = {}, lips = {}, voices = {}}
+local function newMachine(role, lang, id, mine)
+  local m = {role = role, id = id or (role == 'host' and 0 or 1), mine = mine or {}, sched = {}, inbox = {}, log = {}, spoken = {}, subs = {}, lips = {}, voices = {}}
   local env = setmetatable({}, {__index = _G})
   env._G = env
   m.env = env
@@ -75,13 +75,19 @@ local function newMachine(role, lang)
   env.Net = {
     CoopTime = function() return clock end,
     CoopSend = function(peer, rel, data)
-      local o = machines[role == "host" and "client" or "host"]
-      o.inbox[#o.inbox + 1] = {t = clock + 0.03, data = data}
+      local function put(o) o.inbox[#o.inbox + 1] = {t = clock + 0.03, data = data, from = m.id} end
+      if role ~= "host" then put(machines.host)
+      elseif peer == -1 then
+        for _, r in ipairs({"client", "client2"}) do if machines[r] then put(machines[r]) end end
+      else
+        for _, r in ipairs({"client", "client2"}) do if machines[r] and machines[r].id == peer then put(machines[r]) end end
+      end
     end,
   }
-  env.Coop = {cfg = {role = role, talklog = true}, level = "levels/wwii_vigil",
+  env.Coop = {cfg = {role = role == 'host' and 'host' or 'client', talklog = true}, level = "levels/wwii_vigil",
     inSession = function() return true end, isHost = function() return role == "host" end,
-    isClient = function() return role == "client" end, log = function(s) m.log[#m.log + 1] = s end}
+    isClient = function() return role ~= "host" end, myId = function() return m.id end,
+    isLocalBody = function(n) return m.mine[n] == true end, log = function(s) m.log[#m.log + 1] = s end}
   -- the game's code
   local f = assert(loadfile(TTPATH))
   setfenv(f, env)
@@ -115,8 +121,9 @@ end
 
 local function step(dt)
   clock = clock + dt
-  for _, role in ipairs({"host", "client"}) do
+  for _, role in ipairs({"host", "client", "client2"}) do
     local m = machines[role]
+    if m then
     -- the voice time runs down
     if m.remain and m.remain > 0 then m.remain = math.max(0, m.remain - dt) end
     -- messages
@@ -124,7 +131,7 @@ local function step(dt)
       local msg = m.inbox[i]
       if msg.t <= clock then
         table.remove(m.inbox, i)
-        m.K.onMessage(0, split(msg.data))
+        m.K.onMessage(msg.from, split(msg.data))
       end
     end
     -- scheduled functions (run in order of time)
@@ -135,6 +142,7 @@ local function step(dt)
       if not ok then error("scheduled " .. s.fn .. ": " .. tostring(err)) end
     end
     m.K.update()
+    end
   end
 end
 
@@ -150,17 +158,18 @@ local function voices(m)
   return table.concat(t, ",")
 end
 
-local function reset()
+local function reset_unused()
   for _, m in pairs(machines) do
     m.spoken, m.subs, m.lips, m.sched, m.inbox, m.log = {}, {}, {}, {}, {}, {}
     m.remain = 0
   end
 end
 
-local function setup(clang)
+local function setup(clang, mine, two)
   machines = {}
   newMachine("host", "en")
-  newMachine("client", clang or "en")
+  newMachine("client", clang or "en", 1, mine)
+  if two then newMachine("client2", "ru", 2, {}) end
 end
 
 ------------------------------------------------------------------------------
@@ -297,5 +306,35 @@ run(10)
 print("10 client: " .. voices(C) .. string.format("  end host %.1f client %.1f", endT.host, endT.client))
 assert(voices(C) == "Chat0,Chat1,Chat2", "extra NextChat calls: " .. voices(C))
 assert(math.abs(endT.client - endT.host) < 0.6, "chat end together")
+
+-- 11. a client's own body barks: played at once there, relayed by the host to the other client
+-- (its own language), played on the host too; nobody hears it twice; another body's line from
+-- a client is dropped there
+setup("en", {Black = true}, true)
+H, C = machines.host, machines.client
+local C2 = machines.client2
+C.env.TeamTalk.ForceRadioTalk("Black", "View_Enemy")
+C.env.TeamTalk.ForceRadioTalk("Cole", "View_Enemy")      -- not this client's body
+run(0.5)
+print("11 client: " .. voices(C) .. " | host: " .. voices(H) .. " | client2: " .. voices(C2) .. " | " .. tostring(C2.spoken[1] and C2.spoken[1].text))
+assert(#C.spoken == 1 and C.spoken[1].voice == "Talk_Black_View_Enemy", "client says its own body's line once")
+assert(#H.spoken == 1 and H.spoken[1].voice == "Talk_Black_View_Enemy", "host plays the relayed line")
+assert(#C2.spoken == 1 and C2.spoken[1].text == "Блэк: Враг впереди!", "other client hears it in its language")
+assert(C.K.dropped == 1 and #C.spoken == 1, "the other body's line is dropped")
+-- the host's own line from the same voice reaching the speaker's client: no second play there
+H.env.TeamTalk.TalkStamp = -1000
+H.env.TeamTalk.ForceRadioTalk("Black", "View_Enemy")
+run(4)
+assert(#C.spoken == 1, "the speaker does not hear it again: " .. #C.spoken)
+
+-- 12. the end of a voice the client said runs the order's confirmation, said by a squad member: heard by all
+setup("en", {Ross = true}, true)
+H, C, C2 = machines.host, machines.client, machines.client2
+LANG.Talk_Ross_Order = "1>Move out."; LANG.Talk_Cole_Done = "1>On it."
+C.env.TeamTalk.RadioTalk("Ross", "Order")
+C.env.TeamTalk.EndTalkFunc = function() C.env.TeamTalk.RadioTalk("Cole", "Done") end
+run(6)
+print("12 client: " .. voices(C) .. " | host: " .. voices(H) .. " | client2: " .. voices(C2))
+assert(voices(C) == "Talk_Ross_Order,Talk_Cole_Done" and voices(H) == voices(C) and voices(C2) == voices(C), "order and answer reach everybody")
 
 print("talk mock test: OK")

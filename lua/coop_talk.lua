@@ -27,7 +27,7 @@ K.DEDUP = 3         -- s: the same voice twice within this time is one line
 K.STALE = 1.5       -- s: a stale EndTalkFunc of a dropped client bark is cleared after this long
 K.queue = {}        -- host lines waiting for the voice channel (client)
 K.recent = {}       -- voice -> real time it was played here
-K.sent, K.played, K.dropped, K.dups, K.fallbacks = 0, 0, 0, 0, 0
+K.sent, K.played, K.dropped, K.dups, K.fallbacks, K.relayed, K.said = 0, 0, 0, 0, 0, 0, 0
 K.pend = nil        -- host: a line sent once StartTalkingLips names the speaker
 K.localPend = nil   -- client: a dropped local chat line waiting for the host's
 K.lastPlay = -100
@@ -82,7 +82,7 @@ local function busy()
 end
 
 -- Plays a line through the game's own functions. Keeps the continuation of a local chat.
-function K.play(voice, speaker, filteredHost, show)
+function K.play(voice, speaker, filteredHost, show, nochain)
   local T = TeamTalk
   if not T or not K.origGeneric then return false end
   local pre, rest = lineOf(voice)
@@ -105,7 +105,7 @@ function K.play(voice, speaker, filteredHost, show)
   local ok, err = pcall(K.origGeneric, text, voice, filtered, show)
   if ok and speaker and K.origLips then ok, err = pcall(K.origLips, speaker) end
   K.passing = false
-  if keepF and keepF == T.NextChat then
+  if not nochain and keepF and keepF == T.NextChat then
     T.EndTalkFunc, T.EndTalkParam = keepF, keepP
   end
   K.localPend = nil
@@ -113,7 +113,7 @@ function K.play(voice, speaker, filteredHost, show)
   -- finds played already and goes on from (a line the client never got, sent while it was still
   -- loading, no longer leaves it behind; the previous voice's end, a few ms after the host's next
   -- line came in, no longer ends the chain early).
-  if T.ChatData and T.iChatData then
+  if not nochain and T.ChatData and T.iChatData then
     for i, c in ipairs(T.ChatData) do
       if c[1] == voice then
         T.iChatData = i
@@ -145,10 +145,33 @@ local function enqueue(voice, speaker, filtered, show)
   K.queue[#K.queue + 1] = {voice = voice, speaker = speaker, filtered = filtered, show = show, t = now()}
 end
 
+-- A line a client's own body said (it played it itself): the host passes it on to everybody else
+-- and plays it when its own voice channel is free (a barking squad is no chat: never cuts one off).
+function K.fromClient(peer, f)
+  local voice = f[2]
+  Net.CoopSend(-1, 1, "talk|" .. clean(voice) .. "|" .. clean(f[3]) .. "|" .. (f[4] == "1" and 1 or 0) .. "|" ..
+                      (f[5] ~= "0" and 1 or 0) .. "|" .. tostring(peer))
+  K.relayed = K.relayed + 1
+  local T = TeamTalk
+  local t = K.recent[voice]
+  local playing = not T or T.isTalking() or T.ChatData ~= nil or (t and now() - t < K.DEDUP)
+  if K.relayed <= 60 or cfg.talklog then
+    Coop.log("talk relayed " .. tostring(voice) .. " from " .. tostring(peer) .. " speaker=" .. tostring(f[3]) ..
+             (playing and " (not played here)" or ""))
+  end
+  if not playing then pcall(K.play, voice, f[3] or "-", f[4] == "1", f[5] ~= "0", true) end
+end
+
 function K.onMessage(peer, f)
   if f[1] ~= "talk" then return false end
-  if not Coop.isClient() then return true end
   if not f[2] or f[2] == "" then return true end
+  if Coop.isHost() then
+    if peer and peer ~= 0 then K.fromClient(peer, f) end
+    return true
+  end
+  if not Coop.isClient() then return true end
+  -- another client's line is relayed with its peer id; this client's own line comes back unplayed
+  if f[6] and tonumber(f[6]) == Coop.myId() then return true end
   enqueue(f[2], f[3] or "-", f[4] == "1", f[5] ~= "0")
   K.pump()
   return true
@@ -177,12 +200,17 @@ function K.wrapGeneric(Text, voice, filtered, show_it)
               t = now()}
     return a, b, c
   end
-  -- client: the host's line is the one that plays
+  -- client: the host's line is the one that plays ...
+  local T = TeamTalk
+  if T.ChatData == nil then
+    -- ... except what its own body says: StartTalkingLips follows at once and names the speaker
+    K.cpend = {Text = Text, voice = voice, filtered = filtered, show = show_it, t = now()}
+    return
+  end
   K.dropped = K.dropped + 1
   if K.dropped <= 20 or cfg.talklog then
-    Coop.log("talk local line dropped " .. tostring(voice) .. " chat=" .. tostring(TeamTalk.ChatData ~= nil))
+    Coop.log("talk local line dropped " .. tostring(voice) .. " chat=" .. tostring(T.ChatData ~= nil))
   end
-  local T = TeamTalk
   if T.ChatData ~= nil then
     -- NextChat moved its pointer past this line: the pointer follows the host's lines only
     -- (K.play), so a local step that runs twice or too early cannot run ahead of the host.
@@ -209,7 +237,51 @@ function K.wrapLips(charname)
     flush(charname)
     return
   end
-  -- client: local lips belong to the dropped line; the played one starts its own
+  -- client: the line waiting for its speaker is said here if it is this machine's own body
+  -- (or the answer to such a line, the next step of an order); else the host's line plays
+  local c = K.cpend
+  K.cpend = nil
+  if not c then return end
+  local mine = Coop.isLocalBody and Coop.isLocalBody(charname)
+  if (mine or K.cont) and not Coop.replay and not Coop.fromHost then
+    K.localSay(c, charname)
+  else
+    K.dropped = K.dropped + 1
+    if K.dropped <= 20 or cfg.talklog then
+      Coop.log("talk local line dropped " .. tostring(c.voice) .. " speaker=" .. tostring(charname))
+    end
+  end
+end
+
+-- The client's own body speaks: played at once with the game's functions, told to the host.
+function K.localSay(c, speaker)
+  K.passing = true
+  local ok, err = pcall(K.origGeneric, c.Text, c.voice, c.filtered, c.show)
+  if ok then ok, err = pcall(K.origLips, speaker) end
+  K.passing = false
+  K.lastPlay = now()
+  K.recent[c.voice] = K.lastPlay
+  K.localVoice = true
+  K.said = K.said + 1
+  Net.CoopSend(0, 1, "talk|" .. clean(c.voice) .. "|" .. clean(speaker) .. "|" .. (c.filtered and 1 or 0) .. "|" ..
+                     ((c.show == nil or c.show) and 1 or 0))
+  if K.said <= 60 or cfg.talklog then
+    Coop.log("talk said " .. tostring(c.voice) .. " speaker=" .. tostring(speaker) .. (ok and "" or " error " .. tostring(err)))
+  end
+end
+
+-- The end of a voice this client said runs the order's next step (a member's answer): that
+-- answer is said here too.
+function K.wrapEnd(...)
+  if Coop.isClient() and K.localVoice then
+    K.localVoice = false
+    K.cont = true
+    local r = {pcall(K.origEnd, ...)}
+    K.cont = false
+    if not r[1] then error(r[2], 0) end
+    return unpack(r, 2)
+  end
+  return K.origEnd(...)
 end
 
 -- The chat's step that finds no line left ends the chat. On a client such a call can come while
@@ -228,6 +300,10 @@ end
 function K.install()
   local T = TeamTalk
   if not T or not T.GenericTalk or not T.StartTalkingLips then return end
+  if T.OnEndTalk and T.OnEndTalk ~= K.wrapEnd and T.OnEndTalk ~= K.traceEnd then
+    K.origEnd = T.OnEndTalk
+    T.OnEndTalk = K.wrapEnd
+  end
   if T.NextChat and T.NextChat ~= K.wrapNext and T.NextChat ~= K.traceNext then
     K.origNext = T.NextChat
     T.NextChat = K.wrapNext
@@ -273,6 +349,7 @@ function K.update()
     return
   end
   K.pump()
+  if K.cpend and now() - K.cpend.t > 0.3 then K.cpend = nil end
   local p = K.localPend
   if p and now() - p.t > K.FALLBACK and not busy() then
     K.localPend = nil
