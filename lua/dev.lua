@@ -2991,3 +2991,35 @@ if cfg.autoplay and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'efclose' (client, with bot='guard' and the host's 'fight'): the client's body is put 500 units
+-- from the nearest active enemy every cfg.efevery ticks (default 300) when that enemy is farther
+-- than 900, so enemies have the network player as their nearest target (enemy fire tests,
+-- lab\enemyfire.sh). A pitch of the body is not touched; the guard bot aims.
+if cfg.efclose and Coop.isClient() and Coop.level ~= "levels/menu" then
+  local prevEf = Coop.dev
+  function Coop.dev()
+    if prevEf then prevEf() end
+    local every = cfg.efevery or 300
+    if Coop.frame < 300 or Coop.frame % every ~= 0 then return end
+    local usr = Game.UsrEntity(0)
+    if not usr or (cfg.char and usr.Name ~= cfg.char) then return end
+    local best, bestD
+    for name in pairs(CoopEnemies.targets or {}) do
+      local e = Game.GetEntity(name)
+      if e and e.Life > 0 and e.bActive then
+        local d = (e.Pos - usr.Pos):mod2D()
+        if not bestD or d < bestD then best, bestD = e, d end
+      end
+    end
+    if best and bestD > 900 then
+      local dir = (usr.Pos - best.Pos)
+      dir = V3D(dir.x, 0, dir.z)
+      local len = math.sqrt(dir.x * dir.x + dir.z * dir.z)
+      if len < 1 then dir, len = V3D(1, 0, 0), 1 end
+      usr.Pos = best.Pos + V3D(dir.x / len * 500, 0, dir.z / len * 500)
+      pcall(Game.SetOnFloor, usr.Name)
+      Coop.log(string.format("efclose: %s moved next to %s (was %.0f away)", usr.Name, best.Name, bestD))
+    end
+  end
+end

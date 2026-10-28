@@ -78,7 +78,13 @@ function E.snapshot()
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
       local p = e.Pos
-      local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,1", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action))
+      -- flags: bit 0 active, bit 1 pulling the trigger (the control field a firing body's AI
+      -- sets); last field the view pitch, so the puppet's own shot code aims and plays the shot.
+      local owc = e.owc
+      local firing = owc and (owc.Shot or 0) > 0.5
+      local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,%d,%.0f", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action),
+        firing and 3 or 1, e.ViewAng and e.ViewAng.x or 0)
+      if firing then E.stats.shotFlags = (E.stats.shotFlags or 0) + 1 end
       parts[#parts + 1] = s
       size = size + #s + 1
       n = n + 1
@@ -121,8 +127,79 @@ function E.installTargeting()
   Coop.log("enemies may target every human")
 end
 
+-- Diagnostics (bug "enemy fire not seen / not felt by the client", 0.2.7): every shot an enemy
+-- fires through Weapons.OnShot is counted by whom it was aimed at and whether the engine's own
+-- trace hit a body another human holds. A remote body is a puppet with collision off, so the
+-- trace may pass through it: "pass" counts shots aimed at a remote body (the shooter's objective)
+-- whose ray came within E.PASS_RADIUS of the body but whose hit went to something else.
+E.PASS_RADIUS = 70
+E.shotLogged = 0
+function E.noteShot(name, target, x, y, z)
+  local from = Game.GetEntity(name)
+  if not isEnemy(from) then return end
+  local s = E.stats
+  s.eShots = (s.eShots or 0) + 1
+  local hit = target ~= nil and target ~= ""
+  if hit then
+    s.eShotHit = (s.eShotHit or 0) + 1
+    if Coop.isRemoteOwned(target) then s.eShotHitRemote = (s.eShotHitRemote or 0) + 1 end
+  end
+  -- how an enemy's own control looks while it fires (what a puppet would have to be told)
+  if not E.owcSeen or E.owcSeen < 12 then
+    local ok, shotv, pitch, fc = pcall(function()
+      return from.owc and from.owc.Shot, from.ViewAng and from.ViewAng.x, from.oWeapCtrl and from.oWeapCtrl.FireCounter
+    end)
+    E.owcSeen = (E.owcSeen or 0) + 1
+    Coop.log(string.format("eshot-owc %s (%s) action=%s owc.Shot=%s viewpitch=%s fireCounter=%s target=%s", name,
+      tostring(from.ActCtrl), tostring(from.Action), tostring(shotv), tostring(pitch), tostring(fc), tostring(target)))
+  end
+  local obj = from.AI_ObjectiveDin
+  if not (obj and obj ~= "" and Coop.isRemoteOwned(obj)) then return end
+  s.eShotAtRemote = (s.eShotAtRemote or 0) + 1
+  local body = Game.GetEntity(obj)
+  local miss, along
+  if body and x then
+    -- distance from the body's chest to the segment muzzle -> impact
+    local a = from.Pos + V3D(0, 130, 0)
+    local c = body.Pos + V3D(0, 100, 0)
+    local dx, dy, dz = x - a.x, y - a.y, z - a.z
+    local len2 = dx * dx + dy * dy + dz * dz
+    local px, py, pz = c.x - a.x, c.y - a.y, c.z - a.z
+    local u = len2 > 0 and (px * dx + py * dy + pz * dz) / len2 or 0
+    along = u
+    if u < 0 then u = 0 elseif u > 1 then u = 1 end
+    local qx, qy, qz = px - dx * u, py - dy * u, pz - dz * u
+    miss = math.sqrt(qx * qx + qy * qy + qz * qz)
+    if miss < E.PASS_RADIUS and along >= 0 and along <= 1.2 and target ~= obj then
+      s.eShotPass = (s.eShotPass or 0) + 1
+    end
+  end
+  E.shotLogged = E.shotLogged + 1
+  if E.shotLogged <= 40 or E.shotLogged % 25 == 0 then
+    local d = body and (body.Pos - from.Pos):mod2D() or -1
+    Coop.log(string.format("eshot #%d %s (%s) -> %s dist %.0f target=%s ray-miss=%s along=%s", E.shotLogged, name,
+      tostring(from.ActCtrl), obj, d, hit and target or "-", miss and string.format("%.0f", miss) or "?",
+      along and string.format("%.2f", along) or "?"))
+  end
+end
+
+function E.installShotProbe()
+  if E.shotProbe or not Weapons or not Weapons.OnShot then return end
+  E.shotProbe = true
+  local orig = Weapons.OnShot
+  Weapons.OnShot = function(name, target, x, y, z, iShot, ...)
+    local ok, err = pcall(E.noteShot, name, target, x, y, z)
+    if not ok and not E.shotProbeError then
+      E.shotProbeError = true
+      Coop.log("shot probe error: " .. tostring(err))
+    end
+    return orig(name, target, x, y, z, iShot, ...)
+  end
+end
+
 function E.installHost()
   E.installTargeting()
+  E.installShotProbe()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -177,6 +254,10 @@ function E.installHost()
       end
       local owner = Coop.ownerOf(To.Name)
       E.stats.pdmgSent = E.stats.pdmgSent + 1
+      -- by source kind: a shooter's class, or what else hurt (diagnostics)
+      local kind = From and (isEnemy(From) and tostring(From.ActCtrl) or "other") or "none"
+      E.pdmgBy = E.pdmgBy or {}
+      E.pdmgBy[kind] = (E.pdmgBy[kind] or 0) + 1
       Net.CoopSend(Coop.peerOf(owner), 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
       return false
     end
@@ -967,10 +1048,12 @@ function E.onSnapshot(body, rt)
   E.snapSeen = true
   local now = Net.CoopTime()
   for item in string.gmatch(body, "[^;]+") do
-    local name, x, y, z, yaw, action, flags = string.match(item, "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+)$")
+    local name, x, y, z, yaw, action, flags, pitch = string.match(item,
+      "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+),?(-?[%d%.]*)$")
     if name then
+      local fl = tonumber(flags) or 1
       local st = {x = tonumber(x), y = tonumber(y), z = tonumber(z), yaw = tonumber(yaw),
-                  action = action, active = flags == "1", t = now, rt = rt}
+                  action = action, active = fl % 2 == 1, shot = fl >= 2, pitch = tonumber(pitch) or 0, t = now, rt = rt}
       if Coop.pushState(name, st, Coop.TICK * E.SNAP_EVERY) then E.targets[name] = st end
     end
   end
@@ -986,6 +1069,32 @@ local function grabbing(e, action)
   return g ~= nil and g.Name == e.Name
 end
 
+-- The host's enemy pulls its trigger: here the puppet's own control field is set the way the
+-- squad puppets' is (coop.lua drivePuppets), so the game's shot code plays the sound, the
+-- muzzle flash and the tracer. Its damage is dropped (the client's Weapons.DoDamage); the
+-- host's own shot hurts. Written only when it changes, so melee enemies are left alone.
+E.shotSet = {}
+function E.driveShot(e, st, now)
+  if Coop.cfg.enemyfx == false then return end   -- (test switch: how it looked before 0.2.8)
+  local want = st.shot and now - st.t < 0.3
+  if want == (E.shotSet[e.Name] or false) then
+    if want then e.ViewAng = V3D(st.pitch or 0, st.yaw, 0) end
+    return
+  end
+  local owc = e.owc
+  if not owc then return end
+  E.shotSet[e.Name] = want
+  if want then
+    e.ViewAng = V3D(st.pitch or 0, st.yaw, 0)
+    E.stats.shotsOn = (E.stats.shotsOn or 0) + 1
+    if (E.stats.shotsOn or 0) <= 20 then
+      Coop.log(string.format("enemy fire shown: %s (%s) action=%s pitch=%s", e.Name, tostring(e.ActCtrl), tostring(e.Action),
+        tostring(st.pitch)))
+    end
+  end
+  owc.Shot = want and 1 or 0
+end
+
 -- Every frame on a client: host enemies follow the snapshots; no enemy runs local AI.
 function E.driveEnemies(dt)
   local follow = 1 - (1 - E.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
@@ -998,6 +1107,10 @@ function E.driveEnemies(dt)
       E.targets[name] = nil
     elseif e.Life <= 0 or now - st.t > 2 then
       E.targets[name] = nil   -- dead, or no longer in the host's snapshots
+      if E.shotSet[name] then
+        E.shotSet[name] = nil
+        if e.owc then e.owc.Shot = 0 end
+      end
     else
       if st.active and not e.bActive then e.bActive = true end
       if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
@@ -1018,6 +1131,7 @@ function E.driveEnemies(dt)
         e.ForceAction = st.action
         E.applied[name] = st.action
       end
+      E.driveShot(e, st, now)
     end
   end
 end
@@ -1239,9 +1353,23 @@ function E.report()
     for _ in pairs(E.targets) do n = n + 1 end
     E.lastCount = "driven:" .. n
   end
-  return string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d scaled=%d orphans=%d",
+  local line = string.format("enemies=%s rtargets=%d hits=%d/%d pdmg=%d/%d spawns=%d groups=%d deaths=%d dropped=%d snaps=%d scenes=%d scaled=%d orphans=%d",
     tostring(E.lastCount or "-"), s.remoteTargets or 0, s.hitsSent, s.hitsApplied, s.pdmgSent, s.pdmgApplied, s.spawns,
     s.groups, s.deaths, s.dropped, s.snapshots, s.scenes or 0, s.scaled or 0, s.orphans or 0)
+  -- Enemy fire (host: shots / aimed at a remote body / engine hit one / ray passed through one;
+  -- pdmg by source), client: fx played. See E.noteShot.
+  if s.eShots then
+    line = line .. string.format(" eshots=%d/at-remote %d/hit %d/hit-remote %d/pass %d flagged=%d", s.eShots, s.eShotAtRemote or 0,
+      s.eShotHit or 0, s.eShotHitRemote or 0, s.eShotPass or 0, s.shotFlags or 0)
+  end
+  if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
+  if E.pdmgBy then
+    local t = {}
+    for k, v in pairs(E.pdmgBy) do t[#t + 1] = k .. "=" .. v end
+    table.sort(t)
+    line = line .. " pdmgby=" .. table.concat(t, ",")
+  end
+  return line
 end
 
 -- Scene hooks go in as soon as this file loads: levels schedule their opening scene for
