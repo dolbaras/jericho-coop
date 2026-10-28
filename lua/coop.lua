@@ -885,11 +885,17 @@ function Coop.pdStuck(now)
       -- A body this machine's player holds must collide: one still marked as a puppet's (collision
       -- off) walks through walls and falls through the floor.
       local okc, ign = pcall(function() return e.bIgnoreCollision end)
-      if okc and ign == true and not Coop.isPuppet(name) and now - (d.ignT or -100) >= 10 and (d.ignN or 0) < 20 then
-        d.ignT, d.ignN = now, (d.ignN or 0) + 1
-        Coop.log(string.format("local body %s has collision ignore ON (puppet record %s, wasPuppet %s, life %s, action %s, at %.0f,%.0f,%.0f)",
-          name, tostring(Coop.puppetNoCollide and Coop.puppetNoCollide[name]), tostring(Coop.wasPuppet and Coop.wasPuppet[name]),
-          tostring(e.Life), tostring(e.Action), p.x, p.y, p.z))
+      if okc and ign == true and not Coop.isPuppet(name) then
+        d.ignFirst = d.ignFirst or now
+        -- (the engine sets it for a moment itself, in scripted moves: only a lasting one is undone)
+        if now - d.ignFirst > 3 and cfg.localcollide ~= false then
+          pcall(function() e.bIgnoreCollision = false end)
+          d.ignFirst = nil
+          Coop.log(string.format("local body %s had collision ignore ON for 3 s (puppet record %s, life %s, action %s, at %.0f,%.0f,%.0f): set off",
+            name, tostring(Coop.puppetNoCollide and Coop.puppetNoCollide[name]), tostring(e.Life), tostring(e.Action), p.x, p.y, p.z))
+        end
+      else
+        d.ignFirst = nil
       end
       if not d.t then
         d.t, d.x, d.z, d.stuck, d.sn, d.sT = now, p.x, p.z, 0, 0, -100
@@ -962,7 +968,9 @@ function Coop.drivePuppets(dt)
         -- made them shove each other and the body shook (fork MAK-PIVO/jericho-coop).
         if Coop.puppetNoCollide[name] == nil and cfg.puppetcollide ~= true then
           local ok, was = pcall(function() return e.bIgnoreCollision end)
-          Coop.puppetNoCollide[name] = ok and was or false
+          -- (squad bodies collide: a "true" read here is the engine's own, momentary (the AI's shelter
+          -- sprint sets it): restoring that one left a player's body without collision, lab 2026-10-28)
+          Coop.puppetNoCollide[name] = false
           Coop.log(string.format("puppet %s: collision ignore was %s, now on (life %s, action %s)", name,
             tostring(was), tostring(e.Life), tostring(e.Action)))
           pcall(function() e.bIgnoreCollision = true end)
@@ -1019,6 +1027,21 @@ function Coop.drivePuppets(dt)
         Coop.errMax = math.max(Coop.errMax or 0, err)
       elseif Coop.wasPuppet and Coop.wasPuppet[name] then
         Coop.releasePuppet(e)
+      end
+    elseif e and st and Coop.isPuppet(name) and cfg.puppetdead ~= false then
+      -- A downed puppet stays where its owner's body lies: it was left alone before, and a body with
+      -- collision ignored and nobody placing it rose at +1500 units/s up to the level's ceiling
+      -- (lab 2026-10-28: Cole at 1318 against 729, snapped back at the revive).
+      local tg = Coop.puppetTarget(name, now)
+      if tg then
+        local pos = e.Pos
+        local d = pdOf(name)
+        if d.wy and (pos.x ~= d.wx or pos.y ~= d.wy or pos.z ~= d.wz) then pdMoved(name, e, d, pos, now) end
+        e.Pos = V3D(tg.x, tg.y, tg.z)
+        d.wx, d.wy, d.wz, d.wt = tg.x, tg.y, tg.z, now
+        Coop.notePos(name, "drivePuppets(down)")
+        local ok, v = pcall(function() return e.Vel end)
+        if ok and v and (v.y < -20 or v.y > 20) then pcall(function() e.Vel = V3D(v.x, 0, v.z) end) end
       end
     end
   end
