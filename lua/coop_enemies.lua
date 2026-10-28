@@ -77,6 +77,10 @@ function E.snapshot()
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
+      if not E.bombsSent[e.Name] then
+        E.bombsSent[e.Name] = true
+        if tostring(e.ActCtrl) == "CultistaExplosivo" then E.sendBombs(e) end
+      end
       local p = e.Pos
       -- flags: bit 0 active, bit 1 pulling the trigger (the control field a firing body's AI
       -- sets); last field the view pitch, so the puppet's own shot code aims and plays the shot.
@@ -334,10 +338,82 @@ function E.installMelee()
   end
 end
 
+-- Part state of enemies (bug "bosses and pustule cultists only die on the host", owner's Steam
+-- session): the client mirrored position and action only, so a Behemoth's seals and an exploding
+-- cultist's pustules stayed as the level created them there (the cultist's set is even random per
+-- machine: math.random in CultistaExplosivo.OnCreate). The host reports every part that goes
+-- (`epart|enemy|seal|node`, `epart|enemy|bomb|node`) and each cultist's pustule set when it first
+-- shows up (`epart|enemy|bombs|10110`, in the order of CultistaExplosivo.Bombs); clients show the
+-- same state (E.applyPart), without running the game's own RemoveNode (its life, hint and story
+-- side effects belong to the host).
+E.PART_FUNCS = {
+  {"Behemoth", "RemoveNode", "seal"},
+  {"CultistaExplosivo", "RemoveNode", "bomb"},
+}
+function E.installParts()
+  for _, m in ipairs(E.PART_FUNCS) do
+    local t, fn, kind = _G[m[1]], m[2], m[3]
+    local orig = t and t[fn]
+    if type(orig) == "function" and not (t.coopPart and t.coopPart[fn] == orig) then
+      t.coopPart = t.coopPart or {}
+      t[fn] = function(ent, node, ...)
+        local r = orig(ent, node, ...)
+        if r and ent and node then
+          E.stats.partsSent = (E.stats.partsSent or 0) + 1
+          E.stats[kind .. "sGone"] = (E.stats[kind .. "sGone"] or 0) + 1
+          Net.CoopSend(-1, 1, string.format("epart|%s|%s|%s", ent.Name, kind, node))
+        end
+        return r
+      end
+      t.coopPart[fn] = t[fn]
+    end
+  end
+end
+
+-- The pustule set of an exploding cultist as a 0/1 string.
+function E.bombMask(e)
+  local b = e.uData and e.uData.bBombs
+  if not (b and CultistaExplosivo and CultistaExplosivo.Bombs) then return nil end
+  local t = {}
+  for i, n in ipairs(CultistaExplosivo.Bombs) do t[i] = b[n] and "1" or "0" end
+  return table.concat(t)
+end
+
+-- Sent once per enemy when it first shows up in a snapshot (and to a client that loads late).
+E.bombsSent = {}
+function E.sendBombs(e, peer)
+  local mask = E.bombMask(e)
+  if mask then Net.CoopSend(peer or -1, 1, string.format("epart|%s|bombs|%s", e.Name, mask)) end
+end
+
+function E.sendPartCatchup(peer)
+  local n = 0
+  local e = Game.GetFirst()
+  while e ~= nil do
+    if isEnemy(e) and e.Life > 0 then
+      local cls = tostring(e.ActCtrl)
+      if cls == "CultistaExplosivo" then
+        E.sendBombs(e, peer)
+        n = n + 1
+      elseif cls == "Behemoth" and e.uData and e.uData.bSeals then
+        for node, whole in pairs(e.uData.bSeals) do
+          if whole == false then
+            Net.CoopSend(peer, 1, string.format("epart|%s|seal|%s", e.Name, node))
+            n = n + 1
+          end
+        end
+      end
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  return n
+end
+
 function E.installHost()
   E.installTargeting()
   E.installShotProbe()
   E.installMelee()
+  E.installParts()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -988,7 +1064,8 @@ function E.sendCatchup(peer)
     end
     e = Game.GetEntity(e.NextInSlot)
   end
-  Coop.log(string.format("catch-up for peer %d: %d groups, %d spawned enemies", peer, groups, spawns))
+  local parts = E.sendPartCatchup(peer)
+  Coop.log(string.format("catch-up for peer %d: %d groups, %d spawned enemies, %d part states", peer, groups, spawns, parts))
   -- Doors and broken objects as the host has them (coop_world.lua).
   if CoopWorld and CoopWorld.sendState then CoopWorld.sendState(peer) end
   E.catchupSent = true
@@ -1000,7 +1077,14 @@ end
 -- oWeapHit.oBodyPiece) list their parts (uData.bListDamagedParts). A client's hit reached the
 -- host as a bare number, with neither, so a client could never hurt them. The client sends
 -- the part's bone and the damage it took; the host fills DamagedParts with it.
-function E.hitPart(To, From, dmg)
+function E.hitPart(To, From, dmg, fresh)
+  -- An exploding cultist's pustule: the piece the client's own shot has just hit (fresh: the
+  -- caller has run SetLastBodyPiece for this shot); the host removes that pustule.
+  if fresh and To.uData and To.uData.bBombs then
+    local piece = To.oWeapHit and To.oWeapHit.oBodyPiece
+    if piece and piece.bIsRagdollPart then return piece.oRagDollDamagePart.Name, dmg end
+    return
+  end
   if not (To.uData and To.uData.bListDamagedParts) then return end
   local best, bestDmg
   for name, d in pairs(To.uData.DamagedParts or {}) do
@@ -1044,6 +1128,16 @@ function E.applyHit(enemyName, damage, attackerName, bone, partDamage)
     local part = E.partByBone(To, bone)
     if part then To.uData.DamagedParts = {[part] = {Damage = partDamage or damage, Damager = From.Name}} end
     E.bossHit = {name = To.Name, bone = bone, part = part, life = To.Life}
+  end
+  -- An exploding cultist loses a pustule only to a hit on that pustule, and only that one: the game
+  -- reads the body piece the shot hit (CultistaExplosivo.OnDamage), which a message cannot set
+  -- (oWeapHit.oBodyPiece is read-only from Lua), so the game's own RemoveNode does it.
+  if bone and bone ~= "" and To.uData and To.uData.bBombs and CultistaExplosivo and not To.uData.Exploded then
+    local removed = CultistaExplosivo.RemoveNode(To, bone)
+    E.stats.bombHits = (E.stats.bombHits or 0) + 1
+    if removed then E.stats.bombHitsRemoved = (E.stats.bombHitsRemoved or 0) + 1 end
+    E.stats.hitsApplied = E.stats.hitsApplied + 1
+    return
   end
   local factor = To.uData and To.uData.TeamDamageFactor
   if To.uData then To.uData.TeamDamageFactor = nil end
@@ -1164,7 +1258,7 @@ function E.installClient()
           dmg = m > 1 and Damage * m ^ BodyMultiplier or Damage * m
         end
       end
-      local bone, partDmg = E.hitPart(To, From, dmg)
+      local bone, partDmg = E.hitPart(To, From, dmg, BodyMultiplier ~= nil)
       Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s|%s|%.2f", To.Name, dmg, From.Name, bone or "", partDmg or 0))
       E.stats.hitsSent = E.stats.hitsSent + 1
       if BodyImpact and BodyImpact.OnShot then pcall(BodyImpact.OnShot, To.Name) end
@@ -1184,6 +1278,75 @@ function E.installClient()
     end
     return origDamage(From, To, Damage, BodyMultiplier)
   end
+end
+
+-- Part state from the host (see E.installParts). An enemy that does not exist here yet (a spawn on
+-- its way) gets it when it does.
+E.pendingParts = {}
+function E.applyPart(ent, kind, data)
+  local u = ent.uData
+  if not u then return end
+  if kind == "bombs" then
+    if not (u.bBombs and CultistaExplosivo and CultistaExplosivo.Bombs) then return end
+    local n = 0
+    for i, node in ipairs(CultistaExplosivo.Bombs) do
+      local on = string.sub(data, i, i) == "1"
+      u.bBombs[node] = on
+      ent["bShowNode_" .. node] = on
+      if on then n = n + 1 end
+      local rp = ent.bActive and Game.GetRagdollPart(ent.Name, node)
+      if rp then rp.bWeakPoint = on end
+    end
+    u.rBombs = n
+    -- the cultist's life is its pustules (the game's rule); PrevLife with it, so that nothing reads
+    -- the write as damage
+    if n > 0 and (ent.Life or 0) > 0 then
+      ent.Life = (CultistaExplosivo.BombLife or 50) * n
+      ent.PrevLife = ent.Life
+    end
+  elseif kind == "bomb" then
+    if not u.bBombs then return end
+    if u.bBombs[data] then
+      u.bBombs[data] = false
+      u.rBombs = (u.rBombs or 1) - 1
+    end
+    ent["bShowNode_" .. data] = false
+    if ent.bActive then pcall(Impact.DoImpact, "Body/Pustule", "DoFromNode " .. ent.Name .. "#" .. data) end
+    local rp = Game.GetRagdollPart(ent.Name, data)
+    if rp then rp.bWeakPoint = false end
+  elseif kind == "seal" then
+    if not u.bSeals then return end
+    if u.bSeals[data] then
+      pcall(Behemoth.FXBreakSeal, ent.Name, data)
+      u.bSeals[data] = false
+      ent["bShowNode_" .. data] = false
+      local broken = u.bBrokeSeals and u.bBrokeSeals[data]
+      if broken then ent["bShowNode_" .. broken] = true end
+      if u.lifeSeals then u.lifeSeals[data] = 0 end
+      u.numberSeals = (u.numberSeals or 1) - 1
+      local rp = Game.GetRagdollPart(ent.Name, data)
+      if rp then rp.bWeakPoint = false end
+    end
+  end
+  E.stats.partsApplied = (E.stats.partsApplied or 0) + 1
+  if kind ~= "bombs" then E.stats[kind .. "sGone"] = (E.stats[kind .. "sGone"] or 0) + 1 end
+end
+
+function E.drainParts()
+  local keep = {}
+  for _, p in ipairs(E.pendingParts) do
+    local ent = Game.GetEntity(p[1])
+    if ent then
+      local ok, err = pcall(E.applyPart, ent, p[2], p[3])
+      if not ok and not E.partError then
+        E.partError = true
+        Coop.log("part error: " .. tostring(err))
+      end
+    elseif Net.CoopTime() - p[4] < 20 then
+      keep[#keep + 1] = p
+    end
+  end
+  E.pendingParts = keep
 end
 
 function E.onSnapshot(body, rt)
@@ -1239,6 +1402,7 @@ end
 
 -- Every frame on a client: host enemies follow the snapshots; no enemy runs local AI.
 function E.driveEnemies(dt)
+  if #E.pendingParts > 0 then E.drainParts() end
   local follow = 1 - (1 - E.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
   local now = Net.CoopTime()
   local localKeys = Coop.keepLocalRootMotion()
@@ -1367,6 +1531,9 @@ function E.onMessage(peer, f)
     end
     E.targets[f[2]] = nil
     E.stats.deaths = E.stats.deaths + 1
+  elseif kind == "epart" and Coop.isClient() then
+    E.pendingParts[#E.pendingParts + 1] = {f[2], f[3], f[4] or "", Net.CoopTime()}
+    E.drainParts()
   elseif kind == "pdmg" then
     local usr = Game.UsrEntity(0)
     if usr and usr.Name ~= f[2] and Coop.isLocalPlayer(f[2]) then usr = Game.GetEntity(f[2]) end
@@ -1473,7 +1640,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
-    if Coop.frame % 90 == 0 then E.installMelee() end   -- (an enemy class whose script loads later)
+    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
@@ -1513,6 +1680,10 @@ function E.report()
   if s.mSwingLocal or s.mSwingRemote or s.mSwingAi then
     line = line .. string.format(" melee swings local %d hit %d remote %d hit %d(fixed %d) ai %d hit %d", s.mSwingLocal or 0,
       s.mHitLocal or 0, s.mSwingRemote or 0, (s.mHitRemote or 0) + 0, s.mFix or 0, s.mSwingAi or 0, s.mHitAi or 0)
+  end
+  if s.partsSent or s.partsApplied or s.bombHits then
+    line = line .. string.format(" parts=%d/%d seals=%d bombs=%d bombhits=%d/%d", s.partsSent or 0, s.partsApplied or 0,
+      s.sealsGone or 0, s.bombsGone or 0, s.bombHitsRemoved or 0, s.bombHits or 0)
   end
   if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
   if E.pdmgBy then

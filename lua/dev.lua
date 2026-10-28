@@ -3026,3 +3026,88 @@ if cfg.efclose and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'parttest' (host and client, Rom_Outskirts): part state of enemies (coop_enemies.lua E.installParts).
+-- Host at tick 300 wakes the exploding cultist 'Enemy1377' and the Behemoth 'Digimon00', AI off, and puts
+-- them in front of the client's body (cfg.partcls: the client's character). The client then reports
+-- hits by bone as its shots would: pustules at 700/760/820, seals at 900/960 (E.applyHit on the
+-- host). Both sides log pustule and seal state every 100 ticks; frames: lab\cap.sh.
+if cfg.parttest and Coop.level ~= "levels/menu" then
+  local prevPt = Coop.dev
+  local BOMB, BEH = "Enemy1377", "Digimon00"
+  local function state(e)
+    if not e then return "none" end
+    local u, t = e.uData, {}
+    if u and u.bBombs then
+      for i, n in ipairs(CultistaExplosivo.Bombs) do t[#t + 1] = u.bBombs[n] and "1" or "0" end
+      return string.format("bombs=%s r=%s life=%s act=%s", table.concat(t), tostring(u.rBombs), tostring(e.Life), tostring(e.bActive))
+    end
+    if u and u.bSeals then
+      for i, n in ipairs(Behemoth.Seals) do t[#t + 1] = u.bSeals[n] and "1" or "0" end
+      return string.format("seals=%s n=%s life=%s act=%s", table.concat(t), tostring(u.numberSeals), tostring(e.Life), tostring(e.bActive))
+    end
+    return "?"
+  end
+  local function shownNodes(e)
+    local t = {}
+    for i, n in ipairs(Behemoth.Seals) do t[#t + 1] = (e["bShowNode_" .. n] and "1" or "0") .. (e["bShowNode_" .. Behemoth.BrokeSeals[i]] and "b" or "-") end
+    return table.concat(t, " ")
+  end
+  function Coop.dev()
+    if prevPt then prevPt() end
+    local f = Coop.frame
+    local bomb, beh = Game.GetEntity(BOMB), Game.GetEntity(BEH)
+    if Coop.isHost() then
+      local body = Coop.squadEnt(cfg.partcls or "Black")
+      if f == 300 and bomb and beh and body then
+        local y = math.rad(body.Ang.y)
+        local fwd = V3D(-math.sin(y), 0, -math.cos(y))
+        bomb.bActive = true
+        beh.bActive = true
+        beh.Invulnerable = 0
+        bomb.Pos = body.Pos + fwd * 350
+        beh.Pos = body.Pos + fwd * 1100
+        pcall(Game.SetOnFloor, BOMB)
+        pcall(Game.SetOnFloor, BEH)
+        Coop.log("parttest: woke " .. BOMB .. " and " .. BEH .. " in front of " .. body.Name)
+      end
+      if f > 300 then
+        for _, e in ipairs({bomb, beh}) do
+          if e and e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+        end
+      end
+    end
+    if f >= 400 and f % 100 == 0 then
+      Coop.log("parttest " .. cfg.role .. ": " .. BOMB .. " " .. state(bomb))
+      Coop.log("parttest " .. cfg.role .. ": " .. BEH .. " " .. state(beh) .. " | nodes " .. (beh and shownNodes(beh) or ""))
+    end
+    if Coop.isClient() then
+      local usr = Game.UsrEntity(0)
+      if usr and bomb and f == 650 then
+        local d = bomb.Pos - usr.Pos
+        usr.IgnoreUsrControl = 1
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(0, usr.Ang.y, 0)
+      end
+      local function send(e, bone, dmg)
+        Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s|%s|%.2f", e.Name, dmg, usr.Name, bone, dmg))
+        Coop.log("parttest client: hit " .. e.Name .. " on " .. bone)
+      end
+      if usr and bomb and (f == 700 or f == 760 or f == 820) then
+        local pick
+        for _, n in ipairs(CultistaExplosivo.Bombs) do
+          if bomb.uData.bBombs[n] then pick = n break end
+        end
+        if pick then send(bomb, pick, 20) end
+      end
+      if usr and beh and (f == 900 or f == 960) then
+        send(beh, f == 900 and "XT_Behemoth_Sello_02" or "XT_Behemoth_Sello_05", Behemoth.SealLife)
+      end
+      if usr and beh and f == 1000 then
+        local d = beh.Pos - usr.Pos
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(0, usr.Ang.y, 0)
+      end
+    end
+  end
+end
