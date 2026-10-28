@@ -127,60 +127,133 @@ function E.installTargeting()
   Coop.log("enemies may target every human")
 end
 
--- Diagnostics (bug "enemy fire not seen / not felt by the client", 0.2.7): every shot an enemy
--- fires through Weapons.OnShot is counted by whom it was aimed at and whether the engine's own
--- trace hit a body another human holds. A remote body is a puppet with collision off, so the
--- trace may pass through it: "pass" counts shots aimed at a remote body (the shooter's objective)
--- whose ray came within E.PASS_RADIUS of the body but whose hit went to something else.
-E.PASS_RADIUS = 70
+-- Enemy fire at a body another player holds (bug "enemy fire not seen / not felt by the client",
+-- 0.2.7). Such a body is a puppet with collision off: the engine's trace and the melee rays
+-- (DrawWeapon) pass through it, so enemies never hit a client (2541 of 2587 shots at the client's
+-- body went through it, 0 hits). The host therefore tests the shot's own ray against the body's
+-- capsule itself, and a hit goes through the game's own damage path (Weapons.OnShot with the body
+-- as target, Weapons.DoDamage), which sends `pdmg` to the owner. The ray is the engine's, with
+-- its spread and range, and ends where the engine's trace ended (a wall or another body in front
+-- shields the player as in single player); a shot or swing the ray would not have hit still misses.
+E.HIT_RADIUS = 27          -- units: capsule radius of a human body (calibrated against the engine, bugfix-028.md)
+E.BODY_BOTTOM, E.BODY_TOP = 15, 165   -- capsule axis above the body's Pos
 E.shotLogged = 0
+
+local function clamp01(v) if v < 0 then return 0 elseif v > 1 then return 1 end return v end
+
+-- Closest distance between segments AB and CD (Ericson, Real-Time Collision Detection 5.1.9);
+-- also the parameter of the closest point on AB.
+local function segDist(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz)
+  local d1x, d1y, d1z = bx - ax, by - ay, bz - az
+  local d2x, d2y, d2z = dx - cx, dy - cy, dz - cz
+  local rx, ry, rz = ax - cx, ay - cy, az - cz
+  local a = d1x * d1x + d1y * d1y + d1z * d1z
+  local e = d2x * d2x + d2y * d2y + d2z * d2z
+  local f = d2x * rx + d2y * ry + d2z * rz
+  local s, t
+  if a <= 1e-9 and e <= 1e-9 then
+    s, t = 0, 0
+  elseif a <= 1e-9 then
+    s, t = 0, clamp01(f / e)
+  else
+    local c = d1x * rx + d1y * ry + d1z * rz
+    if e <= 1e-9 then
+      s, t = clamp01(-c / a), 0
+    else
+      local b = d1x * d2x + d1y * d2y + d1z * d2z
+      local den = a * e - b * b
+      s = den > 1e-9 and clamp01((b * f - c * e) / den) or 0
+      t = (b * s + f) / e
+      if t < 0 then
+        t, s = 0, clamp01(-c / a)
+      elseif t > 1 then
+        t, s = 1, clamp01((b - c) / a)
+      end
+    end
+  end
+  local px, py, pz = ax + d1x * s - (cx + d2x * t), ay + d1y * s - (cy + d2y * t), az + d1z * s - (cz + d2z * t)
+  return math.sqrt(px * px + py * py + pz * pz), s
+end
+
+-- Distance from the ray segment (a -> b) to the body's capsule axis, and where along the ray.
+function E.rayToBody(ax, ay, az, bx, by, bz, body)
+  local p = body.Pos
+  return segDist(ax, ay, az, bx, by, bz, p.x, p.y + E.BODY_BOTTOM, p.z, p.x, p.y + E.BODY_TOP, p.z)
+end
+
+-- Bodies other players hold that can be hit: alive, awake, not driven by a story line.
+function E.remoteBodies()
+  local list = {}
+  for name in pairs(Coop.owners or {}) do
+    if Coop.isRemoteOwned(name) and not (Coop.storyDriven and Coop.storyDriven[name]) then
+      local b = Game.GetEntity(name)
+      if b and (b.Life or 0) > 0 and b.bActive ~= false and b.Active ~= 0 then list[#list + 1] = b end
+    end
+  end
+  return list
+end
+
+local function bump(key, n) E.stats[key] = (E.stats[key] or 0) + (n or 1) end
+
+-- What an enemy's objective is, for the counters: "Local" (a body this machine's player holds),
+-- "Remote" (another player's) or "Ai" (a squad member nobody holds).
+local function objClass(obj)
+  if Coop.isLocalPlayer(obj) then return "Local" end
+  if Coop.isRemoteOwned(obj) then return "Remote" end
+  return "Ai"
+end
+
+-- A shot an enemy fires (Weapons.OnShot(name, target, x, y, z, ...)): counts, and returns the
+-- name of a remote body the shot's ray hits when the engine's trace went through it.
 function E.noteShot(name, target, x, y, z)
   local from = Game.GetEntity(name)
-  if not isEnemy(from) then return end
-  local s = E.stats
-  s.eShots = (s.eShots or 0) + 1
+  if not isEnemy(from) or not x then return end
+  bump("eShots")
   local hit = target ~= nil and target ~= ""
   if hit then
-    s.eShotHit = (s.eShotHit or 0) + 1
-    if Coop.isRemoteOwned(target) then s.eShotHitRemote = (s.eShotHitRemote or 0) + 1 end
+    bump("eShotHit")
+    if Coop.isRemoteOwned(target) then bump("eShotHitRemote") end
   end
-  -- how an enemy's own control looks while it fires (what a puppet would have to be told)
-  if not E.owcSeen or E.owcSeen < 12 then
-    local ok, shotv, pitch, fc = pcall(function()
-      return from.owc and from.owc.Shot, from.ViewAng and from.ViewAng.x, from.oWeapCtrl and from.oWeapCtrl.FireCounter
-    end)
-    E.owcSeen = (E.owcSeen or 0) + 1
-    Coop.log(string.format("eshot-owc %s (%s) action=%s owc.Shot=%s viewpitch=%s fireCounter=%s target=%s", name,
-      tostring(from.ActCtrl), tostring(from.Action), tostring(shotv), tostring(pitch), tostring(fc), tostring(target)))
-  end
+  local a = from.Pos + V3D(0, 130, 0)
   local obj = from.AI_ObjectiveDin
-  if not (obj and obj ~= "" and Coop.isRemoteOwned(obj)) then return end
-  s.eShotAtRemote = (s.eShotAtRemote or 0) + 1
-  local body = Game.GetEntity(obj)
-  local miss, along
-  if body and x then
-    -- distance from the body's chest to the segment muzzle -> impact
-    local a = from.Pos + V3D(0, 130, 0)
-    local c = body.Pos + V3D(0, 100, 0)
-    local dx, dy, dz = x - a.x, y - a.y, z - a.z
-    local len2 = dx * dx + dy * dy + dz * dz
-    local px, py, pz = c.x - a.x, c.y - a.y, c.z - a.z
-    local u = len2 > 0 and (px * dx + py * dy + pz * dz) / len2 or 0
-    along = u
-    if u < 0 then u = 0 elseif u > 1 then u = 1 end
-    local qx, qy, qz = px - dx * u, py - dy * u, pz - dz * u
-    miss = math.sqrt(qx * qx + qy * qy + qz * qz)
-    if miss < E.PASS_RADIUS and along >= 0 and along <= 1.2 and target ~= obj then
-      s.eShotPass = (s.eShotPass or 0) + 1
+  local body = obj and obj ~= "" and Game.GetEntity(obj)
+  local cls = body and objClass(obj)
+  -- Reference: how often the engine's own trace hits the human bodies it solidly collides with,
+  -- and how often the capsule test would have (calibrates E.HIT_RADIUS; bugfix-028.md).
+  if cls == "Local" then
+    local d = E.rayToBody(a.x, a.y, a.z, x, y, z, body)
+    bump("atLocal")
+    if target == obj then bump("hitLocal") end
+    for _, r in ipairs({20, 27, 35, 45}) do
+      if d < r then bump("geoLocal" .. r) end
+    end
+  elseif cls == "Remote" then
+    bump("eShotAtRemote")
+  elseif cls == "Ai" then
+    bump("atAi")
+    if target == obj then bump("hitAi") end
+  end
+  -- The shot's ray through a remote body the engine let pass.
+  local fixed, fixedD
+  if Coop.cfg.remotehit ~= false and Weapons.TempDamage then
+    local bestS
+    for _, b in ipairs(E.remoteBodies()) do
+      if b.Name ~= target then
+        local d, s = E.rayToBody(a.x, a.y, a.z, x, y, z, b)
+        if d < E.HIT_RADIUS and (not bestS or s < bestS) then fixed, fixedD, bestS = b.Name, d, s end
+      end
+    end
+    if fixed then
+      bump("eShotFixed")
+      if fixed ~= obj then bump("eShotFixedOther") end
     end
   end
   E.shotLogged = E.shotLogged + 1
-  if E.shotLogged <= 40 or E.shotLogged % 25 == 0 then
-    local d = body and (body.Pos - from.Pos):mod2D() or -1
-    Coop.log(string.format("eshot #%d %s (%s) -> %s dist %.0f target=%s ray-miss=%s along=%s", E.shotLogged, name,
-      tostring(from.ActCtrl), obj, d, hit and target or "-", miss and string.format("%.0f", miss) or "?",
-      along and string.format("%.2f", along) or "?"))
+  if E.shotLogged <= 30 or E.shotLogged % 50 == 0 then
+    Coop.log(string.format("eshot #%d %s (%s) -> %s (%s) target=%s fixed=%s %s", E.shotLogged, name, tostring(from.ActCtrl),
+      tostring(obj), tostring(cls), hit and target or "-", tostring(fixed), fixedD and string.format("%.0f", fixedD) or ""))
   end
+  return fixed
 end
 
 function E.installShotProbe()
@@ -188,18 +261,83 @@ function E.installShotProbe()
   E.shotProbe = true
   local orig = Weapons.OnShot
   Weapons.OnShot = function(name, target, x, y, z, iShot, ...)
-    local ok, err = pcall(E.noteShot, name, target, x, y, z)
-    if not ok and not E.shotProbeError then
-      E.shotProbeError = true
-      Coop.log("shot probe error: " .. tostring(err))
+    local ok, fixed = pcall(E.noteShot, name, target, x, y, z)
+    if not ok then
+      if not E.shotProbeError then
+        E.shotProbeError = true
+        Coop.log("shot probe error: " .. tostring(fixed))
+      end
+    elseif fixed then
+      target = fixed   -- the game's own path: hit sound and impulse on the body, Weapons.DoDamage -> pdmg
     end
     return orig(name, target, x, y, z, iShot, ...)
+  end
+end
+
+-- Melee: the events of the enemies that swing at a body call o:DrawWeapon(pitch, yaw, reach), a ray
+-- that passes through a puppet. When the game's own call hurt nobody, the same ray (the body's
+-- view direction, the same reach) is tried against the remote bodies.
+E.MELEE = {
+  {"WeaponsCultistaMelee", "HookHitEvent", function(o) return o.Action == "ThrownPunch" and 1000 or 400 end},
+  {"WeaponsCruzader", "HookHitEvent", function() return 650 end},
+  {"WeaponsChildCruzader", "HookHitEvent", function() return 500 end},
+}
+function E.meleeFix(o, reach, damage)
+  local pitch, yaw = math.rad(o.ViewAng.x), math.rad(o.ViewAng.y)
+  local a = o.Pos + V3D(0, 100, 0)
+  local dx, dy, dz = -math.sin(yaw) * math.cos(pitch), math.sin(pitch), -math.cos(yaw) * math.cos(pitch)
+  local bx, by, bz = a.x + dx * reach, a.y + dy * reach, a.z + dz * reach
+  local best, bestS
+  for _, b in ipairs(E.remoteBodies()) do
+    local d, s = E.rayToBody(a.x, a.y, a.z, bx, by, bz, b)
+    if d < E.HIT_RADIUS and (not bestS or s < bestS) then best, bestS = b, s end
+  end
+  if best then
+    bump("mFix")
+    Weapons.TempDamage = damage
+    Weapons.DoDamage(o, best, damage)
+    return best
+  end
+end
+
+function E.installMelee()
+  for _, m in ipairs(E.MELEE) do
+    local t, fn, reachOf = _G[m[1]], m[2], m[3]
+    local orig = t and t[fn]
+    if type(orig) == "function" and not (t.coopMelee and t.coopMelee[fn] == orig) then
+      t.coopMelee = t.coopMelee or {}
+      t[fn] = function(name, ev, time)
+        local o = Game.GetEntity(name)
+        if not isEnemy(o) then return orig(name, ev, time) end
+        local obj = o.AI_ObjectiveDin
+        local cls = obj and obj ~= "" and Game.GetEntity(obj) and objClass(obj)
+        E.meleeBy, E.meleeHurt = name, nil
+        local r = {pcall(orig, name, ev, time)}
+        E.meleeBy = nil
+        if cls then bump("mSwing" .. cls) end
+        if E.meleeHurt then
+          if cls then bump("mHit" .. cls) end
+        elseif Coop.cfg.remotehit ~= false then
+          local ok, got = pcall(function() return E.meleeFix(o, reachOf(o), math.floor(tonumber(ev) or 0)) end)
+          if ok and got then
+            if cls == "Remote" then bump("mHitRemote") end
+          elseif not ok and not E.meleeError then
+            E.meleeError = true
+            Coop.log("melee fix error: " .. tostring(got))
+          end
+        end
+        if not r[1] then error(r[2], 0) end
+        return unpack(r, 2)
+      end
+      t.coopMelee[fn] = t[fn]
+    end
   end
 end
 
 function E.installHost()
   E.installTargeting()
   E.installShotProbe()
+  E.installMelee()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -238,6 +376,7 @@ function E.installHost()
   local origDamage = Weapons.DoDamage
   E.origDamage = origDamage
   Weapons.DoDamage = function(From, To, Damage, BodyMultiplier)
+    if E.meleeBy and From and From.Name == E.meleeBy then E.meleeHurt = true end   -- (E.installMelee)
     -- A remote player's puppet fires for show only; its owner reports real hits. So does Ross's
     -- stand-in (coop_ross.lua) for the host's Ross.
     if From and (Coop.isRemoteOwned(From.Name) or From.Name == "CoopRossBody") and not Coop.applyingRemoteHit then
@@ -258,7 +397,10 @@ function E.installHost()
       local kind = From and (isEnemy(From) and tostring(From.ActCtrl) or "other") or "none"
       E.pdmgBy = E.pdmgBy or {}
       E.pdmgBy[kind] = (E.pdmgBy[kind] or 0) + 1
-      Net.CoopSend(Coop.peerOf(owner), 1, string.format("pdmg|%s|%.2f|%s", To.Name, Damage, From and From.Name or ""))
+      -- the shooter's place travels too: the owner's copy of it may lag or not exist yet
+      local fp = From and From.Pos
+      Net.CoopSend(Coop.peerOf(owner), 1, string.format("pdmg|%s|%.2f|%s|%.0f|%.0f|%.0f", To.Name, Damage,
+        From and From.Name or "", fp and fp.x or 0, fp and fp.y or 0, fp and fp.z or 0))
       return false
     end
     -- AI squadmates take less damage if the host chose so in the lobby.
@@ -1229,7 +1371,9 @@ function E.onMessage(peer, f)
     local usr = Game.UsrEntity(0)
     if usr and usr.Name ~= f[2] and Coop.isLocalPlayer(f[2]) then usr = Game.GetEntity(f[2]) end
     if usr and usr.Name == f[2] then
-      local from = Game.GetEntity(f[4]) or usr
+      local from = Game.GetEntity(f[4])
+      if not from then E.stats.pdmgNoShooter = (E.stats.pdmgNoShooter or 0) + 1 end
+      from = from or usr
       fromHost(E.origDamage, from, usr, tonumber(f[3]), nil)
       E.stats.pdmgApplied = E.stats.pdmgApplied + 1
     end
@@ -1329,6 +1473,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
+    if Coop.frame % 90 == 0 then E.installMelee() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
@@ -1359,8 +1504,15 @@ function E.report()
   -- Enemy fire (host: shots / aimed at a remote body / engine hit one / ray passed through one;
   -- pdmg by source), client: fx played. See E.noteShot.
   if s.eShots then
-    line = line .. string.format(" eshots=%d/at-remote %d/hit %d/hit-remote %d/pass %d flagged=%d", s.eShots, s.eShotAtRemote or 0,
-      s.eShotHit or 0, s.eShotHitRemote or 0, s.eShotPass or 0, s.shotFlags or 0)
+    -- shots: all / aimed at a remote body / engine hit a remote body / given a hit by the ray test;
+    -- reference: shots aimed at this machine's own player and how many hit (engine trace)
+    line = line .. string.format(" eshots=%d at-remote %d hit-remote %d fixed %d (aimed elsewhere %d) | at-local %d hit-local %d (capsule 20/27/35/45: %d/%d/%d/%d) at-ai %d hit-ai %d",
+      s.eShots, s.eShotAtRemote or 0, s.eShotHitRemote or 0, s.eShotFixed or 0, s.eShotFixedOther or 0, s.atLocal or 0, s.hitLocal or 0,
+      s.geoLocal20 or 0, s.geoLocal27 or 0, s.geoLocal35 or 0, s.geoLocal45 or 0, s.atAi or 0, s.hitAi or 0)
+  end
+  if s.mSwingLocal or s.mSwingRemote or s.mSwingAi then
+    line = line .. string.format(" melee swings local %d hit %d remote %d hit %d(fixed %d) ai %d hit %d", s.mSwingLocal or 0,
+      s.mHitLocal or 0, s.mSwingRemote or 0, (s.mHitRemote or 0) + 0, s.mFix or 0, s.mSwingAi or 0, s.mHitAi or 0)
   end
   if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
   if E.pdmgBy then
