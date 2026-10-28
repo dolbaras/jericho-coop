@@ -603,7 +603,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   the speaker. A line waits (up to 2.5 s) for the voice channel. A client's local chat chain
   (`TeamTalk.NextChat`, whose end callback runs the chat's continuation) stays alive: a played host line
   keeps `TeamTalk.EndTalkFunc` when it is `NextChat`; a dropped chat line the host never answers is played
-  from the local text after 4 s; a stale `EndTalkFunc` left by a dropped bark is cleared. Lines a client
+  from the local text after 1.5 s; a stale `EndTalkFunc` left by a dropped bark is cleared. Lines a client
   would say itself (its spirit entering a body, its own reload bark) are dropped. Test:
   `lua/tests/talk_mock_test.lua` (the real `teamtalk.lua` on two simulated machines),
   `lab	alktest.sh` (pair).

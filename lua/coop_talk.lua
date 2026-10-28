@@ -21,7 +21,7 @@ local K = CoopTalk
 local cfg = Coop.cfg
 
 K.WAIT = 2.5        -- s: a host line waits this long for the voice channel, then cuts in
-K.FALLBACK = 4      -- s: a dropped local chat line is played after this long without the host's
+K.FALLBACK = 1.5    -- s: a dropped local chat line is played after this long without the host's
 K.SKIP = 20         -- s: a local chat line of a voice played this recently here is not played again
 K.DEDUP = 3         -- s: the same voice twice within this time is one line
 K.STALE = 1.5       -- s: a stale EndTalkFunc of a dropped client bark is cleared after this long
