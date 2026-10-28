@@ -960,6 +960,7 @@ function Coop.drivePuppets(dt)
     if e and Coop.puppetNoCollide[name] ~= nil and not (st and Coop.isPuppet(name)) then Coop.releasePuppet(e) end
     if e and st and CoopTeam and Coop.isPuppet(name) then CoopTeam.syncPuppetLife(e, st) end
     if e and st and Coop.isPuppet(name) then Coop.syncPuppetActive(e, st) end
+    if e and st and CoopAnim and Coop.isPuppet(name) then CoopAnim.sync(e, name, st) end
     if e and e.Life and e.Life > 0 then
       local tg = Coop.isPuppet(name) and st and Coop.puppetTarget(name, now)
       if tg then
@@ -2388,6 +2389,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("patrol load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_talk.lua")
   if not ok then Coop.log("talk load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_anim.lua")
+  if not ok then Coop.log("anim load error: " .. tostring(err)) end
   if cfg.storyline then
     ok, err = pcall(dofile, COOP_DIR .. "coop_storysolo.lua")
     if not ok then Coop.log("story solo load error: " .. tostring(err)) end

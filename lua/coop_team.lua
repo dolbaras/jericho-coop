@@ -132,8 +132,12 @@ function T.syncPuppetLife(e, st)
     e.Invulnerable = 0
     e.Life = 0
   elseif st.life > 0 and e.Life <= 0 and Team.IsPlayerDead(e.Name) then
-    -- The owner was revived on its machine.
-    fromHost(T.origRevive, e)
+    -- The owner was revived on its machine (once: the End action gives the life back).
+    if CoopAnim then
+      CoopAnim.revive(e, e.Name, st, function(x) fromHost(T.origRevive, x) end)
+    else
+      fromHost(T.origRevive, e)
+    end
   elseif st.life > 0 and e.Life > 0 and math.abs(e.Life - st.life) >= 1 then
     -- Alive: the owner's life, so Rawlings' heal and his curse's life feed see who is hurt.
     e.Life = st.life
