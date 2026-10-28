@@ -169,10 +169,12 @@ end
 setup()
 local H, C = machines.host, machines.client
 local ended = {host = 0, client = 0}
-H.env.TeamTalk.InitIncidentalChat("Chat", function() ended.host = ended.host + 1 end, false)
+local e1 = {}
+H.env.TeamTalk.InitIncidentalChat("Chat", function() ended.host = ended.host + 1; e1.h = clock end, false)
 run(0.1)
-C.env.TeamTalk.InitIncidentalChat("Chat", function() ended.client = ended.client + 1 end, false)
+C.env.TeamTalk.InitIncidentalChat("Chat", function() ended.client = ended.client + 1; e1.c = clock end, false)
 run(8)
+print(string.format("1 chat end host %.2f client %.2f", e1.h, e1.c))
 print("1 host:   " .. voices(H))
 print("1 client: " .. voices(C))
 assert(voices(H) == "Chat0,Chat1,Chat2", "host plays the chat once")
@@ -278,5 +280,22 @@ run(0.1)
 C.env.TeamTalk.InitIncidentalChat("Chat", nil, false)
 run(8)
 assert(#C.spoken - before == 3, "repeat plays three lines: " .. (#C.spoken - before))
+
+-- 10. extra NextChat calls on the client (the game's own retries) must not run its chain ahead:
+-- the chat's end callback comes with the host's last line
+setup()
+H, C = machines.host, machines.client
+local endT = {}
+H.env.TeamTalk.InitIncidentalChat("Chat", function() endT.host = clock end, false)
+run(0.05)
+C.env.TeamTalk.InitIncidentalChat("Chat", function() endT.client = clock end, false)
+run(0.9)
+C.env.TeamTalk.NextChat(); C.env.TeamTalk.NextChat()
+run(0.3)
+C.env.TeamTalk.NextChat()
+run(10)
+print("10 client: " .. voices(C) .. string.format("  end host %.1f client %.1f", endT.host, endT.client))
+assert(voices(C) == "Chat0,Chat1,Chat2", "extra NextChat calls: " .. voices(C))
+assert(math.abs(endT.client - endT.host) < 0.6, "chat end together")
 
 print("talk mock test: OK")

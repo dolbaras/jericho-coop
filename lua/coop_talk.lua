@@ -109,12 +109,14 @@ function K.play(voice, speaker, filteredHost, show)
     T.EndTalkFunc, T.EndTalkParam = keepF, keepP
   end
   K.localPend = nil
-  -- A local chat chain follows the host's lines: the next step is the line after this one
-  -- (a line the client never got, sent while it was still loading, no longer leaves it behind).
+  -- A local chat chain follows the host's lines: its next step is this very line, which it then
+  -- finds played already and goes on from (a line the client never got, sent while it was still
+  -- loading, no longer leaves it behind; the previous voice's end, a few ms after the host's next
+  -- line came in, no longer ends the chain early).
   if T.ChatData and T.iChatData then
     for i, c in ipairs(T.ChatData) do
       if c[1] == voice then
-        if i + 1 > T.iChatData then T.iChatData = i + 1 end
+        T.iChatData = i
         break
       end
     end
@@ -182,7 +184,14 @@ function K.wrapGeneric(Text, voice, filtered, show_it)
   end
   local T = TeamTalk
   if T.ChatData ~= nil then
+    -- NextChat moved its pointer past this line: the pointer follows the host's lines only
+    -- (K.play), so a local step that runs twice or too early cannot run ahead of the host.
+    local idx
+    for i, c in ipairs(T.ChatData) do
+      if c[1] == voice then idx = i break end
+    end
     local t = K.recent[voice]
+    if idx and not (t and now() - t < K.SKIP) then T.iChatData = idx end
     if t and now() - t < K.SKIP then
       -- The host's line came first. While its voice plays, that voice's end calls the chat's
       -- next step (EndTalkFunc is set once this returns); when it is over already, go on now.
@@ -203,9 +212,26 @@ function K.wrapLips(charname)
   -- client: local lips belong to the dropped line; the played one starts its own
 end
 
+-- The chat's step that finds no line left ends the chat. On a client such a call can come while
+-- the host's last line is still playing (a retry the game scheduled, or the previous voice's end a
+-- few ms after the host's next line came in): wait for that voice.
+function K.wrapNext(...)
+  local T = TeamTalk
+  if K.passing or not Coop.inSession() or not Coop.isClient() then return K.origNext(...) end
+  if T.ChatData and T.iChatData and T.ChatData[T.iChatData] == nil and busy() then
+    Game.AddScheduledFunc(Game.GetTime() + 1, "TeamTalk_NextChat", "TeamTalk.NextChat")
+    return true
+  end
+  return K.origNext(...)
+end
+
 function K.install()
   local T = TeamTalk
   if not T or not T.GenericTalk or not T.StartTalkingLips then return end
+  if T.NextChat and T.NextChat ~= K.wrapNext and T.NextChat ~= K.traceNext then
+    K.origNext = T.NextChat
+    T.NextChat = K.wrapNext
+  end
   if T.GenericTalk ~= K.wrapGeneric then
     K.origGeneric = T.GenericTalk
     T.GenericTalk = K.wrapGeneric
