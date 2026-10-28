@@ -22,6 +22,7 @@ local cfg = Coop.cfg
 
 K.WAIT = 2.5        -- s: a host line waits this long for the voice channel, then cuts in
 K.FALLBACK = 4      -- s: a dropped local chat line is played after this long without the host's
+K.SKIP = 20         -- s: a local chat line of a voice played this recently here is not played again
 K.DEDUP = 3         -- s: the same voice twice within this time is one line
 K.STALE = 1.5       -- s: a stale EndTalkFunc of a dropped client bark is cleared after this long
 K.queue = {}        -- host lines waiting for the voice channel (client)
@@ -108,6 +109,16 @@ function K.play(voice, speaker, filteredHost, show)
     T.EndTalkFunc, T.EndTalkParam = keepF, keepP
   end
   K.localPend = nil
+  -- A local chat chain follows the host's lines: the next step is the line after this one
+  -- (a line the client never got, sent while it was still loading, no longer leaves it behind).
+  if T.ChatData and T.iChatData then
+    for i, c in ipairs(T.ChatData) do
+      if c[1] == voice then
+        if i + 1 > T.iChatData then T.iChatData = i + 1 end
+        break
+      end
+    end
+  end
   K.lastPlay = now()
   K.recent[voice] = K.lastPlay
   if not ok then
@@ -172,7 +183,7 @@ function K.wrapGeneric(Text, voice, filtered, show_it)
   local T = TeamTalk
   if T.ChatData ~= nil then
     local t = K.recent[voice]
-    if t and now() - t < 8 then
+    if t and now() - t < K.SKIP then
       -- The host's line came first. While its voice plays, that voice's end calls the chat's
       -- next step (EndTalkFunc is set once this returns); when it is over already, go on now.
       if not busy() then Game.AddScheduledFunc(Game.GetTime() + 0.2, "", "TeamTalk.OnEndTalk") end
@@ -202,6 +213,20 @@ function K.install()
   if T.StartTalkingLips ~= K.wrapLips then
     K.origLips = T.StartTalkingLips
     T.StartTalkingLips = K.wrapLips
+  end
+  if cfg.talklog and T.NextChat and T.OnEndTalk and T.NextChat ~= K.traceNext then
+    -- tracing (cfg.talklog): when the chat's steps run and what the talk state is
+    local oN, oE = T.NextChat, T.OnEndTalk
+    K.traceNext = function(...)
+      Coop.log(string.format("talk trace NextChat: EndTalkFunc=%s remain=%s idx=%s", tostring(T.EndTalkFunc ~= nil),
+        tostring(Game.Get("RemainTalkTime")), tostring(T.iChatData)))
+      return oN(...)
+    end
+    K.traceEnd = function(...)
+      Coop.log(string.format("talk trace OnEndTalk: EndTalkFunc=%s", tostring(T.EndTalkFunc == K.traceNext and "NextChat" or T.EndTalkFunc ~= nil)))
+      return oE(...)
+    end
+    T.NextChat, T.OnEndTalk = K.traceNext, K.traceEnd
   end
   if not K.logged then
     K.logged = true
@@ -243,6 +268,9 @@ function K.update()
     K.staleAt = nil
   end
 end
+
+-- The level's first chat can start before the first tick: wrap at once when the game's table is there.
+pcall(K.install)
 
 function K.report()
   return string.format("talk sent=%d played=%d dropped=%d dup=%d fallback=%d queued=%d", K.sent, K.played,

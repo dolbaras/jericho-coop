@@ -257,4 +257,26 @@ run(8)
 assert(H.K.sent == 3, "three lines sent: " .. H.K.sent)
 assert(C.K.played == 3, "three lines played: " .. C.K.played)
 
+-- 8. the client was still loading when the host's first line was sent: that line is lost, the
+-- chain must not stay one line behind (no repeats of old lines, one end callback, in time)
+setup()
+H, C = machines.host, machines.client
+ended = {host = 0, client = 0}
+H.env.TeamTalk.InitIncidentalChat("Chat", function() ended.host = ended.host + 1 end, false)
+C.inbox = {}                                   -- the first line's message never reached it
+run(0.2)
+C.env.TeamTalk.InitIncidentalChat("Chat", function() ended.client = ended.client + 1 end, false)
+run(15)
+print("8 client: " .. voices(C))
+assert(voices(C) == "Chat1,Chat2", "lost first line: " .. voices(C))
+assert(ended.client == 1, "lost first line, chat end: " .. ended.client)
+
+-- 9. the same chat again 12 s later (a second chat of the same name): played again, once
+local before = #C.spoken
+H.env.TeamTalk.InitIncidentalChat("Chat", nil, false)
+run(0.1)
+C.env.TeamTalk.InitIncidentalChat("Chat", nil, false)
+run(8)
+assert(#C.spoken - before == 3, "repeat plays three lines: " .. (#C.spoken - before))
+
 print("talk mock test: OK")
