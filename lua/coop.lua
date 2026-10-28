@@ -1054,6 +1054,7 @@ function Coop.onMessage(peer, data)
   if CoopStory and CoopStory.onMessage(peer, f) then return end
   if CoopSplits and CoopSplits.onMessage(peer, f) then return end
   if CoopPatrol and CoopPatrol.onMessage(peer, f) then return end
+  if CoopTalk and CoopTalk.onMessage(peer, f) then return end
   if CoopPowers and CoopPowers.onMessage(peer, f, data) then return end
   if kind == "s" then
     local name = f[2]
@@ -2150,6 +2151,7 @@ function Coop.update()
       Coop.log("splits error: " .. tostring(err))
     end
   end
+  if CoopTalk then pcall(CoopTalk.update) end
   if CoopSession and Coop.inSession() then
     local ok, err = pcall(CoopSession.update)
     if not ok and (Coop.sessionErrors or 0) < 5 then
@@ -2302,6 +2304,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("splits load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_patrol.lua")
   if not ok then Coop.log("patrol load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_talk.lua")
+  if not ok then Coop.log("talk load error: " .. tostring(err)) end
   if cfg.storyline then
     ok, err = pcall(dofile, COOP_DIR .. "coop_storysolo.lua")
     if not ok then Coop.log("story solo load error: " .. tostring(err)) end
