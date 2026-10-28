@@ -577,7 +577,10 @@ function Coop.releasePuppet(e)
   if e.oAI then e.oAI.bEnable = true end
   -- Back to the engine: collision on, and actions move bodies again.
   if Coop.puppetNoCollide and Coop.puppetNoCollide[e.Name] ~= nil then
+    local ok0, cur = pcall(function() return e.bIgnoreCollision end)
     pcall(function() e.bIgnoreCollision = Coop.puppetNoCollide[e.Name] end)
+    Coop.log(string.format("puppet %s released: collision ignore %s -> %s (life %s, action %s)", e.Name,
+      tostring(ok0 and cur), tostring(Coop.puppetNoCollide[e.Name]), tostring(e.Life), tostring(e.Action)))
     Coop.puppetNoCollide[e.Name] = nil
   end
   Coop.restoreAllRootMotion()
@@ -875,6 +878,15 @@ function Coop.pdStuck(now)
       local d = Coop.pdOwn[name]
       if not d then d = {n = 0, logT = -100} Coop.pdOwn[name] = d end
       local p = e.Pos
+      -- A body this machine's player holds must collide: one still marked as a puppet's (collision
+      -- off) walks through walls and falls through the floor.
+      local okc, ign = pcall(function() return e.bIgnoreCollision end)
+      if okc and ign == true and not Coop.isPuppet(name) and now - (d.ignT or -100) >= 10 and (d.ignN or 0) < 20 then
+        d.ignT, d.ignN = now, (d.ignN or 0) + 1
+        Coop.log(string.format("local body %s has collision ignore ON (puppet record %s, wasPuppet %s, life %s, action %s, at %.0f,%.0f,%.0f)",
+          name, tostring(Coop.puppetNoCollide and Coop.puppetNoCollide[name]), tostring(Coop.wasPuppet and Coop.wasPuppet[name]),
+          tostring(e.Life), tostring(e.Action), p.x, p.y, p.z))
+      end
       if not d.t then
         d.t, d.x, d.z, d.stuck, d.sn, d.sT = now, p.x, p.z, 0, 0, -100
       elseif now - d.t >= 1 then
@@ -908,6 +920,11 @@ function Coop.drivePuppets(dt)
   for _, name in ipairs(Coop.SQUAD) do
     local e = Coop.squadEnt(name)
     local st = Coop.remote[name]
+    -- A body that stopped being a puppet gets its collision and AI back whatever its life: one
+    -- that died as a puppet and then went to a local player or the AI kept "collision ignore"
+    -- on (it was released only for a living body): the player walked through walls and fell
+    -- through the floor (lab 2026-10-28, owner's 0.2.7 report).
+    if e and Coop.puppetNoCollide[name] ~= nil and not (st and Coop.isPuppet(name)) then Coop.releasePuppet(e) end
     if e and st and CoopTeam and Coop.isPuppet(name) then CoopTeam.syncPuppetLife(e, st) end
     if e and st and Coop.isPuppet(name) then Coop.syncPuppetActive(e, st) end
     if e and e.Life and e.Life > 0 then
@@ -919,6 +936,8 @@ function Coop.drivePuppets(dt)
         if Coop.puppetNoCollide[name] == nil and cfg.puppetcollide ~= true then
           local ok, was = pcall(function() return e.bIgnoreCollision end)
           Coop.puppetNoCollide[name] = ok and was or false
+          Coop.log(string.format("puppet %s: collision ignore was %s, now on (life %s, action %s)", name,
+            tostring(was), tostring(e.Life), tostring(e.Action)))
           pcall(function() e.bIgnoreCollision = true end)
         end
         Coop.suppressRootMotion(e, localKeys)
@@ -941,6 +960,18 @@ function Coop.drivePuppets(dt)
         e.Pos = V3D(wx, wy, wz)
         d.wx, d.wy, d.wz, d.wt = wx, wy, wz, now
         Coop.notePos(name, "drivePuppets")
+        -- The engine's walker takes a body whose height is not on its own floor (the owner jumps,
+        -- stands on a stair or a prop, or the floor differs here) for falling and lets it fall at
+        -- a growing speed, with no limit: lab 2026-10-28, a running puppet reached -4800 units/s
+        -- within 1.7 s and dropped hundreds of units between two frames (snap storms, bodies seen
+        -- sunk into the map). The height is the owner's, so the fall is cancelled every frame.
+        if cfg.puppetfall ~= false then
+          local ok, v = pcall(function() return e.Vel end)
+          if ok and v and (v.y < -20 or v.y > 20) then
+            pcall(function() e.Vel = V3D(v.x, 0, v.z) end)
+            d.velFixed = (d.velFixed or 0) + 1
+          end
+        end
         e.Ang = V3D(0, tg.yaw, 0)
         e.ViewAng = V3D(tg.pitch, tg.yaw, 0)
         -- Firing through the body's own control makes the engine play the shot (sound,
