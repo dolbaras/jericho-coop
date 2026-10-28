@@ -58,7 +58,7 @@ rebuilt on every level load (`boot.lua:1-4`). The chain:
 | - | network start | `cfg.auto` tests: `Net.CoopHost`/`CoopJoin`/`CoopSteam`; back in the menu after a session: `Net.CoopClose`, `CoopSave.endSession`, session keys cleared |
 | 4 | `coop_menu.lua` | menu level, not `cfg.auto` |
 | 5 | `Coop.installFP` | levels, in a session |
-| 6 | `coop_enemies.lua`, `coop_hud.lua`, `coop_team.lua`, `coop_scenes.lua`, `coop_spirit.lua`, `coop_powers.lua`, `coop_world.lua`, `coop_claim.lua`, `coop_squad.lua`, `coop_souls.lua`, `coop_session.lua`, `coop_story.lua`, `coop_splits.lua`, `coop_patrol.lua` | every level but the menu |
+| 6 | `coop_enemies.lua`, `coop_hud.lua`, `coop_team.lua`, `coop_scenes.lua`, `coop_spirit.lua`, `coop_powers.lua`, `coop_world.lua`, `coop_claim.lua`, `coop_squad.lua`, `coop_souls.lua`, `coop_session.lua`, `coop_story.lua`, `coop_splits.lua`, `coop_patrol.lua`, `coop_talk.lua` | every level but the menu |
 | 7 | `coop_storysolo.lua` | levels, `cfg.storyline` set |
 | 8 | `coop_smod.lua`, `coop_split.lua`, `coop_ross.lua` | menu and levels |
 | 9 | `dev.lua` | `cfg.dev` (not shipped: `tools/package.ps1` leaves out `dev.lua` and `probe.lua`) |
@@ -267,7 +267,7 @@ level (`Coop.menuMode`) `CoopMenu.onMessage` is asked first, and `join`/`leave` 
 `CoopMenu.onJoin`/`onLeave`. In levels `Coop.onMessage` asks the modules in this order, the
 first that returns true wins: `CoopEnemies`, `CoopTeam`, `CoopScenes`, `CoopSpirit`,
 `CoopWorld`, `CoopClaim`, `CoopSquad`, `CoopSave`, `CoopStory`, `CoopSplits`, `CoopPatrol`,
-`CoopPowers`, then the core kinds of `coop.lua`.
+`CoopTalk`, `CoopPowers`, then the core kinds of `coop.lua`.
 
 Conventions: client to host is `CoopSend(0, ...)`; host to all is `CoopSend(-1, ...)`; a
 message every machine must see from a client goes to the host, which checks the sender
@@ -402,6 +402,7 @@ Payload fields follow the kind, `|`-separated, in the order given.
 | `lpc` | hub → all | R | | `coop_patrol.lua:LP.offer` (trio players choose) |
 | `lpr` | client → hub | R | 1 main group / 2 trio | `LP.onMessage`: `cfg.patrol` |
 | `lpt` | side authority → side members | R | | `LP.showTaken` |
+| `talk` | host → all | R | voice id, speaker (entity name or `-`), filtered 0/1, show 0/1 | `coop_talk.lua:K.onMessage` (client): the line through the game's own `GenericTalk` + `StartTalkingLips`, subtitle and radio filter worked out locally (module map) |
 | `~r`, `~f`, `~c` | see 3.4 | as wrapped | | `coop_inst.lua:I.recv`, `I.onControl` |
 
 `dev.lua` sends nothing of its own except a test `pw|jt`.
@@ -593,6 +594,19 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
 - **`coop_patrol.lua`** (`CoopPatrol`): the Lost Patrol choice and segments; hub wraps
   `SaveGame.LoadLevel` and `Scene.PlayFP` (BridgeCollapses); sets `CoopEnemies.dropScene`
   (TheRescue in the trio's chapel).
+- **`coop_talk.lua`** (`CoopTalk`, `K`): spoken lines. Every line of the game's talk code goes through
+  `TeamTalk.GenericTalk(Text, voice, filtered, show)` (voice already chosen); the host wraps it and
+  `TeamTalk.StartTalkingLips` (which names the speaker) and sends `talk`. The client drops its own
+  `GenericTalk` calls (AI barks, radio lines, chat lines picked by its own random numbers) and plays the
+  host's through the original function: voice file of its own language, subtitle `<name>: <line>` rebuilt
+  from its own language string of the voice id, radio filter from its own distance to the speaker, lips of
+  the speaker. A line waits (up to 2.5 s) for the voice channel. A client's local chat chain
+  (`TeamTalk.NextChat`, whose end callback runs the chat's continuation) stays alive: a played host line
+  keeps `TeamTalk.EndTalkFunc` when it is `NextChat`; a dropped chat line the host never answers is played
+  from the local text after 4 s; a stale `EndTalkFunc` left by a dropped bark is cleared. Lines a client
+  would say itself (its spirit entering a body, its own reload bark) are dropped. Test:
+  `lua/tests/talk_mock_test.lua` (the real `teamtalk.lua` on two simulated machines),
+  `lab	alktest.sh` (pair).
 - **`coop_storysolo.lua`** (`CoopStorySolo`): one story line alone (`SS.LINES`: level, char,
   spawn, timed or event-driven steps that call the main line's story functions). Started by
   `tools/storylines.ps1` with `cfg.storyline`.
