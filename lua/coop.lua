@@ -583,6 +583,10 @@ function Coop.releasePuppet(e)
       tostring(ok0 and cur), tostring(Coop.puppetNoCollide[e.Name]), tostring(e.Life), tostring(e.Action)))
     Coop.puppetNoCollide[e.Name] = nil
   end
+  if Coop.floorSet and Coop.floorSet[e.Name] and Coop.floorBase[e.Name] then
+    pcall(function() e.FloorDist = Coop.floorBase[e.Name] end)
+    Coop.floorSet[e.Name] = nil
+  end
   Coop.restoreAllRootMotion()
 end
 
@@ -908,6 +912,29 @@ function Coop.pdStuck(now)
   end
 end
 
+-- The floor distance of a crouched body (e.FloorDist: the feet are Pos.y - FloorDist below the
+-- body) is lowered by the class's DispCrouch (60) by the engine's own crouch handling, which a
+-- puppet does not run (its crouch is an action played on it). The owner's height is that of a
+-- crouched body, so the puppet's feet stood 60 units below the floor: bodies crouched in cover
+-- were sunk waist-deep, most visibly on slopes (owner's 0.2.7 Vigil screenshot; lab 2026-10-28:
+-- feet -58 against +3 for the same body on the host). The puppet gets the owner's value.
+Coop.floorBase = Coop.floorBase or {}   -- name -> standing FloorDist, recorded while the body stands
+Coop.floorSet = Coop.floorSet or {}     -- name -> true while this driver has changed it
+Coop.CROUCH_DISP = 60
+function Coop.syncFloorDist(e, name, act)
+  if cfg.puppetfloor == false then return end
+  local ok, fd = pcall(function() return tonumber(e.FloorDist) end)
+  if not ok or not fd then return end
+  local duck = string.find(tostring(act), "^Duck") ~= nil
+  if not duck and not Coop.floorSet[name] then Coop.floorBase[name] = fd end
+  local base = Coop.floorBase[name] or 129.09
+  local want = duck and base - Coop.CROUCH_DISP or base
+  if math.abs(fd - want) > 0.5 then
+    pcall(function() e.FloorDist = want end)
+    Coop.floorSet[name] = duck or nil
+  end
+end
+
 function Coop.drivePuppets(dt)
   -- Scenes freeze and hide the squad (Scene.HideChars); puppets resume afterwards.
   if Scene and Scene.IsPlaying then return end
@@ -984,6 +1011,7 @@ function Coop.drivePuppets(dt)
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
         Coop.syncCrouch(e, name, tg.st)
+        Coop.syncFloorDist(e, name, tg.st.action)
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1
