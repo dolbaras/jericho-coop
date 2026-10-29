@@ -106,17 +106,58 @@ on purpose; what other players should see is the third-person action in the tabl
 - What the owner saw as "wounded squad members stand" is therefore most likely the AI bodies' hit reactions and
   reloads (never mirrored before this slice), not the downed state.
 
-## 4. Still open (next slices)
+## 4. Second slice (2026-10-29)
 
-- States other than downed: cover (`Shelter*`), dazed (`Stupid*`), Jones's trance and Ross's astral (these
-  run on the owner's body for seconds and need begin/end), possessed Jones in sum_ziggurat_01.
-- Delgado's dragon release: third-person `Shot1Init` on the puppet would run the `AbabaniliStart` event
-  (frame 40) there and start a second dragon next to the `abby` one: needs the event guarded on puppets
-  before the action is mirrored. The first-person arm opening itself cannot be shown on another body.
-- Hit reactions of the host's AI bodies are in the whitelist now; check that `Hit` on a walking puppet does
-  not stop its walk (the body keeps its inputs).
-- Grenade throw (`Shot0` of Cole) is a shot loop here (`owc.Shot`); its launch event runs on the puppet and
-  makes a grenade there: check with a live test before mirroring it as an action.
+- **Delgado's release of the Ababanili** (the owner's named case). Two bodies: a player's Delgado (first-person
+  arms `Special_To/Special_Relax/Special_0Init`, `delgado.lua:SpecialInit`; the spirit is started by
+  `FP_Delgado.UsePower` -> `Ababanili.AbabaniliStart`) and the AI Delgado (third-person `Shot1Init` /
+  `DuckShot1Init`, event `Ababanili.AbabaniliStart` at frame 40). Before: only a player's spirit was relayed
+  (`abby` message), the AI Delgado's spirit and open arm were not seen on clients, and a puppet's own `Shot1Init`
+  (played by `Coop.mirrorArms` for `Special_0Init`) fired its frame-40 event there as well (a second spirit, or the
+  AI call on a body whose AI is off). Now (`coop_powers.lua`): the host tells the others about an AI Delgado's
+  spirit too (`tells`), a puppet's own `AbabaniliStart`/`AbabaniliClose` event is dropped (`puppetEvent`; only the
+  `abby` replay starts it), the replay opens the arm in third person when nothing else did (`P.armOpen`), and the
+  AI's `Shot1Init`/`DuckShot1Init` is mirrored from its state (`A.ONESHOT`). The arm closes by the game's own code:
+  the replayed spirit's arrival calls `Ababanili.OnAbabaniliArrived`, which sends `Shot1EndAlt`.
+  Live (WWII_Brandenburg, fight): the client logs `anim: Delgado plays Shot1Init` and `powers: Delgado's own
+  AbabaniliStart event dropped (puppet)`. NOT confirmed live: the spirit of the AI Delgado itself (the host's
+  `AbabaniliStart` returned false in every console attempt: `oAI.ObjectiveDin` does not take a value from Lua while
+  the AI runs, the natural AI start did not happen in the 3-minute fights; the abby message path is the old one).
+- **States that last** (`A.FAMILIES`, `A.syncState`): cover (`ShelterDown/Left/Right`), dazed (`Stupid`), trance
+  (`Trance`, Jones), astral (`Astral`, Ross), possessed (`Possessed`, Jones): the Init action is played when the
+  owner's body enters the family, the End action when it leaves it (the loop in between follows the Init through
+  its own event). Mock-tested only; frequency order for live checks: cover, dazed, trance/astral, possessed.
+- **First-person names -> third-person actions** (`A.FPMAP`): `TKCombo*` -> `TKHit` (Black; `Coop.mirrorArms` had
+  no pattern for it), `Reequip`, `Hit*`/`HitStrong` of a human body. `Coop.mirrorArms` keeps what it maps
+  (Combo, Punch, Reload, Spell, Hack, Special_0*). Every other first-person name that is not movement, posture or a
+  menu is logged once per body (`anim: first-person <Body>:<Name> on the owner's arms, no third-person action
+  mapped`). `labctinv_fp.lua` lists all first-person actions per class (`work
+otesctinv_fp.txt`):
+  there is no third-person action for `Hurdle*`, `Fall*`, `SkipWall*`, `Heal`, `Order*`, `OpenPalancaA`,
+  `OpenLightDoor`, `ThrowEnd`, `Activation`, `Special_1*` (Rawlings), `Aim*`: the body's own `Action` carries what
+  exists (jumps/falls are locomotion).
+- Not done: Cole's grenade (`Shot0`: its launch event runs on the puppet and makes a grenade there; the slot and
+  shot flag already show the throw), Rawlings' `Special_0/1` -> `Special1`/`ShotH` mapping (which first-person
+  action is which power is unclear from the scripts: wait for the log lines above), Jones's possession scene.
+
+## 5. Jerky movement of remote bodies: causes noticed (not changed: chunk A's area)
+
+- State rate is 20 Hz (`Coop.TICK`, `SEND_EVERY = 1` tick); a puppet is drawn `INTERP_MIN..INTERP_MAX` (0.07-0.25 s) behind
+  and extrapolates at most `EXTRAP_MAX` 0.2 s: a lost or late unreliable `s` packet shows as a stop-and-jump.
+- `SNAP_DIST` 250 and the vertical snaps (`pdSnap`); `FOLLOW` 0.9 per 0.05 s plus the engine's own walking from the
+  inputs fight each other (position written every frame over the body's own displacement).
+- Root motion is switched off per action object shared by a class (`Coop.suppressRootMotion`): a local player
+  of the same class, or an action not yet seen, moves by its animation on top of the placement.
+- `ForceAction` mirrors (this file, `Coop.mirrorArms`, `syncCrouch`) restart an animation from its first frame: a
+  repeated or late trigger pops the pose. They are debounced (0.6 s) but not blended.
+- The client's frame cap (30 in tests, display Hz x2 in split screen) quantises interpolation to frames.
+- Puppet inputs (`InCtrl_Walk/Str/Sprint`) come from the drawn state, shots from the newest: a turn and a shot can
+  differ by the interpolation delay.
+
+## 6. Still open
+
+- Live checks of the state families and of the AI Delgado's spirit; Cole's grenade; the 3-player check of
+  relayed `talk`.
 - Verification of every class on a live pair (action by action) once the whitelist is settled.
 
 ## Appendix: every action (generated by `labctinv.lua`, 2026-10-28)
