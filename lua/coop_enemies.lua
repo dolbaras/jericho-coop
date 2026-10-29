@@ -422,7 +422,7 @@ E.faded = {}      -- host: enemies faded out by NPC.DisolveEntity
 E.fadeSet = {}    -- client: the same, as this machine's own effects left it
 E.fadeDiff = {}
 E.BOSS_PATTERNS = {"Behemoth", "Maltheus", "Vicus", "Summerian", "PuppetGod", "EvilFirstBorn", "Gladiador",
-                   "PsichicCommander", "Arnold"}
+                   "PsichicCommander", "Arnold", "FirstBorn"}
 -- (walking and the like come with the snapshots; only the rest is worth a reliable message)
 E.LOCOMOTION = {"^Walk", "^Run", "^Sprint", "Relax", "^Patrol", "Turn", "^Dodge", "^Strafe", "^Back", "^Idle", "^Stand"}
 E.bossClass, E.bossAct = {}, {}
