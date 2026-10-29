@@ -35,7 +35,8 @@ for _, name in ipairs(Coop.SQUAD) do Coop.SQUAD_SET[name] = true end
 Coop.TICK = 0.05
 Coop.SEND_EVERY = 1        -- ticks between state messages (20 Hz)
 Coop.SNAP_DIST = 250       -- units; puppet is teleported beyond this error
-Coop.FOLLOW = 0.9          -- fraction of the error to the interpolated place removed per 0.05 s
+Coop.FOLLOW = 1            -- fraction of the error to the interpolated place removed per 0.05 s (1: placed on it;
+                           -- 0.9 added a lag of 0.02 s and fought the engine's own walking, cfg.pfollow = 0.9)
 -- Height follows the owner's too: a puppet ignores collision, so the engine does not keep it
 -- on the floor, and leaving height to it under 40 units left bodies up to that deep in the
 -- floor or above it on slopes and stairs (owner's report, 0.2.2; measured 20-42 units).
@@ -43,7 +44,7 @@ Coop.FOLLOW_Y = 1          -- units of height error left alone
 -- Other bodies are drawn a little in the past, between two received states (snapshot
 -- interpolation): the delay covers the send interval plus the network's jitter (fork
 -- MAK-PIVO/jericho-coop: 107-201 visible jumps a minute of a running puppet before, 1.5-4.5 after).
-Coop.INTERP_MIN = 0.07     -- seconds
+Coop.INTERP_MIN = 0.1      -- seconds (two states of the sender at 20 Hz)
 Coop.INTERP_MAX = 0.25
 Coop.EXTRAP_MAX = 0.2      -- seconds a body keeps moving on its last velocity when states stop
 Coop.owners = {}           -- char name -> peer id (0 = host)
@@ -640,11 +641,14 @@ function Coop.mxPacket(kind, iv, jit)
 end
 
 -- x, z: where the thing was drawn this frame; speed: how fast the sender moves it (units/s).
-function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz, tx, tz)
+function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz, tx, tz, under)
   local m = Coop.mxOf(kind)
   local l = m.last[key]
-  m.last[key] = {x = x, z = z, t = now, tx = tx, tz = tz}
+  local nl = {x = x, z = z, t = now, tx = tx, tz = tz}
+  m.last[key] = nl
   if not l then return end
+  -- frames drawn on a guess (the newest state is older than the drawn time: extrapolation)
+  if under and speed and speed > 150 then m.und = (m.und or 0) + 1 end
   -- the interpolated target itself: frames in which it did not move although the sender does
   if tx and l.tx and speed and speed > 150 then
     m.tfr = (m.tfr or 0) + 1
@@ -660,11 +664,105 @@ function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz, tx, tz)
   end
   if speed and speed > 150 then
     local disp = math.sqrt((x - l.x) ^ 2 + (z - l.z) ^ 2)
+    -- a jump of a body (teleport, snap) is not a step: counted apart, out of the speed statistics
+    if disp > 200 then
+      m.jumps = (m.jumps or 0) + 1
+      return
+    end
     local v = disp / dt
+    -- irregularity: how far a frame's speed is from the mean of its neighbours' (0 = even; a
+    -- stop-and-go or a double step shows, a real change of pace barely does); three drawn frames in a row on the move
+    nl.v1, nl.v2 = v, l.v1
+    if l.v1 and l.v2 and v > 100 and l.v1 > 100 and l.v2 > 100 then
+      m.irS, m.irV, m.irN = (m.irS or 0) + math.abs(l.v1 - (l.v2 + v) / 2), (m.irV or 0) + l.v1, (m.irN or 0) + 1
+    end
     m.mv = m.mv + 1
     m.vS, m.vSS = m.vS + v, m.vSS + v * v
     if disp < 0.5 then m.stall = m.stall + 1 end
     if v > 2 * speed + 150 then m.spike = m.spike + 1 end
+  end
+end
+
+-- One frame of a remote thing (squad body, enemy): its speed on the sender's side is read from the
+-- history; returns that speed.
+function Coop.mxPuppet(kind, name, pos, now, tg, wx, wz)
+  local h = Coop.hist[name]
+  local sp = 0
+  if h and h.n > 1 and h[h.n].rt > h[h.n - 1].rt then
+    local a, b = h[h.n - 1], h[h.n]
+    sp = math.sqrt((b.x - a.x) ^ 2 + (b.z - a.z) ^ 2) / (b.rt - a.rt)
+  end
+  Coop.mxFrame(kind, name, pos.x, pos.z, now, sp, wx, wz, tg and tg.x, tg and tg.z, h and h.under)
+  return sp
+end
+
+-- Dev trace (cfg.mxtrace = "Jones" or "enemy"): every frame of one remote body, as one log line per 30 frames:
+-- time, place before this frame's write (what the engine left), written place, interpolated target, under.
+function Coop.mxTrace(name, now, pos, wx, wz, tg)
+  local want = cfg.mxtrace
+  if not want then return end
+  local key
+  if Coop.SQUAD_SET[name] then
+    key = string.find("," .. want .. ",", "," .. name .. ",", 1, true) and name
+  else
+    key = string.find("," .. want .. ",", ",enemy,", 1, true) and "enemy"
+  end
+  if not key then return end
+  Coop.mxTr = Coop.mxTr or {}
+  local tr = Coop.mxTr[key]
+  if not tr then
+    tr = {n = 0}
+    Coop.mxTr[key] = tr
+  end
+  if tr.name == nil then tr.name = name elseif tr.name ~= name then return end
+  local h = Coop.hist[name]
+  tr.n = tr.n + 1
+  tr[tr.n] = string.format("%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%.3f", now, pos.x, pos.z, wx or pos.x, wz or pos.z,
+    tg and tg.x or 0, tg and tg.z or 0, h and h.under and 1 or 0, h and h.dbgRR or 0)
+  if tr.n >= 30 then
+    Coop.log("mxt " .. name .. " " .. table.concat(tr, " "))
+    Coop.mxTr[key] = nil
+  end
+end
+
+-- Dev trace on the sending machine (cfg.mxsrc = "Delgado,Enemy259"): where the named bodies really are, every frame, as
+-- "mxs <name> t,x,z,y,action ..." (30 frames per line): the truth the client's trace is compared with (lab/mxt.py).
+function Coop.mxSource(now)
+  local names = cfg.mxsrc
+  if not names then return end
+  Coop.mxSrcBuf = Coop.mxSrcBuf or {}
+  for name in string.gmatch(names, "[^,]+") do
+    local e = Game.GetEntity(name)
+    if e then
+      local ok, p = pcall(function() return e.Pos end)
+      if ok and p then
+        local b = Coop.mxSrcBuf[name]
+        if not b then
+          b = {n = 0}
+          Coop.mxSrcBuf[name] = b
+        end
+        b.n = b.n + 1
+        b[b.n] = string.format("%.3f,%.1f,%.1f,%.1f,%s", now, p.x, p.z, p.y, tostring(e.Action))
+        if b.n >= 30 then
+          Coop.log("mxs " .. name .. " " .. table.concat(b, " "))
+          Coop.mxSrcBuf[name] = nil
+        end
+      end
+    end
+  end
+end
+
+-- The enemies' drawn places after the client placed them this frame (coop_enemies.lua driveEnemies).
+function Coop.mxEnemies(now)
+  if cfg.mxenemy == false then return end
+  for name, st in pairs(CoopEnemies.targets) do
+    local h = Coop.hist[name]
+    local e = h and Game.GetEntity(name)
+    if e and e.Life > 0 then
+      local pos = e.Pos
+      Coop.mxPuppet("enemy", name, pos, now, nil, nil, nil)
+      Coop.mxTrace(name, now, pos, pos.x, pos.z, nil)
+    end
   end
 end
 
@@ -677,9 +775,10 @@ function Coop.mxReport()
       local sd = math.sqrt(math.max(m.ivSS / n - mean * mean, 0))
       local vm = m.mv > 0 and m.vS / m.mv or 0
       local vsd = m.mv > 0 and math.sqrt(math.max(m.vSS / m.mv - vm * vm, 0)) or 0
-      out[#out + 1] = string.format("pm:%s pk=%d iv=%.0f/%.0f/%.0fms late=%d jit=%.0f/%.0fms fr=%d mv=%d stall=%d spike=%d cv=%.2f snaps=%d eng=%.1f/%.0f/%d tstall=%d/%d",
+      out[#out + 1] = string.format("pm:%s pk=%d iv=%.0f/%.0f/%.0fms late=%d jit=%.0f/%.0fms fr=%d mv=%d stall=%d spike=%d cv=%.2f snaps=%d eng=%.1f/%.0f/%d tstall=%d/%d und=%d irr=%.3f/%d jumps=%d",
         kind, m.pk, mean * 1000, sd * 1000, m.ivMax * 1000, m.late, m.jS / math.max(m.pk, 1) * 1000, m.jMax * 1000,
-        m.fr, m.mv, m.stall, m.spike, vm > 0 and vsd / vm or 0, m.snaps, (m.eN or 0) > 0 and m.eS / m.eN or 0, m.eMax or 0, m.eN or 0, m.tstall or 0, m.tfr or 0)
+        m.fr, m.mv, m.stall, m.spike, vm > 0 and vsd / vm or 0, m.snaps, (m.eN or 0) > 0 and m.eS / m.eN or 0, m.eMax or 0, m.eN or 0, m.tstall or 0, m.tfr or 0,
+        m.und or 0, (m.irN or 0) > 0 and m.irS / math.max(m.irV, 1e-3) or 0, m.irN or 0, m.jumps or 0)
       Coop.mx[kind] = nil
       Coop.mxOf(kind).last = m.last
     end
@@ -714,7 +813,7 @@ function Coop.pushState(name, st, interval)
   local off = now - st.rt
   if not h.off or off < h.off then h.off = off else h.off = h.off + 0.001 end
   h.jit = h.jit * 0.9 + (off - h.off) * 0.1
-  if h.n > 0 and not st.noMetric then Coop.mxPacket(st.mxKind or "squad", now - h[h.n].t, off - h.off) end
+  if h.n > 0 and not st.noMetric then Coop.mxPacket(st.mxKind or (Coop.SQUAD_SET[name] and "squad" or "enemy"), now - h[h.n].t, off - h.off) end
   -- Receive interval and its deviation (slow averages): the interpolation delay of "adaptive" mode.
   if h.n > 0 then
     local iv = now - h[h.n].t
@@ -735,12 +834,91 @@ local function lerpAngle(a, b, u)
   return a + ((b - a + 180) % 360 - 180) * u
 end
 
--- Where a body should be drawn now: interpolated between the two states around
--- (now - delay) on the sender's clock, or carried on its last velocity for a short while.
-function Coop.puppetTarget(name, now)
-  local h = Coop.hist[name]
-  if not h or h.n == 0 then return nil end
-  local delay = math.max(Coop.INTERP_MIN, math.min(Coop.INTERP_MAX, h.interval * 1.4 + 2 * h.jit))
+Coop.TELEPORT = 500   -- units between two states of a body that are a jump (teleport, level script), not a walk
+local function jumped(a, b)
+  local dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
+  return dx * dx + dy * dy + dz * dz > Coop.TELEPORT * Coop.TELEPORT
+end
+
+-- Cubic Hermite between two states (values p0, p1, slopes m0, m1 in units per second, dt seconds apart).
+local function hermite(p0, p1, m0, m1, dt, u)
+  local u2 = u * u
+  local u3 = u2 * u
+  return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * dt * m0 + (3 * u2 - 2 * u3) * p1 + (u3 - u2) * dt * m1
+end
+
+-- The slope of a state's path in one axis from its neighbours (either may be missing): the weighted
+-- mean of the slopes to both, zero where the path turns round (no overshoot at a stop or a reversal).
+local function tangent(prev, cur, nxt, key)
+  if prev and jumped(prev, cur) then prev = nil end   -- (a jump is not part of the path)
+  if nxt and jumped(cur, nxt) then nxt = nil end
+  local cl = prev and cur.rt > prev.rt and (cur[key] - prev[key]) / (cur.rt - prev.rt)
+  local cr = nxt and nxt.rt > cur.rt and (nxt[key] - cur[key]) / (nxt.rt - cur.rt)
+  if cl and cr then
+    if cl * cr <= 0 then return 0 end
+    local hl, hr = cur.rt - prev.rt, nxt.rt - cur.rt
+    return (hr * cl + hl * cr) / (hl + hr)
+  end
+  return cl or cr or 0
+end
+
+-- The place on a body's path at sender time rr: between the two states around it (a cubic through the states, or
+-- straight), carried on the last velocity for a short while when the states stop. Returns the place, whether it is
+-- carried on (under) and the state whose inputs and action apply.
+local function pathAt(h, rr)
+  local a, b = h[1], h[h.n]
+  if rr <= a.rt then
+    return {x = a.x, y = a.y, z = a.z, yaw = a.yaw, pitch = a.pitch or 0, st = a}, false
+  end
+  if rr >= b.rt then
+    local p = h.n > 1 and h[h.n - 1]
+    local ext = math.min(rr - b.rt, Coop.EXTRAP_MAX)
+    if not p or b.rt - p.rt <= 0 or ext <= 0 or jumped(p, b) then
+      return {x = b.x, y = b.y, z = b.z, yaw = b.yaw, pitch = b.pitch or 0, st = b}, true
+    end
+    local k = ext / (b.rt - p.rt)
+    return {x = b.x + (b.x - p.x) * k, y = b.y, z = b.z + (b.z - p.z) * k,
+            yaw = b.yaw, pitch = b.pitch or 0, st = b}, true
+  end
+  local i = h.n - 1
+  while i > 1 and h[i].rt > rr do i = i - 1 end
+  a, b = h[i], h[i + 1]
+  local u = (rr - a.rt) / math.max(b.rt - a.rt, 1e-3)
+  local x, y, z
+  if jumped(a, b) then
+    -- a jump between two states: no path through it, the body is at one end or the other
+    local c = u < 0.5 and a or b
+    return {x = c.x, y = c.y, z = c.z, yaw = c.yaw, pitch = c.pitch or 0, st = c}, false
+  elseif Coop.cfg.hermite == false then
+    x, y, z = a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u
+  else
+    -- a smooth path through the states (a cubic with the neighbours' slopes): the straight pieces had
+    -- a different speed in each, a step of speed every 0.05 s on a turn or a change of pace
+    local p, n = h[i - 1], h[i + 2]
+    local dt = math.max(b.rt - a.rt, 1e-3)
+    x = hermite(a.x, b.x, tangent(p, a, b, "x"), tangent(a, b, n, "x"), dt, u)
+    y = hermite(a.y, b.y, tangent(p, a, b, "y"), tangent(a, b, n, "y"), dt, u)
+    z = hermite(a.z, b.z, tangent(p, a, b, "z"), tangent(a, b, n, "z"), dt, u)
+  end
+  return {
+    x = x, y = y, z = z,
+    yaw = lerpAngle(a.yaw, b.yaw, u), pitch = (a.pitch or 0) + ((b.pitch or 0) - (a.pitch or 0)) * u,
+    st = u < 0.5 and a or b,
+  }, false
+end
+
+-- How far behind the sender a body is drawn: two states of the sender's rate plus what the network and the frame
+-- rate add (the measured lateness of states over the earliest one seen). cfg.olddelay: 0.07 s + twice the lateness.
+Coop.DELAY_PACKETS = 2
+function Coop.puppetDelay(h)
+  local delay
+  if Coop.cfg.olddelay then
+    delay = math.max(0.07, math.min(Coop.INTERP_MAX, h.interval * 1.4 + 2 * h.jit))
+  else
+    delay = math.max(Coop.INTERP_MIN, math.min(Coop.INTERP_MAX, Coop.DELAY_PACKETS * h.interval + 3 * h.jit))
+  end
+  local w = Coop.cfg.psmooth or Coop.SMOOTH_W
+  if w > 0 then delay = delay + w / 2 end   -- the averaging window reaches that far ahead
   if Coop.cfg.adaptdelay and h.ivMean then
     -- two packets at least, more as the packets come late or unevenly; it moves slowly (a change of
     -- the delay moves the drawn place, so it may not move faster than 0.05 s per second)
@@ -751,31 +929,37 @@ function Coop.puppetTarget(name, now)
     h.delay, h.delayT = cur, t
     delay = cur
   end
+  return delay
+end
+
+-- Where a body should be drawn now: its path (pathAt) at the sender's clock now minus the delay, averaged over
+-- Coop.SMOOTH_W seconds around that time. The bodies' own places come from the sender's game at its own pace
+-- (the engine moves bodies in steps of its own, a run's stride makes the speed pulse); sampled at 20 Hz these alias
+-- into a stop-and-go; the average over a window as long as two states takes the ripple out.
+Coop.SMOOTH_W = 0.1
+function Coop.puppetTarget(name, now)
+  local h = Coop.hist[name]
+  if not h or h.n == 0 then return nil end
+  local delay = Coop.puppetDelay(h)
   local rr = now - h.off - delay
   h.dbgRR, h.dbgDelay = rr, delay
-  local a, b = h[1], h[h.n]
-  if rr <= a.rt then
-    return {x = a.x, y = a.y, z = a.z, yaw = a.yaw, pitch = a.pitch or 0, st = a}
-  end
-  if rr >= b.rt then
-    local p = h.n > 1 and h[h.n - 1]
-    local ext = math.min(rr - b.rt, Coop.EXTRAP_MAX)
-    if not p or b.rt - p.rt <= 0 or ext <= 0 then
-      return {x = b.x, y = b.y, z = b.z, yaw = b.yaw, pitch = b.pitch or 0, st = b}
+  local tg, under = pathAt(h, rr)
+  h.under = under
+  local w = Coop.cfg.psmooth or Coop.SMOOTH_W
+  if w > 0 and h.n > 1 then
+    -- five places over the window (a trapezoid: the ends count half), summed as differences from the middle one
+    local dx, dy, dz = 0, 0, 0
+    for k = 0, 4 do
+      if k ~= 2 then
+        local q = pathAt(h, rr + w * (k / 4 - 0.5))
+        if jumped(q, tg) then return tg end   -- a teleport inside the window: no average over it
+        local wt = (k == 0 or k == 4) and 0.5 or 1
+        dx, dy, dz = dx + (q.x - tg.x) * wt, dy + (q.y - tg.y) * wt, dz + (q.z - tg.z) * wt
+      end
     end
-    local k = ext / (b.rt - p.rt)
-    return {x = b.x + (b.x - p.x) * k, y = b.y, z = b.z + (b.z - p.z) * k,
-            yaw = b.yaw, pitch = b.pitch or 0, st = b}
+    tg.x, tg.y, tg.z = tg.x + dx / 4, tg.y + dy / 4, tg.z + dz / 4
   end
-  local i = h.n - 1
-  while i > 1 and h[i].rt > rr do i = i - 1 end
-  a, b = h[i], h[i + 1]
-  local u = (rr - a.rt) / math.max(b.rt - a.rt, 1e-3)
-  return {
-    x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, z = a.z + (b.z - a.z) * u,
-    yaw = lerpAngle(a.yaw, b.yaw, u), pitch = (a.pitch or 0) + ((b.pitch or 0) - (a.pitch or 0)) * u,
-    st = u < 0.5 and a or b,
-  }
+  return tg
 end
 
 -- A puppet takes the weapon slot its owner holds (oWeapCtrl.iDesiredSlot, the way the
@@ -1095,7 +1279,8 @@ function Coop.drivePuppets(dt)
   if Scene and Scene.IsPlaying then return end
   pcall(Coop.pdStuck, Net.CoopTime())
   -- FOLLOW is the share of the error removed per 0.05 s; scale it to this frame's length.
-  local follow = 1 - (1 - (Coop.cfg.pfollow or Coop.FOLLOW)) ^ (math.min(dt, 0.25) / 0.05)
+  local fshare = Coop.cfg.pfollow or Coop.FOLLOW
+  local follow = fshare >= 1 and 1 or 1 - (1 - fshare) ^ (math.min(dt, 0.25) / 0.05)
   local now = Net.CoopTime()
   local localKeys = Coop.keepLocalRootMotion()
   Coop.puppetNoCollide = Coop.puppetNoCollide or {}
@@ -1133,12 +1318,7 @@ function Coop.drivePuppets(dt)
         local err = math.sqrt(dx * dx + dz * dz)
         do
           local h = Coop.hist[name]
-          local sp = 0
-          if h and h.n > 1 and h[h.n].rt > h[h.n - 1].rt then
-            local a, b = h[h.n - 1], h[h.n]
-            sp = math.sqrt((b.x - a.x) ^ 2 + (b.z - a.z) ^ 2) / (b.rt - a.rt)
-          end
-          Coop.mxFrame("squad", name, pos.x, pos.z, now, sp, d.wx, d.wz, tg.x, tg.z)
+          local sp = Coop.mxPuppet("squad", name, pos, now, tg, d.wx, d.wz)
           if cfg.mxdump and sp > 150 then
             Coop.mxRing = Coop.mxRing or {}
             Coop.mxRing[#Coop.mxRing + 1] = string.format("%.3f rr%.3f d%.3f n%d new%.3f t%.0f p%.0f", now, (h.dbgRR or 0) % 1000, h.dbgDelay or 0, h.n, h[h.n].rt % 1000, tg.x, pos.x)
@@ -1169,6 +1349,7 @@ function Coop.drivePuppets(dt)
         end
         e.Pos = V3D(wx, wy, wz)
         d.wx, d.wy, d.wz, d.wt = wx, wy, wz, now
+        if cfg.mxtrace then Coop.mxTrace(name, now, pos, wx, wz, tg) end
         Coop.notePos(name, "drivePuppets")
         -- The engine's walker takes a body whose height is not on its own floor (the owner jumps,
         -- stands on a stair or a prop, or the floor differs here) for falling and lets it fall at
@@ -1192,10 +1373,13 @@ function Coop.drivePuppets(dt)
         e.ViewAng = V3D(tg.pitch, tg.yaw, 0)
         -- Firing through the body's own control makes the engine play the shot (sound,
         -- flash, animation); damage from puppet shots is dropped in coop_enemies.lua.
-        -- Shots use the newest state (no added delay), movement inputs the drawn one.
-        if e.owc then e.owc.Shot = st.shot or 0 end
-        Coop.syncSlot(e, st.slot)
-        Coop.mirrorArms(e, name, st)
+        -- Shots, the weapon in hand and the arms' actions come from the state drawn now, as the movement does:
+        -- from the newest one they ran ahead of the body by the interpolation delay (0.1-0.2 s: the flash and
+        -- the tracer left a body that had not turned yet). cfg.shotnewest: the old way.
+        local sst = cfg.shotnewest and st or tg.st
+        if e.owc then e.owc.Shot = sst.shot or 0 end
+        Coop.syncSlot(e, sst.slot)
+        Coop.mirrorArms(e, name, sst)
         e.InCtrl_Walk = tg.st.walk
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
@@ -1859,7 +2043,11 @@ function Coop.frameUpdate(now, dt)
     end
   end
   if Coop.inSession() then
+    -- Messages are taken every frame once the level's first ticks have run: the states of other bodies were
+    -- handled only at the 20 Hz tick, so they reached the interpolation up to a tick late and in bursts.
+    if cfg.fastpump ~= false and Coop.frame >= 40 and Coop.level ~= "levels/menu" then Coop.pump() end
     Coop.drivePuppets(dt)
+    if cfg.mxsrc and Coop.isHost() then pcall(Coop.mxSource, now) end
     if CoopPowers then
       local okp, errp = pcall(CoopPowers.frame, now)
       if not okp and (Coop.powerErrors or 0) < 5 then
@@ -1880,7 +2068,10 @@ function Coop.frameUpdate(now, dt)
       Coop.log("hud error: " .. tostring(err))
     end
   end
-  if CoopEnemies and CoopEnemies.installed and Coop.isClient() then CoopEnemies.driveEnemies(dt) end
+  if CoopEnemies and CoopEnemies.installed and Coop.isClient() then
+    CoopEnemies.driveEnemies(dt)
+    pcall(Coop.mxEnemies, now)
+  end
   if CoopSpirit and CoopSpirit.active then pcall(CoopSpirit.frame, dt) end
   if CoopSpectate and CoopSpectate.active then pcall(CoopSpectate.frame, dt) end
   if CoopEnemies and CoopEnemies.installed and Scene then CoopEnemies.updateSceneLabel() end
