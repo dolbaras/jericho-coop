@@ -407,6 +407,8 @@ function T.update()
   if Coop.frame % 30 == 0 then T.recheckWait() end
   T.installTime()
   T.updateCompensation()
-  T.watchPartner()
+  -- (the third-person spectator camera of coop_spectate.lua; the old MainCam targets stay for split screen)
+  local spectating = CoopSpectate and CoopSpectate.update and CoopSpectate.update()
+  if not spectating then T.watchPartner() end
   if Coop.frame % 20 == 0 then T.checkWipe(); T.helpRawlings() end
 end

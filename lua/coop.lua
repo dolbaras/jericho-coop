@@ -1845,6 +1845,7 @@ function Coop.frameUpdate(now, dt)
   end
   if CoopEnemies and CoopEnemies.installed and Coop.isClient() then CoopEnemies.driveEnemies(dt) end
   if CoopSpirit and CoopSpirit.active then pcall(CoopSpirit.frame, dt) end
+  if CoopSpectate and CoopSpectate.active then pcall(CoopSpectate.frame, dt) end
   if CoopEnemies and CoopEnemies.installed and Scene then CoopEnemies.updateSceneLabel() end
   if CoopScenes and Coop.inSession() then
     CoopScenes.install()
@@ -2542,6 +2543,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("anim load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_ctl.lua")
   if not ok then Coop.log("ctl load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_spectate.lua")
+  if not ok then Coop.log("spectate load error: " .. tostring(err)) end
   if cfg.storyline then
     ok, err = pcall(dofile, COOP_DIR .. "coop_storysolo.lua")
     if not ok then Coop.log("story solo load error: " .. tostring(err)) end

@@ -124,6 +124,8 @@ end
 function H.wants(name, user)
   local split = CoopSplit and CoopSplit.on
   if user == 0 and name == Coop.localChar() then return false end
+  -- (the player being watched by a downed one: the nickname is the spectator's caption)
+  if user == 0 and CoopSpectate and CoopSpectate.watched(name) then return false end
   if user == 1 and split and name == CoopSplit.char then return false end
   if Coop.isRemoteOwned(name) then return true end
   if not split then return false end

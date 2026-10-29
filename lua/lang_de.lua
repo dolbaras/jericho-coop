@@ -97,6 +97,11 @@ return {
   ["CoopSession.TEXT"] = {
     host_left = "Der Host hat die Sitzung verlassen. Zurück zum Hauptmenü...",
   },
+  ["CoopSpectate.TEXT"] = {
+    multi = "A / D oder linker Stick: anderer Spieler.  Maus oder rechter Stick: umsehen.",
+    one = "Maus oder rechter Stick: umsehen.",
+    watch = "Sie beobachten: %s",
+  },
   ["CoopSpirit.TEXT"] = {
     hint = "GEIST:  F - Feind markieren,  E - freien Körper übernehmen",
     none = "kein freier Körper",
