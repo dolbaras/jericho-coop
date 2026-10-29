@@ -14,6 +14,17 @@
 --   claim|<char>                            client -> host, reliable (player switched)
 --   s|<char>|x|y|z|yaw|pitch|walk|str|sprint|life|action|shot   state, unreliable
 
+-- Time in small numbers. Direct3D 9 leaves the x87 unit at single precision, so every Lua sum is
+-- rounded to 24 bits of its own size: Net.CoopTime() is the machine's uptime (2.5e5 s on the main
+-- PC, 9e5 s on the N100) and "now - offset - delay" came out in steps of 1/16 s (lab 2026-10-29:
+-- the interpolation target stood still every other frame, 47 % of the frames of a running puppet).
+-- Seconds since this game process first loaded the mod keep the sums in the millisecond range.
+if not Net.CoopTimeRaw then
+  Net.CoopTimeRaw = Net.CoopTime
+  Net.CoopT0 = Net.CoopTime()
+end
+Net.CoopTime = function() return Net.CoopTimeRaw() - Net.CoopT0 end
+
 Coop = {}
 Coop.VERSION = "0.2.7"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
@@ -629,11 +640,16 @@ function Coop.mxPacket(kind, iv, jit)
 end
 
 -- x, z: where the thing was drawn this frame; speed: how fast the sender moves it (units/s).
-function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz)
+function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz, tx, tz)
   local m = Coop.mxOf(kind)
   local l = m.last[key]
-  m.last[key] = {x = x, z = z, t = now}
+  m.last[key] = {x = x, z = z, t = now, tx = tx, tz = tz}
   if not l then return end
+  -- the interpolated target itself: frames in which it did not move although the sender does
+  if tx and l.tx and speed and speed > 150 then
+    m.tfr = (m.tfr or 0) + 1
+    if math.sqrt((tx - l.tx) ^ 2 + (tz - l.tz) ^ 2) < 0.5 then m.tstall = (m.tstall or 0) + 1 end
+  end
   local dt = now - l.t
   if dt <= 0 or dt > 0.5 then return end
   m.fr = m.fr + 1
@@ -661,9 +677,9 @@ function Coop.mxReport()
       local sd = math.sqrt(math.max(m.ivSS / n - mean * mean, 0))
       local vm = m.mv > 0 and m.vS / m.mv or 0
       local vsd = m.mv > 0 and math.sqrt(math.max(m.vSS / m.mv - vm * vm, 0)) or 0
-      out[#out + 1] = string.format("pm:%s pk=%d iv=%.0f/%.0f/%.0fms late=%d jit=%.0f/%.0fms fr=%d mv=%d stall=%d spike=%d cv=%.2f snaps=%d eng=%.1f/%.0f/%d",
+      out[#out + 1] = string.format("pm:%s pk=%d iv=%.0f/%.0f/%.0fms late=%d jit=%.0f/%.0fms fr=%d mv=%d stall=%d spike=%d cv=%.2f snaps=%d eng=%.1f/%.0f/%d tstall=%d/%d",
         kind, m.pk, mean * 1000, sd * 1000, m.ivMax * 1000, m.late, m.jS / math.max(m.pk, 1) * 1000, m.jMax * 1000,
-        m.fr, m.mv, m.stall, m.spike, vm > 0 and vsd / vm or 0, m.snaps, (m.eN or 0) > 0 and m.eS / m.eN or 0, m.eMax or 0, m.eN or 0)
+        m.fr, m.mv, m.stall, m.spike, vm > 0 and vsd / vm or 0, m.snaps, (m.eN or 0) > 0 and m.eS / m.eN or 0, m.eMax or 0, m.eN or 0, m.tstall or 0, m.tfr or 0)
       Coop.mx[kind] = nil
       Coop.mxOf(kind).last = m.last
     end
@@ -736,6 +752,7 @@ function Coop.puppetTarget(name, now)
     delay = cur
   end
   local rr = now - h.off - delay
+  h.dbgRR, h.dbgDelay = rr, delay
   local a, b = h[1], h[h.n]
   if rr <= a.rt then
     return {x = a.x, y = a.y, z = a.z, yaw = a.yaw, pitch = a.pitch or 0, st = a}
@@ -1121,7 +1138,22 @@ function Coop.drivePuppets(dt)
             local a, b = h[h.n - 1], h[h.n]
             sp = math.sqrt((b.x - a.x) ^ 2 + (b.z - a.z) ^ 2) / (b.rt - a.rt)
           end
-          Coop.mxFrame("squad", name, pos.x, pos.z, now, sp, d.wx, d.wz)
+          Coop.mxFrame("squad", name, pos.x, pos.z, now, sp, d.wx, d.wz, tg.x, tg.z)
+          if cfg.mxdump and sp > 150 then
+            Coop.mxRing = Coop.mxRing or {}
+            Coop.mxRing[#Coop.mxRing + 1] = string.format("%.3f rr%.3f d%.3f n%d new%.3f t%.0f p%.0f", now, (h.dbgRR or 0) % 1000, h.dbgDelay or 0, h.n, h[h.n].rt % 1000, tg.x, pos.x)
+            if #Coop.mxRing > 14 then table.remove(Coop.mxRing, 1) end
+          end
+          if cfg.mxdump and sp > 150 and (Coop.mxDumpT or 0) < now - 5 then
+            Coop.log("mxframes " .. table.concat(Coop.mxRing or {}, " | "))
+            -- (the newest states and what the target did: to see where a stop-and-go comes from)
+            Coop.mxDumpT = now
+            local t = {}
+            for i = math.max(1, h.n - 9), h.n do t[#t + 1] = string.format("%.3f:%.0f,%.0f", h[i].rt, h[i].x, h[i].z) end
+            Coop.log(string.format("mxdump %s now=%.3f off=%.3f delay~%.3f target=%.0f,%.0f states %s", name, now, h.off or 0,
+              h.delay or (Coop.cfg.adaptdelay and 0 or math.max(Coop.INTERP_MIN, math.min(Coop.INTERP_MAX, h.interval * 1.4 + 2 * h.jit))),
+              tg.x, tg.z, table.concat(t, " ")))
+          end
         end
         local wx, wy, wz
         if err > Coop.SNAP_DIST or math.abs(dy) > Coop.SNAP_DIST then
@@ -1145,9 +1177,14 @@ function Coop.drivePuppets(dt)
         -- sunk into the map). The height is the owner's, so the fall is cancelled every frame.
         if cfg.puppetfall ~= false then
           local ok, v = pcall(function() return e.Vel end)
-          -- (zerovel: also the horizontal part: the engine's own walking on top of the placement)
-          if ok and v and (cfg.zerovel or v.y < -20 or v.y > 20) then
-            pcall(function() e.Vel = cfg.zerovel and V3D(0, 0, 0) or V3D(v.x, 0, v.z) end)
+          -- The horizontal part too: the engine walks the body from its inputs on top of the placement
+          -- (lab 2026-10-29: 34 units per frame after each placement, 3 times what the owner moves,
+          -- so the drawn body went forward and was put back every frame: 31 % of the frames with a
+          -- step above twice the owner's speed, speed variation cv 0.98; with the velocity zeroed
+          -- the engine's step is 1.3 units, no such frames, cv 0.27). cfg.zerovel=false: vertical only.
+          local zeroH = cfg.zerovel ~= false
+          if ok and v and (zeroH or v.y < -20 or v.y > 20) then
+            pcall(function() e.Vel = zeroH and V3D(0, 0, 0) or V3D(v.x, 0, v.z) end)
             d.velFixed = (d.velFixed or 0) + 1
           end
         end
@@ -2543,6 +2580,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("anim load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_ctl.lua")
   if not ok then Coop.log("ctl load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_choice.lua")
+  if not ok then Coop.log("choice load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_spectate.lua")
   if not ok then Coop.log("spectate load error: " .. tostring(err)) end
   if cfg.storyline then
@@ -2568,8 +2607,6 @@ if CoopSave and Coop.inSession() and Coop.level ~= "levels/menu" then CoopSave.b
 Coop.log("coop.lua loaded level=" .. Coop.level .. " role=" .. tostring(cfg.role) .. " " .. status)
 
 function Coop.menuLoad()
-  ok, err = pcall(dofile, COOP_DIR .. "coop_choice.lua")
-  if not ok then Coop.log("choice load error: " .. tostring(err)) end
   cfg.loaded = true
   -- Tests: start the level at a given spawn point (checkpoint).
   if cfg.dev and cfg.prespawn then

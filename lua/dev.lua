@@ -3173,3 +3173,79 @@ if cfg.bitchcycle and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'bosswake' = {'Nanna', 'Utu'} (host and client, any level with those enemies): bosses seen on the
+-- client. The host wakes each (AI off) in front of the first body another player holds at tick 300,
+-- 600 units apart; both sides log every 100 ticks per boss: exists, awake, action, life, place,
+-- faded state, the engine's own visibility flag and whether the place projects on the screen. The
+-- client faces the first boss at tick 350 and saves a clip at tick 900 (labossbatch.sh).
+if cfg.bosswake and Coop.level ~= "levels/menu" then
+  local prevBw = Coop.dev
+  local function remoteBody()
+    for name in pairs(Coop.owners or {}) do
+      if Coop.isRemoteOwned(name) then
+        local b = Game.GetEntity(name)
+        if b then return b end
+      end
+    end
+  end
+  local function line(e)
+    if not e then return "missing" end
+    local vis, scr = "?", "?"
+    pcall(function() vis = tostring(e.bObjectVisible) end)
+    pcall(function()
+      local x, y, z = Scorer.Get2DPos(e.Pos)
+      scr = string.format("%s,%s,%s", tostring(x and math.floor(x)), tostring(y and math.floor(y)), tostring(z))
+    end)
+    local ce = CoopEnemies
+    return string.format("act=%s awake=%s life=%.0f pos=%.0f,%.0f,%.0f faded=%s vis=%s screen=%s", tostring(e.Action),
+      tostring(e.bActive), e.Life or -1, e.Pos.x, e.Pos.y, e.Pos.z,
+      tostring(Coop.isHost() and ce.faded[e.Name] or ce.fadeSet[e.Name]), vis, scr)
+  end
+  function Coop.dev()
+    if prevBw then prevBw() end
+    local f = Coop.frame
+    if Coop.isHost() and f == 300 then
+      local body = remoteBody()
+      if body then
+        local y = math.rad(body.Ang.y)
+        local fwd = V3D(-math.sin(y), 0, -math.cos(y))
+        for i, name in ipairs(cfg.bosswake) do
+          local e = Game.GetEntity(name)
+          if e then
+            e.bActive = true
+            e.Pos = body.Pos + fwd * (500 + 600 * (i - 1))
+            pcall(Game.SetOnFloor, name)
+            Coop.log("bosswake: woke " .. name .. " (" .. tostring(e.ActCtrl) .. ") in front of " .. body.Name)
+          else
+            Coop.log("bosswake: no entity " .. name)
+          end
+        end
+      end
+    end
+    if Coop.isHost() and f > 300 and not cfg.bosswakeai then   -- (bosswakeai: they fight)
+      for _, name in ipairs(cfg.bosswake) do
+        local e = Game.GetEntity(name)
+        if e and e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+      end
+    end
+    if Coop.isClient() and f == 350 then
+      local usr, e = Game.UsrEntity(0), Game.GetEntity(cfg.bosswake[1])
+      if usr and e then
+        local d = e.Pos - usr.Pos
+        usr.IgnoreUsrControl = 1
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(5, usr.Ang.y, 0)
+      end
+    end
+    if f >= 300 and f % 100 == 0 then
+      for _, name in ipairs(cfg.bosswake) do
+        Coop.log(string.format("bosswake %s %s: %s", cfg.role, name, line(Game.GetEntity(name))))
+      end
+    end
+    if Coop.isClient() and f == 900 then
+      local ok, path = pcall(Net.CoopClip, "save")
+      Coop.log("bosswake clip: " .. tostring(ok) .. " " .. tostring(path))
+    end
+  end
+end

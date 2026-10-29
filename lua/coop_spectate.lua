@@ -19,6 +19,7 @@ CoopSpectate = {}
 local S = CoopSpectate
 S.CAM = "CoopSpecCam"
 S.DIST = 230            -- camera distance behind the shoulder
+S.BODY_HIDE = 110       -- the watched body is hidden while the camera is nearer than this
 S.CLOSEST = 85         -- the nearest the view comes to the body in a tight spot (outside its radius of 50)
 S.BACK_GAP = 25         -- kept off a wall by this much
 S.CHEST = 150           -- the point looked at: units above the body's origin
@@ -104,6 +105,7 @@ end
 function S.select(name, why)
   if S.target == name then return end
   local from = S.target
+  if from then S.hideBody(nil) end
   S.target = name
   S.lookT = nil
   local e = Game.GetEntity(name)
@@ -153,10 +155,22 @@ function S.leave(why)
     if it then it.Visible = 1 end
   end
   S.hidden = nil
+  S.hideBody(nil)
   Coop.textBlockHide("CoopSpectate")
   Coop.textBlockHide("CoopSpectateHint")
   S.target = nil
   Coop.log("spectate: camera off (" .. tostring(why) .. ")")
+end
+
+-- The watched body is hidden while the camera is inside its reach (nil: show it again).
+function S.hideBody(e)
+  local old = S.bodyHidden and Game.GetEntity(S.bodyHidden)
+  if old and (not e or old.Name ~= e.Name) then old.bObjectVisible = true end
+  S.bodyHidden = nil
+  if e then
+    e.bObjectVisible = false
+    S.bodyHidden = e.Name
+  end
 end
 
 -- Every frame: place the camera.
@@ -206,6 +220,10 @@ function S.frame(dt)
   -- Out of walls: the ray from the body to the camera stops short of what it hits.
   local pos = S.pos
   local ok, hit = pcall(Game.TestLine, S.anchor, pos, "")
+  if not (ok and hit) then
+    -- (a surface seen only from outside does not stop a ray leaving a wall's volume: the way back does)
+    ok, hit = pcall(Game.TestLine, pos, S.anchor, "")
+  end
   if ok and hit then
     local d = sub(S.anchor, hit)
     local dl = len(d)
@@ -232,6 +250,10 @@ function S.frame(dt)
     end
   end
   cam.Pos = pos
+  -- Closer than the body's width plus the near plane: the body would fill the view from inside, so it is hidden
+  -- (and shown again as the camera backs off).
+  local near = len(sub(pos, S.anchor)) < S.BODY_HIDE
+  if near ~= (S.bodyHidden == S.target) then S.hideBody(near and e or nil) end
   -- (the camera looks at the body's point: from the clamped place along the same direction)
   local look = sub(S.anchor, pos)
   local ll = len(look)

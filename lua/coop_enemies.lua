@@ -74,6 +74,7 @@ function E.snapshot()
   local e = Game.GetFirst()
   local n = 0
   E.snapTime = Net.CoopTime()
+  local bodies = E.remoteBodies()
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
@@ -86,14 +87,21 @@ function E.snapshot()
       -- sets); last field the view pitch, so the puppet's own shot code aims and plays the shot.
       local owc = e.owc
       local firing = owc and (owc.Shot or 0) > 0.5
-      local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,%d,%.0f", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action),
-        1 + (firing and 2 or 0) + (E.faded[e.Name] and 4 or 0), e.ViewAng and e.ViewAng.x or 0)
+      -- last field: life as a percentage of the highest the host has seen (the client's copy has its own
+      -- scale: toughness settings are applied on the host only)
+      local mx = math.max(E.maxLife[e.Name] or 0, e.Life)
+      E.maxLife[e.Name] = mx
+      local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,%d,%.0f,%d", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action),
+        1 + (firing and 2 or 0) + (E.faded[e.Name] and 4 or 0), e.ViewAng and e.ViewAng.x or 0,
+        mx > 0 and math.min(100, math.floor(e.Life / mx * 100 + 0.5)) or 100)
       E.noteBossAction(e)
       if firing then E.stats.shotFlags = (E.stats.shotFlags or 0) + 1 end
       parts[#parts + 1] = s
       size = size + #s + 1
       n = n + 1
       if size > E.MAX_PACKET then flush() end
+    elseif bodies[1] and e:IsType("Missile") then
+      pcall(E.checkMissile, e, bodies)
     end
     e = Game.GetEntity(e.NextInSlot)
   end
@@ -418,6 +426,7 @@ end
 -- two NPC functions) and every snapshot carries it (flags bit 2), a client whose copy disagrees for
 -- 0.4 s plays the fade itself (E.driveFade); (2) a boss's action change goes out reliably as
 -- `eact|name|action` (E.noteBossAction), the client forces it at once.
+E.maxLife = {}
 E.faded = {}      -- host: enemies faded out by NPC.DisolveEntity
 E.fadeSet = {}    -- client: the same, as this machine's own effects left it
 E.fadeDiff = {}
@@ -469,12 +478,130 @@ function E.installFades()
   wrap("AppearEntity", false)
 end
 
+-- Other attacks that never met a puppet (bug "enemy fire not felt by the client", gaps found with
+-- the shot test): flames (the engine's line tests pass through a body with collision off), thrown
+-- and shot missiles (pilum, crossbow bolt: the missile's collision), and the hit reaction a strong
+-- hit plays (Soldier.DoHitStrong acts only on the local player's body). The host tests the same
+-- geometry against the remote bodies and sends what the owner's machine has to do.
+E.FLAME_RADIUS = 80
+E.flameEnd = {}
+function E.noteFlameEnd(shooter, point) E.flameEnd[shooter] = point end
+
+-- Flame: the engine's own path ends where it hit something (resPoint handed to FXSmoke); the segment
+-- from the nozzle to that end is tried against the remote bodies; a body in it burns: its owner gets
+-- `pfire` and sets the body alight the way the game does (FireRemainTime).
+E.FLAMERS = {
+  {"WeaponsNaziSoldier", "NaziSoldierB", "NodePosHierarchy_Bip Nazi_Soldier R Forearm"},
+  {"WeaponsPilBox", "WWII_Lanzallamas_A", "NodePosHierarchy_DF_Burst_A"},
+}
+function E.installFlames()
+  for _, m in ipairs(E.FLAMERS) do
+    local wt, ct, nozzle = _G[m[1]], _G[m[2]], m[3]
+    local draw = wt and wt.DrawFlamethrowerArticulated
+    if type(draw) == "function" and ct and type(ct.FXSmoke) == "function" and not (wt.coopFlame == draw) then
+      local smoke = ct.FXSmoke
+      if not (ct.coopSmoke == smoke) then
+        ct.FXSmoke = function(name, point, ...)
+          E.noteFlameEnd(name, point)
+          return smoke(name, point, ...)
+        end
+        ct.coopSmoke = ct.FXSmoke
+      end
+      wt.DrawFlamethrowerArticulated = function(name, ...)
+        E.flameEnd[name] = nil
+        local r = {pcall(draw, name, ...)}
+        local ent = Game.GetEntity(name)
+        local fin = E.flameEnd[name]
+        if ent and fin and isEnemy(ent) then
+          local ok, err = pcall(E.flameHit, ent, fin, nozzle)
+          if not ok and not E.flameError then
+            E.flameError = true
+            Coop.log("flame fix error: " .. tostring(err))
+          end
+        end
+        if not r[1] then error(r[2], 0) end
+        return unpack(r, 2)
+      end
+      wt.coopFlame = wt.DrawFlamethrowerArticulated
+    end
+  end
+end
+
+E.flameSent = {}
+function E.flameHit(ent, fin, nozzle)
+  local a = ent[nozzle] or (ent.Pos + V3D(0, 130, 0))
+  for _, b in ipairs(E.remoteBodies()) do
+    local d = E.rayToBody(a.x, a.y, a.z, fin.x, fin.y, fin.z, b)
+    if d < E.FLAME_RADIUS then
+      local now = Net.CoopTime()
+      if now - (E.flameSent[b.Name] or 0) > 0.1 then
+        E.flameSent[b.Name] = now
+        local owner = Coop.ownerOf(b.Name)
+        local cfg = EnemiesCfg and EnemiesCfg.NaziSoldierB and EnemiesCfg.NaziSoldierB.Flamethrower
+        E.stats.flameHits = (E.stats.flameHits or 0) + 1
+        Net.CoopSend(Coop.peerOf(owner), 1, string.format("pfire|%s|%.3f|%.3f|%s", b.Name,
+          cfg and cfg.FireDuration or 0.3, cfg and cfg.FireDamageDelay or 0.015, ent.Name))
+      end
+    end
+  end
+end
+
+-- Missiles (host): once per snapshot every missile an enemy shot is followed from its last place to
+-- its place now; through a remote body it hits that body the way its own callback would have.
+E.MISSILES = {
+  {"LegionaryPilum", function(m, x, y, z, b) return WeaponsLegionary.HitPilum(m, x, y, z, b) end},
+  {"Virote", function(m, x, y, z, b) return WeaponsCruzader.ExplodeVirotus(m, x, y, z, b) end},
+}
+E.missilePos = {}
+function E.checkMissile(m, bodies)
+  local kind
+  for _, k in ipairs(E.MISSILES) do
+    if string.find(m.Name, k[1], 1, true) == 1 then kind = k break end
+  end
+  if not kind then return end
+  local parent = m.oParent
+  if not (parent and isEnemy(parent)) then return end
+  local p, now = m.Pos, Net.CoopTime()
+  local prev = E.missilePos[m.Name]
+  E.missilePos[m.Name] = {x = p.x, y = p.y, z = p.z, t = now}
+  if not prev or now - prev.t > 0.3 then return end
+  local radius = E.HIT_RADIUS + (m.EmbeddedCapsuleRadius or 0)
+  for _, b in ipairs(bodies) do
+    local d = E.rayToBody(prev.x, prev.y, prev.z, p.x, p.y, p.z, b)
+    if d < radius then
+      E.stats.missileHits = (E.stats.missileHits or 0) + 1
+      E.missilePos[m.Name] = nil
+      pcall(kind[2], m, p.x, p.y, p.z, b)
+      return
+    end
+  end
+end
+
+-- Hit reaction: Soldier.DoHitStrong plays only on the machine's own player body; the owner of a
+-- remote body plays it (`phit`).
+function E.installHitStrong()
+  if E.hitStrongInstalled or not Soldier or not Soldier.DoHitStrong then return end
+  E.hitStrongInstalled = true
+  local orig = Soldier.DoHitStrong
+  Soldier.DoHitStrong = function(usr, ...)
+    if usr and Coop.isRemoteOwned(usr.Name) then
+      E.stats.hitStrong = (E.stats.hitStrong or 0) + 1
+      Net.CoopSend(Coop.peerOf(Coop.ownerOf(usr.Name)), 1, "phit|" .. usr.Name)
+      return
+    end
+    return orig(usr, ...)
+  end
+end
+E.origHitStrong = nil
+
 function E.installHost()
   E.installTargeting()
   E.installShotProbe()
   E.installMelee()
   E.installParts()
   E.installFades()
+  E.installFlames()
+  E.installHitStrong()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -1286,6 +1413,15 @@ end
 function E.installClient()
   E.guardAIEvents()
   E.installFades()
+  -- The reaction of a strong hit comes from the host (`phit`); the swing of this machine's own copy of
+  -- the enemy (which may have missed on the host) plays none.
+  if Soldier and Soldier.DoHitStrong then
+    local origHS = Soldier.DoHitStrong
+    Soldier.DoHitStrong = function(usr, ...)
+      if E.allowHitStrong then return origHS(usr, ...) end
+    end
+    E.origHitStrong = origHS
+  end
   -- Every map callback (area triggers, use actions, scene ends, pulsers).
   local n = 0
   if MapCallbacks then
@@ -1422,12 +1558,12 @@ function E.onSnapshot(body, rt)
   E.snapSeen = true
   local now = Net.CoopTime()
   for item in string.gmatch(body, "[^;]+") do
-    local name, x, y, z, yaw, action, flags, pitch = string.match(item,
-      "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+),?(-?[%d%.]*)$")
+    local name, x, y, z, yaw, action, flags, pitch, life = string.match(item,
+      "^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]*),(%d+),(-?[%d%.]*),?(%d*)$")
     if name then
       local fl = tonumber(flags) or 1
       local st = {x = tonumber(x), y = tonumber(y), z = tonumber(z), yaw = tonumber(yaw),
-                  action = action, active = fl % 2 == 1, shot = math.floor(fl / 2) % 2 == 1, faded = fl >= 4, pitch = tonumber(pitch) or 0, t = now, rt = rt}
+                  action = action, active = fl % 2 == 1, shot = math.floor(fl / 2) % 2 == 1, faded = fl >= 4, pitch = tonumber(pitch) or 0, life = tonumber(life), t = now, rt = rt}
       if Coop.pushState(name, st, Coop.TICK * E.SNAP_EVERY) then E.targets[name] = st end
     end
   end
@@ -1468,6 +1604,30 @@ function E.driveShot(e, st, now)
   end
   owc.Shot = want and 1 or 0
 end
+
+-- Life: the host's percentage (last snapshot field) applied to this copy's own life, so that hit logic
+-- and bars here agree with the fight. Never to 0 (the death comes with `edie`; a second kill here would
+-- run the death twice), PrevLife with it (the engine reads a bigger gap as damage and calls OnDamage),
+-- not for enemies whose life is their parts (Behemoth seals, pustules) and only for changes of 3 points.
+function E.driveLife(e, st)
+  if not st.life or Coop.cfg.elife == false then return end
+  local u = e.uData
+  if u and (u.bBombs or u.bSeals) then return end
+  local name = e.Name
+  local base = E.cLife[name]
+  if not base then
+    E.cLife[name] = e.Life
+    base = e.Life
+  end
+  local last = E.lifeSet[name] or 100
+  if math.abs(st.life - last) < 3 or (e.Life or 0) <= 0 then return end
+  local want = math.max(1, math.floor(base * st.life / 100 + 0.5))
+  E.lifeSet[name] = st.life
+  e.Life = want
+  e.PrevLife = want
+  E.stats.lifeSet = (E.stats.lifeSet or 0) + 1
+end
+E.cLife, E.lifeSet = {}, {}
 
 -- Fade state: the host's (flags bit 2) against this copy's own. After 0.4 s of disagreement the fade
 -- is played here (the animation event that should have done it was missed).
@@ -1526,6 +1686,7 @@ function E.driveEnemies(dt)
       end
       E.driveShot(e, st, now)
       E.driveFade(e, st, now)
+      E.driveLife(e, st)
     end
   end
 end
@@ -1631,6 +1792,23 @@ function E.onMessage(peer, f)
       if E.stats.actsApplied <= 60 then
         Coop.log(string.format("boss action applied %s: %s (was %s)", f[2], f[3], tostring(e.Action)))
       end
+    end
+  elseif kind == "pfire" then
+    local usr = Game.GetEntity(f[2])
+    if usr and Coop.isLocalPlayer(f[2]) and not (usr.uData and usr.uData.bProtection) then
+      usr.FireRemainTime = tonumber(f[3]) or 0.3
+      usr.FireDelayTime = tonumber(f[4]) or 0.015
+      usr.FireAtenuationFactor = 0
+      usr.Pyromaniac = f[5] or ""
+      E.stats.firesApplied = (E.stats.firesApplied or 0) + 1
+    end
+  elseif kind == "phit" then
+    local usr = Game.GetEntity(f[2])
+    if usr and Coop.isLocalPlayer(f[2]) then
+      E.stats.hitStrongApplied = (E.stats.hitStrongApplied or 0) + 1
+      E.allowHitStrong = true
+      pcall(E.origHitStrong or Soldier.DoHitStrong, usr)
+      E.allowHitStrong = false
     end
   elseif kind == "pdmg" then
     local usr = Game.UsrEntity(0)
@@ -1738,7 +1916,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
-    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() end   -- (an enemy class whose script loads later)
+    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installHitStrong() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
@@ -1789,6 +1967,11 @@ function E.report()
   if s.actsSent or s.actsApplied or s.fadesFixed then
     line = line .. string.format(" bossacts=%d/%d fades-fixed=%d", s.actsSent or 0, s.actsApplied or 0, s.fadesFixed or 0)
   end
+  if s.flameHits or s.firesApplied or s.missileHits or s.hitStrong or s.hitStrongApplied then
+    line = line .. string.format(" flames=%d/%d missiles=%d hitstrong=%d/%d", s.flameHits or 0, s.firesApplied or 0,
+      s.missileHits or 0, s.hitStrong or 0, s.hitStrongApplied or 0)
+  end
+  if s.lifeSet then line = line .. " life-set=" .. s.lifeSet end
   if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
   if E.pdmgBy then
     local t = {}
