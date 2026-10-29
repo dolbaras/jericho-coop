@@ -109,7 +109,7 @@ function S.select(name, why)
   S.target = name
   S.lookT = nil
   local e = Game.GetEntity(name)
-  if e and e.Ang then S.yaw = e.Ang.y end
+  S.yaw = (e and e.Ang) and e.Ang.y or 0
   S.el = S.PITCH
   Coop.log("spectate: watching " .. name .. (from and (" (was " .. from .. ", " .. tostring(why) .. ")") or ""))
 end

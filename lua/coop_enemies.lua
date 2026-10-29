@@ -79,8 +79,8 @@ function E.snapshot()
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
       if not E.bombsSent[e.Name] then
-        E.bombsSent[e.Name] = true
-        if tostring(e.ActCtrl) == "CultistaExplosivo" then E.sendBombs(e) end
+        -- marked only once the mask was really sent (uData.bBombs may not exist on the first snapshot)
+        if tostring(e.ActCtrl) ~= "CultistaExplosivo" or E.sendBombs(e) then E.bombsSent[e.Name] = true end
       end
       local p = e.Pos
       -- flags: bit 0 active, bit 1 pulling the trigger (the control field a firing body's AI
@@ -248,7 +248,7 @@ function E.noteShot(name, target, x, y, z)
   end
   -- The shot's ray through a remote body the engine let pass.
   local fixed, fixedD
-  if Coop.cfg.remotehit ~= false and Weapons.TempDamage then
+  if Coop.cfg.remotehit ~= false and Weapons.DoDamage then
     local bestS
     for _, b in ipairs(E.remoteBodies()) do
       if b.Name ~= target then
@@ -392,7 +392,11 @@ end
 E.bombsSent = {}
 function E.sendBombs(e, peer)
   local mask = E.bombMask(e)
-  if mask then Net.CoopSend(peer or -1, 1, string.format("epart|%s|bombs|%s", e.Name, mask)) end
+  if mask then
+    Net.CoopSend(peer or -1, 1, string.format("epart|%s|bombs|%s", e.Name, mask))
+    return true
+  end
+  return false
 end
 
 function E.sendPartCatchup(peer)
