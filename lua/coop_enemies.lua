@@ -442,6 +442,13 @@ function E.installHost()
     local e = Game.GetEntity(name)
     if isEnemy(e) then
       E.stats.deaths = E.stats.deaths + 1
+      -- who gets the kill: a body another player holds (a client's shots) or one here
+      local killer = from and from ~= "" and (type(from) == "string" and from or from.Name)
+      if killer and Coop.isRemoteOwned(killer) then
+        E.stats.killsRemote = (E.stats.killsRemote or 0) + 1
+      elseif killer then
+        E.stats.killsLocal = (E.stats.killsLocal or 0) + 1
+      end
       -- RemoveNow: removed without a death (EnemyGen.Stop clears its unused pool this way).
       local quiet = e.uData and e.uData.RemoveNow and "1" or ""
       Net.CoopSend(-1, 1, "edie|" .. name .. "|" .. quiet)
@@ -1680,6 +1687,9 @@ function E.report()
   if s.mSwingLocal or s.mSwingRemote or s.mSwingAi then
     line = line .. string.format(" melee swings local %d hit %d remote %d hit %d(fixed %d) ai %d hit %d", s.mSwingLocal or 0,
       s.mHitLocal or 0, s.mSwingRemote or 0, (s.mHitRemote or 0) + 0, s.mFix or 0, s.mSwingAi or 0, s.mHitAi or 0)
+  end
+  if s.killsRemote or s.killsLocal then
+    line = line .. string.format(" kills local %d remote %d", s.killsLocal or 0, s.killsRemote or 0)
   end
   if s.partsSent or s.partsApplied or s.bombHits then
     line = line .. string.format(" parts=%d/%d seals=%d bombs=%d bombhits=%d/%d", s.partsSent or 0, s.partsApplied or 0,

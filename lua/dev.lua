@@ -3002,6 +3002,10 @@ if cfg.efclose and Coop.level ~= "levels/menu" then
   function Coop.dev()
     if prevEf then prevEf() end
     local every = cfg.efevery or 300
+    if cfg.efclip and Coop.frame == cfg.efclip then
+      local ok, path = pcall(Net.CoopClip, "save")
+      Coop.log("efclose clip: " .. tostring(ok) .. " " .. tostring(path))
+    end
     if Coop.frame < 300 or Coop.frame % every ~= 0 then return end
     local usr = Game.UsrEntity(0)
     if not usr or (cfg.char and Coop.isClient() and usr.Name ~= cfg.char) then return end
@@ -3066,7 +3070,7 @@ if cfg.parttest and Coop.level ~= "levels/menu" then
         beh.bActive = true
         beh.Invulnerable = 0
         bomb.Pos = body.Pos + fwd * 350
-        beh.Pos = body.Pos + fwd * 1100
+        beh.Pos = body.Pos + fwd * (cfg.partbeh or 1100)
         pcall(Game.SetOnFloor, BOMB)
         pcall(Game.SetOnFloor, BEH)
         Coop.log("parttest: woke " .. BOMB .. " and " .. BEH .. " in front of " .. body.Name)
@@ -3083,7 +3087,19 @@ if cfg.parttest and Coop.level ~= "levels/menu" then
     end
     if Coop.isClient() then
       local usr = Game.UsrEntity(0)
-      if usr and bomb and f == 650 then
+      if f == 1150 then
+        -- the clip of the last 30 s (lab\cap.sh does the same by hand): seen from this client
+        local ok, path = pcall(Net.CoopClip, "save")
+        Coop.log("parttest clip: " .. tostring(ok) .. " " .. tostring(path))
+      end
+      if cfg.partnohit then return end   -- the guard bot's own shots do the hitting
+      if usr and beh and cfg.partlook and f == 650 then
+        -- (look at the Behemoth, so that the clip shows its seals before and after)
+        local d = beh.Pos - usr.Pos
+        usr.IgnoreUsrControl = 1
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(cfg.partpitch or 10, usr.Ang.y, 0)
+      elseif usr and bomb and not cfg.partlook and f == 650 then
         local d = bomb.Pos - usr.Pos
         usr.IgnoreUsrControl = 1
         usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
@@ -3103,7 +3119,7 @@ if cfg.parttest and Coop.level ~= "levels/menu" then
       if usr and beh and (f == 900 or f == 960) then
         send(beh, f == 900 and "XT_Behemoth_Sello_02" or "XT_Behemoth_Sello_05", Behemoth.SealLife)
       end
-      if usr and beh and f == 1000 then
+      if usr and beh and f == 1000 and not cfg.partlook then
         local d = beh.Pos - usr.Pos
         usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
         usr.ViewAng = V3D(0, usr.Ang.y, 0)
