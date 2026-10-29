@@ -26,6 +26,7 @@ local A = CoopAnim
 local cfg = Coop.cfg
 
 A.REVIVE_MAX = 4        -- s: the revive's End action should have given the life back by then
+A.DOWN_WAIT = 0.6       -- s a puppet's Life must have been 0 before this puts it into agony (the engine's own death first)
 A.DOWN_RETRY = 0.5      -- s between two tries to put a downed puppet into agony
 
 -- One-shot actions of the playable squad (docs/ally-animations.md: "one-shot (mirror)").
@@ -77,8 +78,13 @@ end
 
 -- Soldier.OnDeath, for a body the engine did not kill here.
 function A.putDown(e, name, st)
+  if cfg.animdown == false then return end   -- (lab: the behaviour without this slice)
   local s = stOf(name)
   local t = now()
+  -- (the engine's own OnDeath follows a puppet's Life = 0 within a frame or two, with its own
+  -- random variant: lab 2026-10-28, anim-a2 against a5. This is for a body it leaves standing.)
+  if not s.seenDown then s.seenDown = t end
+  if t - s.seenDown < A.DOWN_WAIT then return end
   if s.downT and t - s.downT < A.DOWN_RETRY then return end
   s.downT = t
   local act = tostring(e.Action)
@@ -131,7 +137,7 @@ function A.sync(e, name, st)
     s.reviveT = nil
     if (tonumber(e.Life) or 1) <= 0 then A.putDown(e, name, st) end
   elseif life and life > 0 and (tonumber(e.Life) or 1) > 0 then
-    s.downT, s.reviveT = nil, nil
+    s.downT, s.reviveT, s.seenDown = nil, nil, nil
   end
   -- one-shots of the owner's body
   local act = st.action

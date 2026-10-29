@@ -21,6 +21,9 @@ local function step(dt) clock = clock + dt end
 local e = body("Church"); e.Life = 0
 local st = {life = 0, action = "Agony2"}
 A.sync(e, "Church", st)
+assert(e.Action == "Relax", "the engine's own death gets its time first")
+step(0.7)
+A.sync(e, "Church", st)
 assert(e.Action == "Agony2Init" and e.DefLoop == "Agony2", "variant of the owner: " .. tostring(e.Action))
 assert(e.ArrowCanUse == 1, "revive function")
 e.Action = "Agony2"                        -- the init action ran into its loop
@@ -28,7 +31,9 @@ A.sync(e, "Church", st); step(1); A.sync(e, "Church", st)
 assert(e.Action == "Agony2" and A.downs == 1, "not put down again")
 
 -- 2. the engine killed it itself: left alone
-local e2 = body("Black"); e2.Life = 0; e2.Action = "AgonyInit"
+local e2 = body("Black"); e2.Life = 0; e2.Action = "Relax"
+A.sync(e2, "Black", {life = 0, action = "AgonyInit"})
+e2.Action = "AgonyInit"; step(1)
 A.sync(e2, "Black", {life = 0, action = "AgonyInit"})
 assert(e2.Action == "AgonyInit" and e2.ArrowCanUse == nil, "engine's own death untouched")
 
@@ -43,6 +48,7 @@ A.sync(e, "Church", rst)
 assert(A.state.Church.reviveT == nil and A.state.Church.downT == nil, "state reset after the revive")
 -- a second downing later puts it down again
 e.Life = 0; e.Action = "Relax"; step(3)
+A.sync(e, "Church", {life = 0, action = "Agony"}); step(0.7)
 A.sync(e, "Church", {life = 0, action = "Agony"})
 assert(e.Action == "AgonyInit", "down again")
 
