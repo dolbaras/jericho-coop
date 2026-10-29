@@ -7,7 +7,11 @@ Coop = {cfg = {}, log = function(s) logs[#logs + 1] = s end}
 local revFn = {}
 Team = {AssignReviveFunction = function(e) e.ArrowCanUse = 1 end,
         RemoveReviveFunction = function(e) e.ArrowCanUse = 0 end}
-local ACTS = {Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
+Coop.ARM_ACTIONS = {{"^Combo(%d)Hit(%d)$", "x"}, {"^Punch", "Punch"}, {"^Reload", "Reload"}, {"^Spell", "Spell"}, {"^Hack", "Hack"},
+  {"^Special_0Init$", "Shot1Init"}, {"^Special", "Special1"}}
+Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
+local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, StupidInit = 1, StupidEnd = 1, Shot1Init = 1,
+              HitStrong = 1, Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
               Reload = 1, Relax = 1, Run = 1}
 Act = {GetClass = function(n) return {GetAct = function(self, a) return ACTS[a] and {} or nil end} end}
 
@@ -88,5 +92,46 @@ A.sync(e7, "Rawlings", {life = 100, action = "Whatever"})
 local n = 0
 for _, l in ipairs(logs) do if string.find(l, "Rawlings:Whatever") then n = n + 1 end end
 assert(n == 1, "unmapped action logged once: " .. n)
+
+-- 8. states that last: Init on entering, End on leaving, once; the loop in between is the engine's
+local e8 = body("Delgado")
+A.sync(e8, "Delgado", {life = 100, action = "StupidInit"})
+assert(e8.ForceAction == "StupidInit", "dazed starts")
+e8.ForceAction = nil; e8.Action = "StupidInit"
+A.sync(e8, "Delgado", {life = 100, action = "Stupid"})
+assert(e8.ForceAction == nil, "the loop is left to the engine")
+step(1)
+A.sync(e8, "Delgado", {life = 100, action = "StupidEnd"})
+assert(e8.ForceAction == nil, "End of the owner's own: still in the family")
+A.sync(e8, "Delgado", {life = 100, action = "Relax"})
+assert(e8.ForceAction == "StupidEnd", "dazed ends: " .. tostring(e8.ForceAction))
+-- cover
+local e9 = body("Black")
+A.sync(e9, "Black", {life = 100, action = "ShelterDownInit"})
+assert(e9.ForceAction == "ShelterDownInit", "cover starts")
+step(1); e9.ForceAction = nil
+A.sync(e9, "Black", {life = 100, action = "ShelterDown"})
+A.sync(e9, "Black", {life = 100, action = "Walk"})
+assert(e9.ForceAction == "ShelterDownEnd", "cover ends")
+
+-- 9. first-person names with a third-person action; what mirrorArms maps is left to it
+local e10 = body("Black")
+step(1)
+A.sync(e10, "Black", {life = 100, action = "Relax", fpa = "01_TKCombo1Hit1"})
+assert(e10.ForceAction == "TKHit", "Black's telekinesis combo: " .. tostring(e10.ForceAction))
+local e11 = body("Cole"); step(1)
+A.sync(e11, "Cole", {life = 100, action = "Relax", fpa = "01_Reequip"})
+assert(e11.ForceAction == "Reequip", "reequip")
+local e12 = body("Church"); step(1)
+A.sync(e12, "Church", {life = 100, action = "Relax", fpa = "01_Reload"})
+assert(e12.ForceAction == nil, "reload is mirrorArms'")
+A.sync(e12, "Church", {life = 100, action = "Relax", fpa = "01_Mystery"})
+local n2 = 0
+for _, l in ipairs(logs) do if string.find(l, "Church:Mystery") then n2 = n2 + 1 end end
+assert(n2 == 1, "unmapped first-person action logged")
+-- 10. Delgado's release (AI body: the action arrives in the host's state)
+local e13 = body("Delgado"); step(1)
+A.sync(e13, "Delgado", {life = 100, action = "Shot1Init"})
+assert(e13.ForceAction == "Shot1Init", "the arm opens")
 
 print("anim mock test: OK")

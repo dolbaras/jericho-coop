@@ -40,7 +40,28 @@ for _, n in ipairs({
   "ShelterLeftReloadE", "ShelterRightReload", "ShelterRightReload0", "ShelterRightReloadE",
   -- story one-shots the levels add to a class (levels/*/scripts/mapinit.lua, MakeChar.AddMove)
   "NaziSacrifice", "BrokenWall", "KO", "KOEnd",
+  -- Delgado's release of the Ababanili (the arm opens; its frame-40 event is dropped on puppets,
+  -- coop_powers.lua: the abby message sends the spirit)
+  "Shot1Init", "DuckShot1Init",
 }) do A.ONESHOT[n] = true end
+
+-- States that last: begin with the Init action, end with the End action when the owner's body leaves
+-- the family (the loop in between follows the Init through its own event). docs/ally-animations.md.
+A.FAMILIES = {"Stupid", "Trance", "Astral", "Possessed", "ShelterDown", "ShelterLeft", "ShelterRight"}
+
+-- The owner's first-person arms name things the third-person body has an action for, which
+-- Coop.mirrorArms (Combo/Punch/Reload/Spell/Hack/Special_0*) does not map: Black's telekinesis
+-- combos, Cole's reequip, the hit reactions of a human body (the AI bodies' own Hit comes with the action).
+A.FPMAP = {
+  {"^TKCombo%d", "TKHit", Black = true},
+  {"^Reequip$", "Reequip"},
+  {"^HitStrong$", "HitStrong"},
+  {"^Hit(%a+)$", "Hit"},
+}
+-- first-person actions that are movement, posture or menus: no third-person counterpart needed
+local FP_QUIET = {"^Relax", "^Walk", "^Str", "^Back", "^Hide", "^Show", "^Duck", "^Turn", "^Shot", "^Aim", "^Order", "^Switch",
+                  "^ChooseMode", "^SkipWall", "^Hurdle", "^Fall", "^Combo", "^Reload", "^Spell", "^Hack", "^Special_0",
+                  "^Special_From", "^Special_To", "^Special_Relax", "^Heal"}
 
 -- Locomotion and posture actions: not mirrored here (the inputs and Coop.syncCrouch do them).
 local LOCO = {"^Relax", "^Walk", "^Run", "^Sprint", "^Back", "^Str", "^Turn", "^Duck", "^Facial_", "^Shot", "^Shelter",
@@ -139,6 +160,8 @@ function A.sync(e, name, st)
   elseif life and life > 0 and (tonumber(e.Life) or 1) > 0 then
     s.downT, s.reviveT, s.seenDown = nil, nil, nil
   end
+  A.syncFP(e, name, st)
+  A.syncState(e, name, st)
   -- one-shots of the owner's body
   local act = st.action
   if type(act) == "string" and act ~= s.last then
@@ -159,12 +182,81 @@ function A.sync(e, name, st)
   end
 end
 
-function A.play(e, name, act)
+-- A first-person action of the owner's arms that has a third-person action (A.FPMAP).
+function A.syncFP(e, name, st)
+  local fpa = st.fpa
+  local s = stOf(name)
+  if type(fpa) ~= "string" or fpa == s.lastFpa then return end
+  s.lastFpa = fpa
+  local act = string.match(fpa, "^%d+_(.+)$") or fpa
+  -- (what Coop.mirrorArms maps itself is its to play)
+  for _, m in ipairs(Coop.ARM_ACTIONS or {}) do
+    if string.find(act, m[1]) then return end
+  end
+  local own = Coop.ARM_BY_CHAR and Coop.ARM_BY_CHAR[name]
+  if own then for pat in pairs(own) do if string.find(act, pat) then return end end end
+  for _, m in ipairs(A.FPMAP) do
+    if string.find(act, m[1]) and (m.Black == nil or name == "Black") then
+      local want = m[2]
+      if string.find(tostring(st.action), "^Duck") then
+        local cls = actClass(e, name)
+        if hasAct(cls, "Duck" .. want) then want = "Duck" .. want end
+        if want == "DuckHit" then want = "HitDuck" end
+      end
+      A.play(e, name, want)
+      return
+    end
+  end
+  for _, p in ipairs(FP_QUIET) do if string.find(act, p) then return end end
+  A.unmappedFp = A.unmappedFp or {}
+  local key = name .. ":" .. act
+  if not A.unmappedFp[key] and (A.nUnmappedFp or 0) < 60 then
+    A.unmappedFp[key] = true
+    A.nUnmappedFp = (A.nUnmappedFp or 0) + 1
+    Coop.log("anim: first-person " .. key .. " on the owner's arms, no third-person action mapped")
+  end
+end
+
+-- A state that lasts (A.FAMILIES): the Init action starts it, the End action ends it.
+function A.syncState(e, name, st)
+  local act = st.action
+  if type(act) ~= "string" then return end
+  local s = stOf(name)
+  local fam
+  for _, f in ipairs(A.FAMILIES) do
+    if string.find(act, "^" .. f) then fam = f break end
+  end
+  if fam and not s.fam then
+    -- begins: the Init action (a state already running when this machine first sees it is joined at its loop)
+    local init = fam .. "Init"
+    s.fam = fam
+    if string.find(act, "Init$") then A.play(e, name, init, true) end
+    A.famLog(name, "enters " .. fam .. " (owner's action " .. act .. ")")
+  elseif s.fam and fam ~= s.fam then
+    -- the owner's body left it: End action (it ends in Relax by its own event)
+    local fe = s.fam .. "End"
+    s.fam = fam
+    if not fam then
+      local cls = actClass(e, name)
+      if hasAct(cls, fe) and (tonumber(e.Life) or 1) > 0 then
+        e.ForceAction = fe
+      end
+      A.famLog(name, "leaves " .. tostring(fe))
+    end
+  end
+end
+
+function A.famLog(name, what)
+  A.famN = (A.famN or 0) + 1
+  if A.famN <= 40 or Coop.cfg.animlog then Coop.log("anim: " .. name .. " " .. what) end
+end
+
+function A.play(e, name, act, force)
   if cfg.animmirror == false then return end
   if (tonumber(e.Life) or 1) <= 0 then return end
   local t = now()
   -- (Coop.mirrorArms just played the strike / reload / power the first-person arms named)
-  if Coop.mirrorT and t - (Coop.mirrorT[name] or -10) < 0.6 then return end
+  if not force and Coop.mirrorT and t - (Coop.mirrorT[name] or -10) < 0.6 then return end
   local cls = actClass(e, name)
   if not hasAct(cls, act) then return end
   if string.find(tostring(e.Action), "^" .. act) then return end

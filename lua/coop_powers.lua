@@ -26,6 +26,21 @@ local function relay(data)
   if Coop.isHost() then Net.CoopSend(-1, 1, data) else Net.CoopSend(0, 1, data) end
 end
 
+-- Who tells the others about a Delgado body's spirit: the machine of its player, and the host for
+-- the game's AI Delgado (its Shot1Init event runs AbabaniliStart there; the clients saw neither
+-- spirit nor open arm of it).
+local function tells(char)
+  if P.replaying or not Coop.inSession() then return false end
+  if Coop.isLocalPlayer(char.Name) then return true end
+  return Coop.isHost() and Coop.ownerOf(char.Name) == nil
+end
+
+-- A puppet is not the one to start or call back its spirit: its Shot1Init event (frame 40) did,
+-- next to the spirit the abby message sends (two spirits, and the AI call on a body whose AI is off).
+local function puppetEvent(char)
+  return char and Coop.inSession() and not P.replaying and Coop.isPuppet and Coop.isPuppet(char.Name)
+end
+
 ------------------------------------------------------------------------------
 -- Ghost bullet
 ------------------------------------------------------------------------------
@@ -123,10 +138,15 @@ function P.installAbby()
   P.abbyInstalled = true
   local origStart, origClose, origHit = Ababanili.AbabaniliStart, Ababanili.AbabaniliClose, Ababanili.AbabaniliHitTarget
   Ababanili.AbabaniliStart = function(name, ...)
-    local abby = origStart(name, ...)
     local char = Game.GetEntity(name)
     if char and char:IsType("FP") then char = Game.UsrEntity(char.id) end
-    if abby and char and Coop.inSession() and not P.replaying and Coop.isLocalPlayer(char.Name) then
+    if puppetEvent(char) then
+      P.guarded = (P.guarded or 0) + 1
+      if P.guarded <= 3 then Coop.log("powers: " .. char.Name .. "'s own AbabaniliStart event dropped (puppet)") end
+      return false
+    end
+    local abby = origStart(name, ...)
+    if abby and char and tells(char) then
       local ok, tgt = pcall(function() return abby.oAI.oTarget.Name end)
       relay("abby|" .. char.Name .. "|" .. tostring(ok and tgt or ""))
     end
@@ -135,7 +155,8 @@ function P.installAbby()
   Ababanili.AbabaniliClose = function(name, ...)
     local char = Game.GetEntity(name)
     if char and char:IsType("FP") then char = Game.UsrEntity(char.id) end
-    if char and Coop.inSession() and not P.replaying and Coop.isLocalPlayer(char.Name) then
+    if puppetEvent(char) then return end
+    if char and tells(char) then
       relay("abby|" .. char.Name .. "|")
     end
     return origClose(name, ...)
@@ -149,6 +170,24 @@ function P.installAbby()
     end
     return origHit(ent, tgt, ...)
   end
+end
+
+-- The third-person arm opening of the release (Delgado's Shot1Init / DuckShot1Init), for a body
+-- whose own action did not play it here (the owner's first-person arms did there, or the AI's
+-- Shot1Init is already on its way from the host's state: CoopAnim.ONESHOT).
+function P.armOpen(d)
+  if Coop.cfg.abbyarm == false then return end
+  local act = tostring(d.Action)
+  if string.find(act, "^Shot1") or string.find(act, "^DuckShot1") then return end
+  local want = string.find(act, "^Duck") and "DuckShot1Init" or "Shot1Init"
+  local t = Net.CoopTime()
+  if Coop.mirrorT and t - (Coop.mirrorT[d.Name] or -10) < 1.5 then return end
+  local ok, cls = pcall(function() return Act.GetClass(d.ActCtrl ~= "" and d.ActCtrl or d.Name) end)
+  if not ok or not cls or not cls:GetAct(want) then return end
+  d.ForceAction = want
+  Coop.mirrorT = Coop.mirrorT or {}
+  Coop.mirrorT[d.Name] = t
+  Coop.log("powers: " .. d.Name .. " opens his arm (" .. want .. ")")
 end
 
 function P.onAbby(peer, f, data)
@@ -166,8 +205,9 @@ function P.onAbby(peer, f, data)
       -- The AI path of AbabaniliStart takes the target from oAI.ObjectiveDin.
       local was = d.oAI and d.oAI.ObjectiveDin
       if d.oAI then d.oAI.ObjectiveDin = tgt end
-      Ababanili.AbabaniliStart(name)
+      local abby = Ababanili.AbabaniliStart(name)
       if d.oAI then d.oAI.ObjectiveDin = was or "" end
+      if abby then P.armOpen(d) end
     else
       Ababanili.AbabaniliClose(name)
     end
