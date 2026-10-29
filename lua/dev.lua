@@ -3127,3 +3127,49 @@ if cfg.parttest and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'bitchcycle' (host and client, WWII_Vigil_Inside, partcls = the client's character): the host wakes the
+-- psychic commander 'Bitch' with her AI off in front of the client's body (tick 300), makes her
+-- Disappear (400) and Appear (560), again at 700/860. The client with dropact='Appear' ignores every
+-- Appear action (as if the packet were lost; coop_enemies.lua), so only the fade flag can bring her
+-- back; fadefix=false switches that off. Clip of the client at tick 1100 (a frame of her visible or not).
+if cfg.bitchcycle and Coop.level ~= "levels/menu" then
+  local prevBc = Coop.dev
+  function Coop.dev()
+    if prevBc then prevBc() end
+    local f = Coop.frame
+    local bitch = Game.GetEntity("Bitch")
+    if Coop.isHost() and bitch then
+      local body = Coop.squadEnt(cfg.partcls or "Black")
+      if f == 300 and body then
+        local y = math.rad(body.Ang.y)
+        bitch.bActive = true
+        bitch.Pos = body.Pos + V3D(-math.sin(y), 0, -math.cos(y)) * 400
+        pcall(Game.SetOnFloor, "Bitch")
+        Coop.log("bitchcycle: woke Bitch in front of " .. body.Name)
+      end
+      if f > 300 and bitch.oAI and bitch.oAI.bEnable then bitch.oAI.bEnable = false end
+      if f == 400 or f == 700 then bitch.ForceAction = "Disappear" end
+      if f == 560 or f == 860 then bitch.ForceAction = "Appear" end
+      if f >= 300 and f % 100 == 0 then
+        Coop.log("bitchcycle host: action=" .. tostring(bitch.Action) .. " faded=" .. tostring(CoopEnemies.faded.Bitch))
+      end
+    end
+    if Coop.isClient() then
+      local usr = Game.UsrEntity(0)
+      if usr and bitch and f == 350 then
+        local d = bitch.Pos - usr.Pos
+        usr.IgnoreUsrControl = 1
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(0, usr.Ang.y, 0)
+      end
+      if f >= 300 and f % 100 == 0 then
+        Coop.log("bitchcycle client: action=" .. tostring(bitch and bitch.Action) .. " fadeSet=" .. tostring(CoopEnemies.fadeSet.Bitch))
+      end
+      if f == 1100 then
+        local ok, path = pcall(Net.CoopClip, "save")
+        Coop.log("bitchcycle clip: " .. tostring(ok) .. " " .. tostring(path))
+      end
+    end
+  end
+end

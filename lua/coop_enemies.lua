@@ -87,7 +87,8 @@ function E.snapshot()
       local owc = e.owc
       local firing = owc and (owc.Shot or 0) > 0.5
       local s = string.format("%s,%.0f,%.0f,%.0f,%.0f,%s,%d,%.0f", e.Name, p.x, p.y, p.z, e.Ang.y, tostring(e.Action),
-        firing and 3 or 1, e.ViewAng and e.ViewAng.x or 0)
+        1 + (firing and 2 or 0) + (E.faded[e.Name] and 4 or 0), e.ViewAng and e.ViewAng.x or 0)
+      E.noteBossAction(e)
       if firing then E.stats.shotFlags = (E.stats.shotFlags or 0) + 1 end
       parts[#parts + 1] = s
       size = size + #s + 1
@@ -409,11 +410,71 @@ function E.sendPartCatchup(peer)
   return n
 end
 
+-- Bosses that appear and disappear (the psychic commander "Bitch" of Vigil_Inside; owner's Steam
+-- session 0.2.7: only her Disappear ran on the client, she stayed invisible): their model fades are
+-- effects started by animation events (NPC.DisolveEntity / NPC.AppearEntity). Position and action
+-- travel in 20 Hz unreliable snapshots, so a lost or skipped action left the client's copy faded out
+-- for good. Two safeguards: (1) the host tracks which enemies are faded out (E.faded, wrapper on the
+-- two NPC functions) and every snapshot carries it (flags bit 2), a client whose copy disagrees for
+-- 0.4 s plays the fade itself (E.driveFade); (2) a boss's action change goes out reliably as
+-- `eact|name|action` (E.noteBossAction), the client forces it at once.
+E.faded = {}      -- host: enemies faded out by NPC.DisolveEntity
+E.fadeSet = {}    -- client: the same, as this machine's own effects left it
+E.fadeDiff = {}
+E.BOSS_PATTERNS = {"Behemoth", "Maltheus", "Vicus", "Summerian", "PuppetGod", "EvilFirstBorn", "Gladiador",
+                   "PsichicCommander", "Arnold"}
+-- (walking and the like come with the snapshots; only the rest is worth a reliable message)
+E.LOCOMOTION = {"^Walk", "^Run", "^Sprint", "Relax", "^Patrol", "Turn", "^Dodge", "^Strafe", "^Back", "^Idle", "^Stand"}
+E.bossClass, E.bossAct = {}, {}
+function E.isBoss(e)
+  local cls = E.bossClass[e.Name]
+  if cls == nil then
+    cls = false
+    local ac = tostring(e.ActCtrl)
+    for _, pat in ipairs(E.BOSS_PATTERNS) do
+      if string.find(ac, pat, 1, true) then cls = ac break end
+    end
+    E.bossClass[e.Name] = cls
+  end
+  return cls
+end
+function E.noteBossAction(e)
+  if not E.isBoss(e) then return end
+  local act = tostring(e.Action)
+  if E.bossAct[e.Name] == act then return end
+  E.bossAct[e.Name] = act
+  for _, pat in ipairs(E.LOCOMOTION) do
+    if string.find(act, pat) then return end
+  end
+  E.stats.actsSent = (E.stats.actsSent or 0) + 1
+  Net.CoopSend(-1, 1, string.format("eact|%s|%s", e.Name, act))
+  if E.stats.actsSent <= 60 then Coop.log(string.format("boss action %s (%s): %s", e.Name, E.bossClass[e.Name], act)) end
+end
+
+function E.installFades()
+  local function wrap(fn, faded)
+    local orig = NPC[fn]
+    if type(orig) ~= "function" or (NPC.coopFade and NPC.coopFade[fn] == orig) then return end
+    NPC.coopFade = NPC.coopFade or {}
+    NPC[fn] = function(name, ...)
+      local ent = Game.GetEntity(name)
+      if ent and isEnemy(ent) then
+        if Coop.isHost() then E.faded[name] = faded else E.fadeSet[name] = faded end
+      end
+      return orig(name, ...)
+    end
+    NPC.coopFade[fn] = NPC[fn]
+  end
+  wrap("DisolveEntity", true)
+  wrap("AppearEntity", false)
+end
+
 function E.installHost()
   E.installTargeting()
   E.installShotProbe()
   E.installMelee()
   E.installParts()
+  E.installFades()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
     local e = origCreate(acName, x, y, z, listName, setOnFloor)
@@ -1224,6 +1285,7 @@ end
 
 function E.installClient()
   E.guardAIEvents()
+  E.installFades()
   -- Every map callback (area triggers, use actions, scene ends, pulsers).
   local n = 0
   if MapCallbacks then
@@ -1365,7 +1427,7 @@ function E.onSnapshot(body, rt)
     if name then
       local fl = tonumber(flags) or 1
       local st = {x = tonumber(x), y = tonumber(y), z = tonumber(z), yaw = tonumber(yaw),
-                  action = action, active = fl % 2 == 1, shot = fl >= 2, pitch = tonumber(pitch) or 0, t = now, rt = rt}
+                  action = action, active = fl % 2 == 1, shot = math.floor(fl / 2) % 2 == 1, faded = fl >= 4, pitch = tonumber(pitch) or 0, t = now, rt = rt}
       if Coop.pushState(name, st, Coop.TICK * E.SNAP_EVERY) then E.targets[name] = st end
     end
   end
@@ -1407,6 +1469,24 @@ function E.driveShot(e, st, now)
   owc.Shot = want and 1 or 0
 end
 
+-- Fade state: the host's (flags bit 2) against this copy's own. After 0.4 s of disagreement the fade
+-- is played here (the animation event that should have done it was missed).
+function E.driveFade(e, st, now)
+  if Coop.cfg.fadefix == false then return end   -- (test switch)
+  local want = st.faded or false
+  if want == (E.fadeSet[e.Name] or false) then
+    E.fadeDiff[e.Name] = nil
+    return
+  end
+  local since = E.fadeDiff[e.Name]
+  if not since then E.fadeDiff[e.Name] = now return end
+  if now - since < 0.4 then return end
+  E.fadeDiff[e.Name] = nil
+  E.stats.fadesFixed = (E.stats.fadesFixed or 0) + 1
+  Coop.log(string.format("fade re-asserted: %s %s (%s)", e.Name, want and "out" or "in", tostring(e.ActCtrl)))
+  if want then NPC.DisolveEntity(e.Name, 0.3) else NPC.AppearEntity(e.Name, 0.5) end
+end
+
 -- Every frame on a client: host enemies follow the snapshots; no enemy runs local AI.
 function E.driveEnemies(dt)
   if #E.pendingParts > 0 then E.drainParts() end
@@ -1440,11 +1520,12 @@ function E.driveEnemies(dt)
       end
       e.Ang = V3D(0, tg.yaw, 0)
       if st.action ~= "" and st.action ~= E.applied[name] and e.Action ~= st.action
-         and not string.find(st.action, "Death") then
+         and not string.find(st.action, "Death") and st.action ~= Coop.cfg.dropact then
         e.ForceAction = st.action
         E.applied[name] = st.action
       end
       E.driveShot(e, st, now)
+      E.driveFade(e, st, now)
     end
   end
 end
@@ -1541,6 +1622,16 @@ function E.onMessage(peer, f)
   elseif kind == "epart" and Coop.isClient() then
     E.pendingParts[#E.pendingParts + 1] = {f[2], f[3], f[4] or "", Net.CoopTime()}
     E.drainParts()
+  elseif kind == "eact" and Coop.isClient() then
+    local e = Game.GetEntity(f[2])
+    if e and (e.Life or 0) > 0 and f[3] and f[3] ~= "" and f[3] ~= Coop.cfg.dropact then
+      E.stats.actsApplied = (E.stats.actsApplied or 0) + 1
+      if e.Action ~= f[3] then e.ForceAction = f[3] end
+      E.applied[f[2]] = f[3]
+      if E.stats.actsApplied <= 60 then
+        Coop.log(string.format("boss action applied %s: %s (was %s)", f[2], f[3], tostring(e.Action)))
+      end
+    end
   elseif kind == "pdmg" then
     local usr = Game.UsrEntity(0)
     if usr and usr.Name ~= f[2] and Coop.isLocalPlayer(f[2]) then usr = Game.GetEntity(f[2]) end
@@ -1694,6 +1785,9 @@ function E.report()
   if s.partsSent or s.partsApplied or s.bombHits then
     line = line .. string.format(" parts=%d/%d seals=%d bombs=%d bombhits=%d/%d", s.partsSent or 0, s.partsApplied or 0,
       s.sealsGone or 0, s.bombsGone or 0, s.bombHitsRemoved or 0, s.bombHits or 0)
+  end
+  if s.actsSent or s.actsApplied or s.fadesFixed then
+    line = line .. string.format(" bossacts=%d/%d fades-fixed=%d", s.actsSent or 0, s.actsApplied or 0, s.fadesFixed or 0)
   end
   if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
   if E.pdmgBy then
