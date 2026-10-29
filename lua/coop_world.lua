@@ -525,6 +525,16 @@ end
 function W.setDoor(name, open)
   W.doors[name] = open
   if W.doorOpen(name) == open then return end
+  -- A door the level has deleted here (cru_river deletes StonesRiver 3 s after opening it) cannot
+  -- be opened again: PhysicsObj.OpenDoor read a nil object, 62 errors in the owner's log.
+  if not Game.GetEntity(name) then
+    if not W.doorGone then W.doorGone = {} end
+    if not W.doorGone[name] then
+      W.doorGone[name] = true
+      Coop.log("world: door " .. name .. " is gone here, not replayed")
+    end
+    return
+  end
   local f = open and W.origOpenDoor or W.origCloseDoor
   if f then
     local ok, err = pcall(f, name)
@@ -703,12 +713,20 @@ function W.applyState(text)
       fixed = fixed + 1
     end
   end
-  local extra = {}
+  local extra, here = {}, {}
   for _, item in ipairs(W.entries()) do
+    here[item] = true
     if not host[item] then extra[#extra + 1] = item end
   end
+  -- (what the host has and this machine still lacks after applying it: the other half of a mismatch)
+  local lacking = {}
+  for item in pairs(host) do
+    if not here[item] then lacking[#lacking + 1] = item end
+  end
+  table.sort(lacking)
   Coop.log("world: host state applied, " .. fixed .. " fixed" ..
-    (#extra > 0 and (", only here: " .. table.concat(extra, " ")) or ""))
+    (#extra > 0 and (", only here: " .. table.concat(extra, " ")) or "") ..
+    (#lacking > 0 and (", only on the host: " .. table.concat(lacking, " ")) or ""))
 end
 
 function W.update()

@@ -600,6 +600,78 @@ function Coop.releasePuppet(e)
   Coop.restoreAllRootMotion()
 end
 
+-- Smoothness metrics (chunk I, 2026-10-29), per kind of remote thing ("squad", "enemy", "prop"):
+-- the receive interval of its state packets (mean, deviation, max, how many were later than 0.1 s),
+-- the offset jitter the interpolation delay is built on, and, for frames where the thing is moving
+-- (>150 units/s on the sender's side), how the drawn horizontal step behaves: frames with no step,
+-- frames with a step above twice what the sender moves (+150 u/s), and the variation of the
+-- speed from frame to frame (cv = deviation / mean, 0 = perfectly even). Printed with the 100-tick
+-- report as "pm:<kind> ..." and reset there.
+Coop.mx = Coop.mx or {}
+function Coop.mxOf(kind)
+  local m = Coop.mx[kind]
+  if not m then
+    m = {pk = 0, ivS = 0, ivSS = 0, ivMax = 0, late = 0, jS = 0, jMax = 0, fr = 0, mv = 0, stall = 0,
+         spike = 0, vS = 0, vSS = 0, snaps = 0, last = {}}
+    Coop.mx[kind] = m
+  end
+  return m
+end
+
+function Coop.mxPacket(kind, iv, jit)
+  local m = Coop.mxOf(kind)
+  m.pk = m.pk + 1
+  if iv then
+    m.ivS, m.ivSS, m.ivMax = m.ivS + iv, m.ivSS + iv * iv, math.max(m.ivMax, iv)
+    if iv > 0.1 then m.late = m.late + 1 end
+  end
+  if jit then m.jS, m.jMax = m.jS + math.abs(jit), math.max(m.jMax, math.abs(jit)) end
+end
+
+-- x, z: where the thing was drawn this frame; speed: how fast the sender moves it (units/s).
+function Coop.mxFrame(kind, key, x, z, now, speed, wx, wz)
+  local m = Coop.mxOf(kind)
+  local l = m.last[key]
+  m.last[key] = {x = x, z = z, t = now}
+  if not l then return end
+  local dt = now - l.t
+  if dt <= 0 or dt > 0.5 then return end
+  m.fr = m.fr + 1
+  if speed and speed > 150 and wx then
+    -- what the engine moved the body by since it was placed (its own walking on top of the placement)
+    local es = math.sqrt((x - wx) ^ 2 + (z - wz) ^ 2)
+    m.eS, m.eMax, m.eN = (m.eS or 0) + es, math.max(m.eMax or 0, es), (m.eN or 0) + 1
+  end
+  if speed and speed > 150 then
+    local disp = math.sqrt((x - l.x) ^ 2 + (z - l.z) ^ 2)
+    local v = disp / dt
+    m.mv = m.mv + 1
+    m.vS, m.vSS = m.vS + v, m.vSS + v * v
+    if disp < 0.5 then m.stall = m.stall + 1 end
+    if v > 2 * speed + 150 then m.spike = m.spike + 1 end
+  end
+end
+
+function Coop.mxReport()
+  local out = {}
+  for kind, m in pairs(Coop.mx) do
+    if m.pk > 0 or m.fr > 0 then
+      local n = math.max(m.pk - 1, 1)
+      local mean = m.ivS / n
+      local sd = math.sqrt(math.max(m.ivSS / n - mean * mean, 0))
+      local vm = m.mv > 0 and m.vS / m.mv or 0
+      local vsd = m.mv > 0 and math.sqrt(math.max(m.vSS / m.mv - vm * vm, 0)) or 0
+      out[#out + 1] = string.format("pm:%s pk=%d iv=%.0f/%.0f/%.0fms late=%d jit=%.0f/%.0fms fr=%d mv=%d stall=%d spike=%d cv=%.2f snaps=%d eng=%.1f/%.0f/%d",
+        kind, m.pk, mean * 1000, sd * 1000, m.ivMax * 1000, m.late, m.jS / math.max(m.pk, 1) * 1000, m.jMax * 1000,
+        m.fr, m.mv, m.stall, m.spike, vm > 0 and vsd / vm or 0, m.snaps, (m.eN or 0) > 0 and m.eS / m.eN or 0, m.eMax or 0, m.eN or 0)
+      Coop.mx[kind] = nil
+      Coop.mxOf(kind).last = m.last
+    end
+  end
+  table.sort(out)
+  return table.concat(out, " ")
+end
+
 -- History of a body's states for interpolation (Coop.hist[name]): ordered by the sender's
 -- clock (st.rt); out-of-order and repeated states are dropped (a relay may reorder
 -- unreliable messages). Returns false for a dropped state.
@@ -626,6 +698,13 @@ function Coop.pushState(name, st, interval)
   local off = now - st.rt
   if not h.off or off < h.off then h.off = off else h.off = h.off + 0.001 end
   h.jit = h.jit * 0.9 + (off - h.off) * 0.1
+  if h.n > 0 and not st.noMetric then Coop.mxPacket(st.mxKind or "squad", now - h[h.n].t, off - h.off) end
+  -- Receive interval and its deviation (slow averages): the interpolation delay of "adaptive" mode.
+  if h.n > 0 then
+    local iv = now - h[h.n].t
+    h.ivMean = h.ivMean and (h.ivMean * 0.97 + iv * 0.03) or iv
+    h.ivDev = h.ivDev and (h.ivDev * 0.97 + math.abs(iv - h.ivMean) * 0.03) or 0
+  end
   h.n = h.n + 1
   h[h.n] = st
   -- About two seconds.
@@ -646,6 +725,16 @@ function Coop.puppetTarget(name, now)
   local h = Coop.hist[name]
   if not h or h.n == 0 then return nil end
   local delay = math.max(Coop.INTERP_MIN, math.min(Coop.INTERP_MAX, h.interval * 1.4 + 2 * h.jit))
+  if Coop.cfg.adaptdelay and h.ivMean then
+    -- two packets at least, more as the packets come late or unevenly; it moves slowly (a change of
+    -- the delay moves the drawn place, so it may not move faster than 0.05 s per second)
+    local want = math.max(0.1, math.min(0.3, h.ivMean + 2.5 * h.ivDev))
+    local t = Net.CoopTime()
+    local cur = h.delay or want
+    cur = cur + math.max(-0.05, math.min(0.05, want - cur)) * math.min(1, (t - (h.delayT or t)))
+    h.delay, h.delayT = cur, t
+    delay = cur
+  end
   local rr = now - h.off - delay
   local a, b = h[1], h[h.n]
   if rr <= a.rt then
@@ -989,7 +1078,7 @@ function Coop.drivePuppets(dt)
   if Scene and Scene.IsPlaying then return end
   pcall(Coop.pdStuck, Net.CoopTime())
   -- FOLLOW is the share of the error removed per 0.05 s; scale it to this frame's length.
-  local follow = 1 - (1 - Coop.FOLLOW) ^ (math.min(dt, 0.25) / 0.05)
+  local follow = 1 - (1 - (Coop.cfg.pfollow or Coop.FOLLOW)) ^ (math.min(dt, 0.25) / 0.05)
   local now = Net.CoopTime()
   local localKeys = Coop.keepLocalRootMotion()
   Coop.puppetNoCollide = Coop.puppetNoCollide or {}
@@ -1025,10 +1114,20 @@ function Coop.drivePuppets(dt)
         if d.wy and (pos.x ~= d.wx or pos.y ~= d.wy or pos.z ~= d.wz) then pdMoved(name, e, d, pos, now) end
         local dx, dy, dz = tg.x - pos.x, tg.y - pos.y, tg.z - pos.z
         local err = math.sqrt(dx * dx + dz * dz)
+        do
+          local h = Coop.hist[name]
+          local sp = 0
+          if h and h.n > 1 and h[h.n].rt > h[h.n - 1].rt then
+            local a, b = h[h.n - 1], h[h.n]
+            sp = math.sqrt((b.x - a.x) ^ 2 + (b.z - a.z) ^ 2) / (b.rt - a.rt)
+          end
+          Coop.mxFrame("squad", name, pos.x, pos.z, now, sp, d.wx, d.wz)
+        end
         local wx, wy, wz
         if err > Coop.SNAP_DIST or math.abs(dy) > Coop.SNAP_DIST then
           wx, wy, wz = tg.x, tg.y, tg.z
           Coop.snaps = (Coop.snaps or 0) + 1
+          Coop.mxOf("squad").snaps = Coop.mxOf("squad").snaps + 1
           if err > 5000 then Coop.log(string.format("puppet %s moved %.0f", name, err)) end
           pdSnap(name, e, d, tg, err, dy, pos, now)
         else
@@ -1046,8 +1145,9 @@ function Coop.drivePuppets(dt)
         -- sunk into the map). The height is the owner's, so the fall is cancelled every frame.
         if cfg.puppetfall ~= false then
           local ok, v = pcall(function() return e.Vel end)
-          if ok and v and (v.y < -20 or v.y > 20) then
-            pcall(function() e.Vel = V3D(v.x, 0, v.z) end)
+          -- (zerovel: also the horizontal part: the engine's own walking on top of the placement)
+          if ok and v and (cfg.zerovel or v.y < -20 or v.y > 20) then
+            pcall(function() e.Vel = cfg.zerovel and V3D(0, 0, 0) or V3D(v.x, 0, v.z) end)
             d.velFixed = (d.velFixed or 0) + 1
           end
         end
@@ -2326,7 +2426,8 @@ function Coop.report()
   local parts = {"f=" .. Coop.frame, "me=" .. tostring(Coop.localChar()), "own=" .. Coop.ownString(),
                  Net.CoopStatus(), "snaps=" .. (Coop.snaps or 0),
                  string.format("err_avg=%.0f err_max=%.0f", errAvg, Coop.errMax or -1),
-                 CoopEnemies and CoopEnemies.report() or "", CoopWorld and CoopWorld.report() or ""}
+                 CoopEnemies and CoopEnemies.report() or "", CoopWorld and CoopWorld.report() or "",
+                 Coop.mxReport()}
   Coop.errN, Coop.errSum, Coop.errMax = 0, 0, 0
   for _, name in ipairs(Coop.SQUAD) do
     local st = Coop.remote[name]
