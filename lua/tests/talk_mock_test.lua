@@ -337,4 +337,31 @@ run(6)
 print("12 client: " .. voices(C) .. " | host: " .. voices(H) .. " | client2: " .. voices(C2))
 assert(voices(C) == "Talk_Ross_Order,Talk_Cole_Done" and voices(H) == voices(C) and voices(C2) == voices(C), "order and answer reach everybody")
 
+-- 13. the file loaded a second (and a third) time in the same Lua state (a re-run of coop.lua within a
+-- session): the old wrappers are unwrapped, not taken for the game's functions (no recursion, one play)
+setup()
+H, C = machines.host, machines.client
+for _, m in ipairs({H, C}) do
+  local T = m.env.TeamTalk
+  local gameGeneric = m.K.origGeneric
+  for _ = 1, 2 do
+    local mf = assert(loadfile("coop_talk.lua"))
+    setfenv(mf, m.env)
+    mf()
+    m.env.CoopTalk.install()
+    m.env.CoopTalk.install()
+  end
+  assert(m.env.CoopTalk == m.K, "CoopTalk persists")
+  assert(m.K.origGeneric == gameGeneric, "the original is still the game's function, not an old wrapper")
+  assert(T.GenericTalk == m.K.wrapGeneric and T.StartTalkingLips == m.K.wrapLips, "wrappers of the last load are installed")
+  assert(m.K.reg[m.K.wrapGeneric] == gameGeneric, "registry points at the game's function")
+end
+H.env.TeamTalk.InitIncidentalChat("Chat", function() end, false)
+run(8)
+print("13 host:   " .. voices(H))
+print("13 client: " .. voices(C))
+assert(voices(H) == "Chat0,Chat1,Chat2", "host plays the chat once after reloads: " .. voices(H))
+assert(voices(C) == "Chat0,Chat1,Chat2", "client plays the chat once after reloads: " .. voices(C))
+assert(#H.log > 0 and not string.find(table.concat(H.log, "\n"), "stack overflow"), "no overflow")
+
 print("talk mock test: OK")

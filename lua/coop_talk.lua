@@ -297,38 +297,62 @@ function K.wrapNext(...)
   return K.origNext(...)
 end
 
+-- Installing is robust against this file running a second time in the same Lua state (CoopTalk
+-- persists, the functions below are new objects at every load): K.reg maps every wrapper this file
+-- ever put into TeamTalk to the function it wrapped, so a wrapper of an earlier load found in
+-- TeamTalk is unwrapped to the game's own function first (else it would become the "original" of
+-- the new one and the two would call each other). MINE holds this load's wrappers.
+K.reg = K.reg or {}
+local MINE = {}
+local WRAPPED = {   -- TeamTalk field, wrapper, field of K that keeps the original
+  {"OnEndTalk", "wrapEnd", "origEnd"},
+  {"NextChat", "wrapNext", "origNext"},
+  {"GenericTalk", "wrapGeneric", "origGeneric"},
+  {"StartTalkingLips", "wrapLips", "origLips"},
+}
+
+local function unwrap(fn)
+  for _ = 1, 20 do
+    local o = K.reg[fn]
+    if not o then break end
+    fn = o
+  end
+  return fn
+end
+
 function K.install()
   local T = TeamTalk
   if not T or not T.GenericTalk or not T.StartTalkingLips then return end
-  if T.OnEndTalk and T.OnEndTalk ~= K.wrapEnd and T.OnEndTalk ~= K.traceEnd then
-    K.origEnd = T.OnEndTalk
-    T.OnEndTalk = K.wrapEnd
+  for _, w in ipairs(WRAPPED) do
+    local cur = T[w[1]]
+    if cur and not MINE[cur] then
+      local orig = unwrap(cur)
+      local wrapper = K[w[2]]
+      K[w[3]] = orig
+      T[w[1]] = wrapper
+      K.reg[wrapper] = orig
+      MINE[wrapper] = true
+    end
   end
-  if T.NextChat and T.NextChat ~= K.wrapNext and T.NextChat ~= K.traceNext then
-    K.origNext = T.NextChat
-    T.NextChat = K.wrapNext
-  end
-  if T.GenericTalk ~= K.wrapGeneric then
-    K.origGeneric = T.GenericTalk
-    T.GenericTalk = K.wrapGeneric
-  end
-  if T.StartTalkingLips ~= K.wrapLips then
-    K.origLips = T.StartTalkingLips
-    T.StartTalkingLips = K.wrapLips
-  end
-  if cfg.talklog and T.NextChat and T.OnEndTalk and T.NextChat ~= K.traceNext then
+  if cfg.talklog and T.NextChat == K.wrapNext then
     -- tracing (cfg.talklog): when the chat's steps run and what the talk state is
-    local oN, oE = T.NextChat, T.OnEndTalk
+    local oN = T.NextChat
     K.traceNext = function(...)
       Coop.log(string.format("talk trace NextChat: EndTalkFunc=%s remain=%s idx=%s", tostring(T.EndTalkFunc ~= nil),
         tostring(Game.Get("RemainTalkTime")), tostring(T.iChatData)))
       return oN(...)
     end
+    K.reg[K.traceNext], MINE[K.traceNext] = oN, true
+    T.NextChat = K.traceNext
+  end
+  if cfg.talklog and T.OnEndTalk == K.wrapEnd then
+    local oE = T.OnEndTalk
     K.traceEnd = function(...)
       Coop.log(string.format("talk trace OnEndTalk: EndTalkFunc=%s", tostring(T.EndTalkFunc == K.traceNext and "NextChat" or T.EndTalkFunc ~= nil)))
       return oE(...)
     end
-    T.NextChat, T.OnEndTalk = K.traceNext, K.traceEnd
+    K.reg[K.traceEnd], MINE[K.traceEnd] = oE, true
+    T.OnEndTalk = K.traceEnd
   end
   if not K.logged then
     K.logged = true
