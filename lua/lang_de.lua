@@ -145,6 +145,8 @@ return {
     struggle = "Das Blutband hält Sie fest.\nHalten Sie E gedrückt, um sich zu befreien (%d%%)",
   },
   ["CoopStory.TEXT"] = {
+    takes = "%s: das Team übernimmt - Ihre Figur geht weiter",
+    turnhold = "%s: gehen Sie zur markierten Stelle (%d m) und handeln Sie dort - die Geschichte wartet auf Sie",
     here = "%s: setzen Sie jetzt Ihre Kraft ein (oder warten Sie kurz)",
     turn = "%s: gehen Sie zur markierten Stelle (%d m) und setzen Sie dort Ihre Kraft ein\noder warten Sie - das Team erledigt es in %d s",
   },

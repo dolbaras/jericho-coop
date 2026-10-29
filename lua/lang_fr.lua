@@ -145,6 +145,8 @@ return {
     struggle = "Le lien de sang vous retient.\nMaintenez E pour vous libérer (%d%%)",
   },
   ["CoopStory.TEXT"] = {
+    takes = "%s : l'escouade prend le relais - votre personnage avance",
+    turnhold = "%s : allez à l'endroit marqué (%d m) et agissez - l'histoire vous attend",
     here = "%s: utilisez votre pouvoir maintenant (ou attendez un instant)",
     turn = "%s: allez au lieu marqué (%d m) et utilisez-y votre pouvoir\nou attendez - la section le fera dans %d s",
   },

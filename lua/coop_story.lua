@@ -44,6 +44,10 @@ function St.installWalks()
     if not Coop.inSession() then return orig(nameEnt, pos, posEnd, funcExec, velocity) end
     if Coop.isHost() then
       local remote = Coop.isRemoteOwned(nameEnt)
+      -- A body a human holds on the host itself (player 1): offered the walk like a client's
+      -- (owner's rule: character actions go to the players first). Not split screen player 2.
+      local held = remote or (nameEnt == Coop.localChar() and Coop.owners[nameEnt] ~= nil and
+                               CoopEnemies and CoopEnemies.playerCount and CoopEnemies.playerCount() > 1)
       local walk = function()
         if remote then St.drive(nameEnt, true) end
         local done = function(ent, ...)
@@ -56,7 +60,8 @@ function St.installWalks()
       -- A step that only turns a human's body toward something (its destination is where the
       -- body stands: wwii_pillboxes' conversation looks at each speaker) is no turn for its
       -- player and no AI drive: the player looks themselves, the story goes on at once.
-      if remote and St.isLookAt(nameEnt, pos) then
+      if held and St.isLookAt(nameEnt, pos) then
+        if not remote then St.orient(nameEnt, posEnd) end
         Coop.log("story: " .. nameEnt .. " looks (left to its player)")
         Net.CoopSend(-1, 1, "sdone|" .. nameEnt)
         if funcExec then
@@ -68,7 +73,7 @@ function St.installWalks()
       -- A body a human holds: its player's turn first (St.startTurn), the walk if they do not.
       -- (only another machine's body: a step that walks "the player" runs on every machine for
       -- its own body, and the host's own body walks as before)
-      if remote and St.startTurn(nameEnt, pos, posEnd, funcExec, walk) then return end
+      if held and St.startTurn(nameEnt, pos, posEnd, funcExec, walk) then return end
       return walk()
     end
     -- Client (story code replayed, or run by MapInit): the arrival function waits for the
@@ -83,8 +88,13 @@ function St.installWalks()
       end
       return
     end
+    -- A step that walks "the player" (MapInit.player / EPlayer) walks the host's player: another
+    -- player's body is not dragged along with it, its arrival function runs when the host's walk is over.
+    local playerStep = nameEnt == Coop.localChar() and St.isPlayerStep(nameEnt) and Coop.cfg.playerwalk ~= true
     St.pending[nameEnt] = {func = funcExec, args = {nameEnt, pos, posEnd, funcExec, velocity},
-                           t = Net.CoopTime(), mine = nameEnt == Coop.localChar()}
+                           t = Net.CoopTime(), mine = nameEnt == Coop.localChar() and not playerStep,
+                           playerStep = playerStep}
+    if playerStep then Coop.log("story: a step that walks the player: my body " .. nameEnt .. " is not walked, its arrival waits for the host's") end
   end
   St.origWalk = orig
   -- Scripts may end a walk early with its arrival function cleared
@@ -103,6 +113,17 @@ St.WAIT = 0.6
 St.pending = {}
 St.LOOK_AT = 120      -- a walk whose destination is this close to the body: a look-at
 St.FAR_WALK = 1500    -- this machine's own body walked by its AI from farther: starts nearer
+
+-- A step that names "the player" (levels read it from MapInit.player / MapInit.EPlayer) and not a
+-- squad member: the story's player is whoever those hold on this machine.
+function St.isPlayerStep(name)
+  if not MapInit then return false end
+  for _, k in ipairs({"player", "EPlayer"}) do
+    local ok, n = pcall(function() local p = MapInit[k] return p and p.Name end)
+    if ok and n == name then return true end
+  end
+  return false
+end
 
 function St.isLookAt(name, pos)
   local e = Game.GetEntity(name)
@@ -149,7 +170,13 @@ end
 
 function St.onDone(name)
   local p = St.pending[name]
-  if not p then return end
+  if not p then
+    -- the host's player finished the walk this client's replay did not do for its own body
+    for n, q in pairs(St.pending) do
+      if q.playerStep then St.onDone(n) end
+    end
+    return
+  end
   St.pending[name] = nil
   local e = Game.GetEntity(name)
   if p.func and e then
@@ -184,7 +211,7 @@ function St.onMessage(peer, f)
     -- (a turn that ended no longer stands for the body's next walks: St.clientWalks)
     if secs <= 0 and St.turnFor then St.turnFor[f[2]] = nil end
     if secs > 0 and x and Coop.isLocalBody(f[2]) then
-      St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs}
+      St.myTurn = {name = f[2], pos = V3D(x, y, z), deadline = Net.CoopTime() + secs, hold = secs > 600}
       -- The same step replayed here would walk this body by its AI in a moment: the player
       -- walks it (its arrival function still runs at the host's sdone).
       local p = St.pending[f[2]]
@@ -209,6 +236,7 @@ function St.onMessage(peer, f)
   if f[1] ~= "sdrive" or not Coop.isClient() or peer ~= 0 then return false end
   local name, on = f[2], f[3] == "1"
   Coop.storyDriven[name] = on or nil
+  if on and Coop.isLocalBody(name) and name == Coop.localChar() then St.say("takes", name) end
   if Coop.isLocalBody(name) then   -- (its split screen player's too)
     local usr = Game.GetEntity(name)
     if usr then
@@ -620,24 +648,31 @@ end
 --   sturn|<char>|x|y|z|<seconds>   host -> all (0 seconds: over)
 --   sturndone|<char>               the body's machine -> host
 ------------------------------------------------------------------------------
-St.TURN_TIME = 25
+St.TURN_TIME = tonumber(Coop.cfg.turntime) or 25   -- (cfg.turntime: tests)
+St.TURN_FOREVER = 3600   -- "players only" (lobby: character actions): the story waits for the player
 St.TURN_NEAR = 320
 St.TURN_STAND = 2
 St.turns = {}
 St.TEXT = {
   en = {turn = "%s: go to the marked place (%d m) and use your power there\nor wait - the squad does it in %d s",
-        here = "%s: use your power now (or wait a moment)"},
+        here = "%s: use your power now (or wait a moment)",
+        turnhold = "%s: go to the marked place (%d m) and act there - the story waits for you",
+        takes = "%s: the squad takes over - your character walks on"},
   ru = {turn = "%s: подойдите к месту (%d м) и примените там способность\nили ждите - отряд сделает это через %d с",
-        here = "%s: примените способность (или подождите секунду)"},
+        here = "%s: примените способность (или подождите секунду)",
+        turnhold = "%s: подойдите к месту (%d м) и действуйте там - история ждёт вас",
+        takes = "%s: отряд берёт управление на себя - персонаж идёт дальше"},
 }
 
 function St.startTurn(name, pos, posEnd, funcExec, walk)
-  if (Coop.cfg.actmode or "players") == "ai" or Coop.cfg.storyturn == false then return false end
+  local mode = Coop.cfg.actmode or "players"
+  if mode == "ai" or Coop.cfg.storyturn == false then return false end
+  local secs = mode == "humans" and St.TURN_FOREVER or St.TURN_TIME
   St.turns[name] = {pos = pos, posEnd = posEnd, func = funcExec, walk = walk,
-                    deadline = Net.CoopTime() + St.TURN_TIME}
-  Net.CoopSend(-1, 1, string.format("sturn|%s|%.0f|%.0f|%.0f|%d", name, pos.x, pos.y, pos.z, St.TURN_TIME))
+                    deadline = Net.CoopTime() + secs}
+  Net.CoopSend(-1, 1, string.format("sturn|%s|%.0f|%.0f|%.0f|%d", name, pos.x, pos.y, pos.z, secs))
   if name == Coop.localChar() then
-    St.myTurn = {name = name, pos = pos, deadline = Net.CoopTime() + St.TURN_TIME}
+    St.myTurn = {name = name, pos = pos, deadline = Net.CoopTime() + secs, hold = secs > 600}
   end
   Coop.log("story: " .. name .. "'s player gets the turn")
   return true
@@ -663,6 +698,7 @@ function St.finishTurn(name, who)
     end
   else
     Coop.log("story: " .. name .. "'s player did not come, the AI walks")
+    if name == Coop.localChar() then St.say("takes", name) end
     turn.walk()
   end
 end
@@ -678,6 +714,14 @@ local function turnText(key, ...)
   local lang = Coop.lang()
   -- (the template converted first: the names put in are the game's own text already)
   return string.format(Coop.enc((St.TEXT[lang] or St.TEXT.en)[key], lang), ...)
+end
+
+-- A short hint on this machine's screen (the body's player).
+function St.say(key, name)
+  St.turnText = true
+  local who = Coop.charName and Coop.charName(name) or name
+  pcall(Scorer.SetMsgText, turnText(key, who), Game.GetTime() + 4)
+  Coop.log("story: hint " .. key .. " for " .. tostring(name))
 end
 
 -- The body's own machine: the hint, and done once the body is there and uses a power (or
@@ -698,8 +742,9 @@ function St.updateMyTurn()
     turn.since = nil
     if Coop.frame % 10 == 0 then
       St.turnText = true
-      pcall(Scorer.SetMsgText, turnText("turn", who, math.floor(d / 100 + 0.5),
-        math.max(0, math.floor(turn.deadline - now))), Game.GetTime() + 2)
+      local txt = turn.hold and turnText("turnhold", who, math.floor(d / 100 + 0.5)) or
+        turnText("turn", who, math.floor(d / 100 + 0.5), math.max(0, math.floor(turn.deadline - now)))
+      pcall(Scorer.SetMsgText, txt, Game.GetTime() + 2)
     end
     return
   end
