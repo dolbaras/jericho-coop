@@ -2248,6 +2248,7 @@ function Coop.update()
     end
   end
   if CoopTalk then pcall(CoopTalk.update) end
+  if CoopCtl then pcall(CoopCtl.update) end
   if CoopSession and Coop.inSession() then
     local ok, err = pcall(CoopSession.update)
     if not ok and (Coop.sessionErrors or 0) < 5 then
@@ -2404,6 +2405,8 @@ if Coop.level ~= "levels/menu" then
   if not ok then Coop.log("talk load error: " .. tostring(err)) end
   ok, err = pcall(dofile, COOP_DIR .. "coop_anim.lua")
   if not ok then Coop.log("anim load error: " .. tostring(err)) end
+  ok, err = pcall(dofile, COOP_DIR .. "coop_ctl.lua")
+  if not ok then Coop.log("ctl load error: " .. tostring(err)) end
   if cfg.storyline then
     ok, err = pcall(dofile, COOP_DIR .. "coop_storysolo.lua")
     if not ok then Coop.log("story solo load error: " .. tostring(err)) end
