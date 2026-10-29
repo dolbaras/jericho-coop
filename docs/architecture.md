@@ -614,6 +614,11 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   agony (`Soldier.OnDeath` replica after 0.6 s), one `Team.RevivePlayer` per revive (`A.revive`, called by
   `CoopTeam.syncPuppetLife`), one-shot actions of the owner's body (`A.ONESHOT`: hits, reloads, hacks,
   powers) played once through `ForceAction`. Test: `lua/tests/anim_mock_test.lua`, `labnimtest.sh`.
+- **`coop_ctl.lua`** (`CoopCtl`, `C`): diagnostics of who drives a body a human holds (owner's bug 7, "the body walks by itself").
+  One `ctl:` log line whenever a held body's owner, UsrControl, oAI.bEnable, bActive, input lock, AI objective or puppet
+  state changes, and `ctl: X moves by itself` when a body this machine's human holds travels more than 70 units/s for
+  a second while this machine's pad/keyboard shows no move input (with the drivers it could have: story walk, squad
+  leader, puppet state, last position writer, scene). `cfg.ctldiag = false` switches it off. Lab: `lab\ctltest.sh`.
 - **`coop_storysolo.lua`** (`CoopStorySolo`): one story line alone (`SS.LINES`: level, char,
   spawn, timed or event-driven steps that call the main line's story functions). Started by
   `tools/storylines.ps1` with `cfg.storyline`.
