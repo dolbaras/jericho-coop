@@ -186,7 +186,7 @@ end
 function A.syncFP(e, name, st)
   local fpa = st.fpa
   local s = stOf(name)
-  if type(fpa) ~= "string" or fpa == s.lastFpa then return end
+  if type(fpa) ~= "string" or fpa == "-" or fpa == s.lastFpa then return end
   s.lastFpa = fpa
   local act = string.match(fpa, "^%d+_(.+)$") or fpa
   -- (what Coop.mirrorArms maps itself is its to play)

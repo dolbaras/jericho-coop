@@ -146,6 +146,9 @@ function P.installAbby()
       return false
     end
     local abby = origStart(name, ...)
+    if char and Coop.inSession() and not P.replaying and Coop.cfg.dev then
+      Coop.log("powers: AbabaniliStart for " .. char.Name .. ": spirit " .. tostring(abby and abby.Name) .. ", tells " .. tostring(tells(char)))
+    end
     if abby and char and tells(char) then
       local ok, tgt = pcall(function() return abby.oAI.oTarget.Name end)
       relay("abby|" .. char.Name .. "|" .. tostring(ok and tgt or ""))
