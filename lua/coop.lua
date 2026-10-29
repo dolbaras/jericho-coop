@@ -448,10 +448,13 @@ function Coop.stateOf(e)
   if Coop.isHost() and not Coop.isRemoteOwned(e.Name) and not (Scene and Scene.IsPlaying) then
     on = e.bActive == false and "0" or "1"
   end
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s",
+  -- (the 20th field: the body's floor distance, standing or crouched: the feet are Pos.y - FloorDist,
+  -- so a puppet needs the owner's value to stand on the same floor)
+  local okfd, fd = pcall(function() return tonumber(e.FloorDist) end)
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s|%.1f",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
-    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on)
+    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on, okfd and fd or 0)
 end
 
 -- A puppet of a body the host runs is switched on or off as there: host-only story code
@@ -927,17 +930,25 @@ end
 Coop.floorBase = Coop.floorBase or {}   -- name -> standing FloorDist, recorded while the body stands
 Coop.floorSet = Coop.floorSet or {}     -- name -> true while this driver has changed it
 Coop.CROUCH_DISP = 60
-function Coop.syncFloorDist(e, name, act)
+function Coop.syncFloorDist(e, name, act, ownerFd)
   if cfg.puppetfloor == false then return end
   local ok, fd = pcall(function() return tonumber(e.FloorDist) end)
   if not ok or not fd then return end
-  local duck = string.find(tostring(act), "^Duck") ~= nil
-  if not duck and not Coop.floorSet[name] then Coop.floorBase[name] = fd end
-  local base = Coop.floorBase[name] or 129.09
-  local want = duck and base - Coop.CROUCH_DISP or base
+  local want
+  if ownerFd then
+    -- the owner's own value (any stance); the standing one is the larger
+    want = ownerFd
+    if not Coop.floorBase[name] or ownerFd > Coop.floorBase[name] then Coop.floorBase[name] = ownerFd end
+  else
+    -- an owner that does not send it (an older version): crouched by the action's name
+    local duck = string.find(tostring(act), "^Duck") ~= nil
+    if not duck and not Coop.floorSet[name] then Coop.floorBase[name] = fd end
+    local base = Coop.floorBase[name] or 129.09
+    want = duck and base - Coop.CROUCH_DISP or base
+  end
   if math.abs(fd - want) > 0.5 then
     pcall(function() e.FloorDist = want end)
-    Coop.floorSet[name] = duck or nil
+    Coop.floorSet[name] = true
   end
 end
 
@@ -1020,7 +1031,7 @@ function Coop.drivePuppets(dt)
         e.InCtrl_Str = tg.st.str
         e.InCtrl_Sprint = tg.st.sprint
         Coop.syncCrouch(e, name, tg.st)
-        Coop.syncFloorDist(e, name, tg.st.action)
+        Coop.syncFloorDist(e, name, tg.st.action, tg.st.fd)
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1
@@ -1165,6 +1176,8 @@ function Coop.onMessage(peer, data)
       fpa = f[18],
     }
     if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
+    local fd = tonumber(f[20])
+    if fd and fd > 1 then st.fd = fd end
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
   elseif kind == "hp" and Coop.isClient() then
