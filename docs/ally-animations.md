@@ -22,7 +22,7 @@ first-person arms start `Combo<a>Hit<b>`, `Punch*`, `Reload*`, `Spell*`, `Hack*`
 owner's `e.Action`, 20 Hz) was otherwise ignored. Bodies of the host's AI have no first-person arms: their
 reloads, punches and hit reactions were never shown on clients. `CoopTeam.syncPuppetLife` only set `Life = 0`
 for a downed owner: the engine plays a death only on a killing hit (it calls the class's `OnDeath`), so the
-puppet kept standing (to be confirmed by the live check in section 3). Other players' first-person
+puppet kept standing (the live check, section 3, did not confirm this: the engine does call `OnDeath` on a puppet, a frame or two after `Life = 0`). Other players' first-person
 animations are deliberately dropped at `MakeFP.LaunchFpsAnm` (`coop_world.lua:installFPAnm`): a
 first-person animation only exists on its own player's arms.
 
@@ -88,6 +88,23 @@ on purpose; what other players should see is the third-person action in the tabl
   play of the same strike/reload. Actions that are neither locomotion nor known are logged once per body
   (`anim: <Body>:<Action> seen on the owner's body, not mirrored`): the list for the next slices.
 - Switches: `cfg.animmirror = false` (no one-shots), `cfg.animlog = true` (log everything).
+
+### Live check (pair N100 host + main PC client, WWII_Vigil, `labnimtest.sh`, 2026-10-28/29)
+
+- Host console sets `Life = 0` on the AI body Rawlings (nobody else revives): the client's puppet of it lies in
+  Agony for the 6 s watched and gets up after the host's `Team.RevivePlayer` (log lines `Action`/`Life` per
+  second, frame sheet `workuns\cap2-down.png`: the small figure on the ground). With the replica switched
+  off (`animdown=false`, run a5) the puppet falls just the same, with its own random variant (Agony2 where the
+  host's body has Agony): so the engine plays the death on a puppet; the owner's "stand instead of fall" is not
+  reproduced for downed bodies. The replica waits 0.6 s for the engine and only acts on a body left standing
+  (it acted at once in run a2 and overrode the engine's variant: fixed).
+- The client's own body downed (`Life = 0` on the client): the host's puppet of it goes into Agony and the
+  player moves into another body (`downed: Jones -> moved into Black`).
+- One-shots (run a4: host `ForceAction` on AI bodies): the client logs `anim: Church plays HitStrong`, `Black
+  plays Reload`, `Delgado plays Punch`, `Cole plays Reequip`, `Rawlings plays Reload` and Cole's `Action`
+  reads `Reequip` there (a one-shot lasts about a second: the console sample can miss it).
+- What the owner saw as "wounded squad members stand" is therefore most likely the AI bodies' hit reactions and
+  reloads (never mirrored before this slice), not the downed state.
 
 ## 4. Still open (next slices)
 

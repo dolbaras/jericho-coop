@@ -402,7 +402,7 @@ Payload fields follow the kind, `|`-separated, in the order given.
 | `lpc` | hub → all | R | | `coop_patrol.lua:LP.offer` (trio players choose) |
 | `lpr` | client → hub | R | 1 main group / 2 trio | `LP.onMessage`: `cfg.patrol` |
 | `lpt` | side authority → side members | R | | `LP.showTaken` |
-| `talk` | host → all | R | voice id, speaker (entity name or `-`), filtered 0/1, show 0/1 | `coop_talk.lua:K.onMessage` (client): the line through the game's own `GenericTalk` + `StartTalkingLips`, subtitle and radio filter worked out locally (module map) |
+| `talk` | host → all; client → host (a line its own body said) | R | voice id, speaker (entity name or `-`), filtered 0/1, show 0/1, origin peer (relayed lines only) | `coop_talk.lua:K.onMessage`: a client plays the host's line through the game's own `GenericTalk` + `StartTalkingLips`, subtitle and radio filter worked out locally; the host relays a client's line to all (the origin ignores it) and plays it when its voice channel is free (module map) |
 | `~r`, `~f`, `~c` | see 3.4 | as wrapped | | `coop_inst.lua:I.recv`, `I.onControl` |
 
 `dev.lua` sends nothing of its own except a test `pw|jt`.
@@ -603,10 +603,17 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   the speaker. A line waits (up to 2.5 s) for the voice channel. A client's local chat chain
   (`TeamTalk.NextChat`, whose end callback runs the chat's continuation) stays alive: a played host line
   keeps `TeamTalk.EndTalkFunc` when it is `NextChat`; a dropped chat line the host never answers is played
-  from the local text after 1.5 s; a stale `EndTalkFunc` left by a dropped bark is cleared. Lines a client
-  would say itself (its spirit entering a body, its own reload bark) are dropped. Test:
+  from the local text after 1.5 s; a stale `EndTalkFunc` left by a dropped bark is cleared. A line a client's own
+  body says (its spirit entering a body, its own reload bark, the answer to its order: `Coop.isLocalBody`
+  speaker, not in a replay) is played at once there and sent to the host (`K.localSay`); the same voice
+  within 3 s is one line. Test:
   `lua/tests/talk_mock_test.lua` (the real `teamtalk.lua` on two simulated machines),
   `lab	alktest.sh` (pair).
+- **`coop_anim.lua`** (`CoopAnim`, `A`): what other bodies do, seen here (`docs/ally-animations.md`): per
+  puppet and frame from `Coop.drivePuppets` (`A.sync`): a downed puppet the engine left standing is put into
+  agony (`Soldier.OnDeath` replica after 0.6 s), one `Team.RevivePlayer` per revive (`A.revive`, called by
+  `CoopTeam.syncPuppetLife`), one-shot actions of the owner's body (`A.ONESHOT`: hits, reloads, hacks,
+  powers) played once through `ForceAction`. Test: `lua/tests/anim_mock_test.lua`, `labnimtest.sh`.
 - **`coop_storysolo.lua`** (`CoopStorySolo`): one story line alone (`SS.LINES`: level, char,
   spawn, timed or event-driven steps that call the main line's story functions). Started by
   `tools/storylines.ps1` with `cfg.storyline`.
