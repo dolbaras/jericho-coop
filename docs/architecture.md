@@ -381,7 +381,10 @@ Payload fields follow the kind, `|`-separated, in the order given.
 
 | Kind | From → to | | Payload | Handled in |
 |---|---|---|---|---|
-| `spc` | host → all | R | split id (`G8`, `G10`) | `Sp.offer`: choose 1 take / 2 stay |
+| `chs` | host → all | R | split id (`G8`, `G10`, `LP`), seconds, owner ids | `coop_choice.lua:C.onMessage`: the shared "choose your squad" screen opens ([split-choice.md](split-choice.md)) |
+| `chp` | player → host | R | split id, group index, confirmed 0/1 | `C.setPick` (the sender's own player) |
+| `chst` | host → all | R | split id, `owner:group:confirmed;...` | `C.applyState`: who points where, on every change and once a second |
+| `chr` | host → all | R | split id, `owner:char:reason;...` | `C.onResult`: the one-line explanation, the screen closes. Moves go as `evict` first (owners rewritten at once) |
 | `spn` | host → all | R | text key, chars | `Sp.showNotice` for the players holding those chars |
 | `sps` | host → all (again every 10 s) | R | level, split id or `-`, side A chars, side B chars | `Sp.applySides` (downed players move only within their side) |
 | `spcrank` | host → all | R | | `Sp.G11crank` |
@@ -399,7 +402,6 @@ Payload fields follow the kind, `|`-separated, in the order given.
 | `actreq` | host → all | R | gate, char (`-` none), what (`ai` = the AI does it), seconds (0 closed, -1 no limit) | `coop_claim.lua:C.onMessage` |
 | `sqo` | team leader's machine → host | R | `Alpha`/`Omega`, `follow`/`hold` | `coop_squad.lua:Q.onMessage`: applied if the sender's player leads that team |
 | `cp` | host → all | R | | `coop_save.lua:CS.onMessage`: checkpoint hint, ammo refill, SMOD heal |
-| `lpc` | hub → all | R | | `coop_patrol.lua:LP.offer` (trio players choose) |
 | `lpr` | client → hub | R | 1 main group / 2 trio | `LP.onMessage`: `cfg.patrol` |
 | `lpt` | side authority → side members | R | | `LP.showTaken` |
 | `talk` | host → all; client → host (a line its own body said) | R | voice id, speaker (entity name or `-`), filtered 0/1, show 0/1, origin peer (relayed lines only) | `coop_talk.lua:K.onMessage`: a client plays the host's line through the game's own `GenericTalk` + `StartTalkingLips`, subtitle and radio filter worked out locally; the host relays a client's line to all (the origin ignores it) and plays it when its voice channel is free (module map) |
@@ -614,6 +616,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   agony (`Soldier.OnDeath` replica after 0.6 s), one `Team.RevivePlayer` per revive (`A.revive`, called by
   `CoopTeam.syncPuppetLife`), one-shot actions of the owner's body (`A.ONESHOT`: hits, reloads, hacks,
   powers) played once through `ForceAction`. Test: `lua/tests/anim_mock_test.lua`, `labnimtest.sh`.
+- **`coop_choice.lua`** (`CoopChoice`, `C`): the shared squad choice at a story split ([split-choice.md](split-choice.md)). `C.DEFS` (G8, G10, LP: groups of characters), `C.request(id, resume)` / `C.gate(id, fn, when)` hold a split's start on the host (`Sp.gate` wraps the `MapCallbacks` entries, `coop_patrol.lua` wraps `Scene.PlayFP("BridgeCollapses")`), the screen is text rows (`C.draw`, input by pad/arrows/digits, `C.press` for bots), `C.resolve` turns the picks into moves (keepers, free bodies, swaps through one owner-table rewrite plus `evict`, reasons `full`/`host`). One human or fewer than two groups: no screen. Test: `lua/tests/choice_mock_test.lua`, `lab/choicetest.sh`.
 - **`coop_spectate.lua`** (`CoopSpectate`, `S`): the spectator camera of a downed player (`CoopTeam.down`, all living bodies held by other players): own FCam `CoopSpecCam`, third person behind the watched body's shoulder, smoothed, kept out of walls with `Game.TestLine`, a caption with the nickname (its nameplate is off), A/D / left stick / arrows / fire switch the watched player, mouse / right stick orbit, automatic switch when the watched body dies, normal camera back on revive, scene or level change; split screen keeps the old MainCam targets (`T.watchPartner`). Per-frame hook in `Coop.frameUpdate`; test `lab/spectest.sh`.
 - **`coop_ctl.lua`** (`CoopCtl`, `C`): diagnostics of who drives a body a human holds (owner's bug 7, "the body walks by itself").
   One `ctl:` log line whenever a held body's owner, UsrControl, oAI.bEnable, bActive, input lock, AI objective or puppet

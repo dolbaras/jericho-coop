@@ -2568,6 +2568,8 @@ if CoopSave and Coop.inSession() and Coop.level ~= "levels/menu" then CoopSave.b
 Coop.log("coop.lua loaded level=" .. Coop.level .. " role=" .. tostring(cfg.role) .. " " .. status)
 
 function Coop.menuLoad()
+  ok, err = pcall(dofile, COOP_DIR .. "coop_choice.lua")
+  if not ok then Coop.log("choice load error: " .. tostring(err)) end
   cfg.loaded = true
   -- Tests: start the level at a given spawn point (checkpoint).
   if cfg.dev and cfg.prespawn then

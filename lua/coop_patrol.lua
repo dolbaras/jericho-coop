@@ -9,8 +9,7 @@
 --   main group in cru_chapel     -> merge: everyone in the main chapel, TheRescue plays
 -- Each segment can be cut at any moment by the main group's progress: the children close
 -- in, the screen goes dark, the next segment starts.
---   lpc|                     hub -> all: the bridge is falling, trio players choose
---   lpr|<1 main / 2 trio>    player -> hub
+--   lpr|<1 main / 2 trio>    player -> hub (old choice, kept for tests; the screen is coop_choice.lua)
 
 CoopPatrol = CoopPatrol or {}
 local LP = CoopPatrol
@@ -47,34 +46,28 @@ function LP.text(key)
 end
 
 ------------------------------------------------------------------------------
--- The choice (every machine for its own player; the hub collects)
+-- The choice: the shared screen of coop_choice.lua (every human, the host included, but see
+-- CoopChoice.HOST_PINNED_LP). Its result decides who plays the trio (cfg.patrol).
 ------------------------------------------------------------------------------
 
-function LP.offer()
-  local me = Coop.localChar()
-  if Coop.isHost() or not me or not LP.TRIO[me] then return end   -- the host stays (campaign save)
-  LP.choice = {untilT = Net.CoopTime() + LP.CHOICE_TIME}
-end
-
-function LP.updateChoice()
-  local c = LP.choice
-  if not c then
-    Coop.textBlockHide("CoopPatrol")
-    return
+-- Hub: after the screen, the machines whose players picked the trio (their bodies are Jones,
+-- Cole or Rawlings by now) go to the side instance when the main group reaches Cru_Labyrinth.
+function LP.chosenTrio()
+  local r = CoopChoice and CoopChoice.result
+  if not r or not r.want then return end
+  local ids = {}
+  for owner, g in pairs(r.want) do
+    if g == 2 and owner ~= 0 then
+      local peer = Coop.peerOf(owner)
+      if peer and peer ~= 0 then ids[#ids + 1] = tostring(peer) end
+    end
   end
-  local left = math.ceil(c.untilT - Net.CoopTime())
-  local pick
-  if Net.CoopKey(0x31) == 1 then pick = 1 elseif Net.CoopKey(0x32) == 1 or left <= 0 then pick = 2 end
-  if cfg.lpchoice then pick = cfg.lpchoice end   -- tests
-  if pick then
-    LP.choice = nil
-    Coop.textBlockHide("CoopPatrol")
-    Net.CoopSend(0, 1, "lpr|" .. pick)
-    Coop.log("patrol: chose " .. (pick == 2 and "the Lost Patrol" or "the main group"))
-    return
+  table.sort(ids)
+  if #ids > 0 then
+    cfg.patrol = table.concat(ids, ",")
+    Coop.rearm()
   end
-  Coop.textBlock("CoopPatrol", string.format(LP.text("choose"), math.max(left, 0)),
-    {y = 90, color = Color(255, 220, 160, 255)})
+  Coop.log("patrol: the trio's players: " .. (cfg.patrol or "none"))
 end
 
 ------------------------------------------------------------------------------
@@ -95,9 +88,15 @@ function LP.installHub()
   if Scene and Scene.PlayFP then
     local origFP = Scene.PlayFP
     Scene.PlayFP = function(class, ...)
-      if class == "BridgeCollapses" and Coop.inSession() and Coop.isHost() and not LP.asked then
+      if class == "BridgeCollapses" and Coop.inSession() and Coop.isHost() and not LP.asked and CoopChoice then
         LP.asked = true
-        Net.CoopSend(-1, 1, "lpc|")
+        -- the scene waits for the choice screen
+        local args = {n = select("#", ...), ...}
+        CoopChoice.request("LP", function()
+          LP.chosenTrio()
+          return origFP(class, unpack(args, 1, args.n))
+        end)
+        return
       end
       return origFP(class, ...)
     end
@@ -371,10 +370,7 @@ if CoopEnemies then
 end
 
 function LP.onMessage(peer, f)
-  if f[1] == "lpc" and Coop.isClient() and peer == 0 then
-    LP.offer()
-    return true
-  elseif f[1] == "lpr" and Coop.isHost() and not cfg.inst then
+  if f[1] == "lpr" and Coop.isHost() and not cfg.inst then
     if f[2] == "2" then
       local ids = {}
       for id in string.gmatch(cfg.patrol or "", "%d+") do if tonumber(id) ~= peer then ids[#ids + 1] = id end end
@@ -398,7 +394,6 @@ function LP.update()
   elseif Coop.isHost() then
     LP.installHub()
   end
-  LP.updateChoice()
 end
 
 -- Side machines: the hub's "main group changed level" (coop_inst ~c|main) drives the segments.

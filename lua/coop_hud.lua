@@ -151,6 +151,7 @@ function H.update()
   local black = CoopEnemies and (CoopEnemies.fpBlackT or CoopEnemies.curtain)
   -- Nor over a menu (pause, help): the world goes on behind it in a session.
   local menu = Input.GetActionSet and Input.GetActionSet() == "Menu"
+  if CoopChoice and CoopChoice.scr then black = true end   -- (the squad choice screen is up)
   if Coop.cfg.tags == false or Coop.level == "levels/menu" or (Scene and Scene.IsPlaying) or black or menu then
     for _, name in ipairs(H.names()) do H.hide(name) end
     return

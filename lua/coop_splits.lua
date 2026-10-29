@@ -24,7 +24,7 @@
 --      his side; the others cover him from the edge; the plates work once the wave is down.
 --
 -- Messages:
---   spc|<split>|<target>     host -> all: choose (shown to the players the split leaves behind)
+--   (the choice screen: coop_choice.lua, messages chs/chp/chst/chr)
 --   spn|<text key>|<chars>   host -> all: objective text for the players holding <chars>
 --   spcrank                  host -> all: G11's crank usable (the use goes to the host as any)
 
@@ -100,7 +100,6 @@ Sp.TEXT = {
     soul_back = "Душа Роулингса вернулась. Оживите его!",
   },
 }
-Sp.CHOICE_TIME = 20
 
 function Sp.text(key)
   local lang = Coop.lang()
@@ -116,48 +115,15 @@ end
 -- Choice at a split (each machine for its own player)
 ------------------------------------------------------------------------------
 
-Sp.SPLITS = {
-  -- split id = {goes on, stays behind}
-  G8 = {goes = "Church", stays = {Black = true, Delgado = true}},
-  G10 = {goes = "Delgado", stays = {Black = true, Church = true, Cole = true, Jones = true, Rawlings = true}},
-}
-
-function Sp.offer(id)
-  local s = Sp.SPLITS[id]
-  local me = Coop.localChar()
-  if not s or not me or not s.stays[me] then return end
-  -- A story line alone (coop_storysolo.lua) is this character's line: nothing to choose.
-  if cfg.storyline then return end
-  -- (taking the character who goes on is a switch by choice: not for seats 3-4, nor for
-  -- Jones's projection while he is held, coop_souls.lua)
-  if CoopSouls and CoopSouls.mayChoose and not CoopSouls.mayChoose(Coop.myId()) then return end
-  -- The character going on is free: offer it; otherwise there is nothing to choose.
-  if Coop.ownerOf(s.goes) ~= nil and Coop.ownerOf(s.goes) ~= Coop.myId() then return end
-  Sp.choice = {id = id, target = s.goes, untilT = Net.CoopTime() + Sp.CHOICE_TIME}
-  Coop.log("split " .. id .. ": choose " .. s.goes .. " or stay")
-end
-
-function Sp.updateChoice()
-  local c = Sp.choice
-  if not c then
-    if not Sp.G15 or not Sp.G15.struggle then Coop.textBlockHide("CoopSplit") end
-    return
-  end
-  local left = math.ceil(c.untilT - Net.CoopTime())
-  local pick
-  if Net.CoopKey(0x31) == 1 then pick = "take" elseif Net.CoopKey(0x32) == 1 or left <= 0 then pick = "stay" end
-  if pick then
-    Sp.choice = nil
-    Coop.textBlockHide("CoopSplit")
-    Coop.log("split " .. c.id .. ": " .. pick)
-    if pick == "take" and Team and Team.SwitchSoldier and Coop.ownerOf(c.target) == nil then
-      Team.SwitchSoldier(Coop.localChar(), c.target)
-    end
-    return
-  end
-  local who = Coop.charName(c.target)
-  Coop.textBlock("CoopSplit", string.format(Sp.text("choose"), who, math.max(left, 0), who),
-    {y = 90, color = Color(255, 220, 160, 255)})
+-- The choice itself (screen, resolution, moves) is coop_choice.lua; a split's start is held
+-- with Sp.gate(path, id) until it is over.
+function Sp.gate(path, id, when)
+  local tname, fname = string.match(path, "^([%w_]+)%.([%w_]+)$")
+  local tbl = _G[tname]
+  local f = tbl and tbl[fname]
+  if type(f) ~= "function" or Sp.hooked["gate:" .. path] or not CoopChoice then return end
+  Sp.hooked["gate:" .. path] = true
+  tbl[fname] = CoopChoice.gate(id, f, when)
 end
 
 ------------------------------------------------------------------------------
@@ -337,13 +303,16 @@ function Sp.installG8(isHost)
   -- the scene hands control back.
   local function climb()
     Sp.setSides("G8", {"Church"}, Sp.G8.list)
-    Net.CoopSend(-1, 1, "spc|G8")
-    Sp.offer("G8")
     Game.AddScheduledFunc(Game.GetTime() + 12, "CoopSplitG8", "CoopSplits.G8phase", 1)
   end
   Sp.after("MapCallbacks.TriggerEscalada_0", climb)
   Sp.after("MapCallbacks.PlayEscalada", function(_, Playerid)
     if Scene and Scene.IsPlaying then climb() end
+  end)
+  -- The choice screen comes before the climb starts (coop_choice.lua).
+  Sp.gate("MapCallbacks.TriggerEscalada_0", "G8")
+  Sp.gate("MapCallbacks.PlayEscalada", "G8", function(_, playerid)
+    return AreaTriggers.IsPlayer(playerid, "Church")
   end)
   Sp.after("MapCallbacks.BloodWarGroup_0", function() Sp.G8phase(3) end)
   Sp.after("MapCallbacks.TriggerAperturaPuerta_0", function()
@@ -440,12 +409,8 @@ function Sp.installG10(isHost)
   if not isHost then return end
   Sp.after("MapCallbacks.AreaTrigger_Fire_0", function()
     Sp.setSides("G10", {"Delgado"}, Sp.G10.list)
-    if not Sp.G10.offered then
-      Sp.G10.offered = true
-      Net.CoopSend(-1, 1, "spc|G10")
-      Sp.offer("G10")
-    end
   end)
+  Sp.gate("MapCallbacks.AreaTrigger_Fire_0", "G10")
   Sp.after("MapCallbacks.puerta_delgado_1_0", function() Sp.G10wave(2) end)
   Sp.after("MapCallbacks.AreaTrigger308_0", function() Sp.G10wave(3) end)
   Sp.after("MapCallbacks.AreaTriggerDelgadoCae_0", function()
@@ -1504,6 +1469,7 @@ Sp.LEVELS = {["levels/cru_sewers"] = Sp.installG8, ["levels/rom_caldarium"] = Sp
              ["levels/alk_city"] = Sp.installG1C, ["levels/alk_tomb"] = Sp.installG1A, ["levels/wwii_pillboxes"] = Sp.installG4}
 
 function Sp.onMessage(peer, f)
+  if CoopChoice and CoopChoice.onMessage(peer, f) then return true end
   if f[1] == "g6hold" and Coop.isHost() then
     if Coop.heldBy(f[2], peer) then Sp.G6onHold(f[2], f[3] == "1") end
     return true
@@ -1535,9 +1501,6 @@ function Sp.onMessage(peer, f)
   elseif f[1] == "spcrank" and Coop.isClient() then
     Sp.G11crank()
     return true
-  elseif f[1] == "spc" and Coop.isClient() then
-    Sp.offer(f[2])
-    return true
   elseif f[1] == "spn" and Coop.isClient() then
     local chars = {}
     for c in string.gmatch(f[3] or "", "[^,]+") do chars[#chars + 1] = c end
@@ -1549,7 +1512,8 @@ end
 
 function Sp.update()
   if Sp.LEVELS[Coop.level] and MapCallbacks and MapInit then Sp.LEVELS[Coop.level](Coop.isHost()) end
-  Sp.updateChoice()
+  if CoopChoice then CoopChoice.update() end
+  if not Sp.G15.struggle then Coop.textBlockHide("CoopSplit") end
   if Sp.G15.struggle then Sp.G15updateStruggle(Coop.TICK) end
   if Sp.sides and Coop.isHost() and Net.CoopTime() - (Sp.sidesSentT or 0) > 10 then
     Sp.sidesSentT = Net.CoopTime()
