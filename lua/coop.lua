@@ -26,7 +26,7 @@ end
 Net.CoopTime = function() return Net.CoopTimeRaw() - Net.CoopT0 end
 
 Coop = {}
-Coop.VERSION = "0.2.7"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.2.8"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}

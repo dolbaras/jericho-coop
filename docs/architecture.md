@@ -1,4 +1,4 @@
-# Architecture of Jericho Co-op+ (0.2.7)
+# Architecture of Jericho Co-op+ (0.2.8)
 
 A map of the code for a developer who comes back to it: how the mod starts, what runs every
 frame, what goes over the network and who decides what. It describes the code as built; the

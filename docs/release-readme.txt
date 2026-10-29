@@ -83,6 +83,16 @@ How it works
 - A downed player moves into a free squad member; during a story split (the squad split up
   by the story) only into one on their own side, else they wait for Rawlings.
 - Only Rawlings revives downed players (human or AI), as in the original.
+- Squad choice at a story split (0.2.8): before the squad splits, every player (the host too) sees one
+  screen with the groups, their members and who picks what; choose with the stick/arrows and A/Enter
+  (or keys 1-3) within about 25 s; if you do nothing you stay with your character. Shown at the
+  Escalada split (Cru_Sewers), the fire hall (Rom_Caldarium) and the Lost Patrol; the host cannot
+  join the Lost Patrol (the host's game runs the main group). The other splits still follow the story.
+- A downed player with nobody to move into watches a living player from behind (third person):
+  stick or arrows switch the player, the right stick or mouse looks around; it ends on revive.
+- When the story walks a character a player holds, the player is offered to walk there first (the
+  host's too); the squad takes over only after the time is up (or at once / never, per the
+  lobby setting).
 - Cole's and Black's slow motion slows the world for everyone; players keep their speed.
 - Everyone sees the cutscenes at the same time, with the original camera; a scene seen through
   another character's eyes is captioned "Through X's eyes". A scene is skipped only when every
@@ -272,6 +282,15 @@ game draws, in memory, and writes nothing until F11.
 - Упавший игрок переселяется в свободного бойца; во время сюжетного разделения (сюжет разводит
   отряд) — только в бойца на своей стороне, иначе ждёт Роулингса.
 - Поднимать упавших может только Роулингс (игрок или ИИ), как в оригинале.
+- Выбор отряда при сюжетном разделении (0.2.8): перед разделением все игроки (и хост) видят один экран с
+  группами, их составом и тем, кто что выбирает; выбор стиком или стрелками и A/Enter (или клавишами 1-3)
+  примерно за 25 с; если ничего не делать, остаётесь со своим персонажем. Экран показывается на Эскаладе
+  (Cru_Sewers), в огненном зале (Rom_Caldarium) и перед «Потерянным патрулём»; хост в «Потерянный патруль»
+  уйти не может (игра хоста ведёт основную группу). Остальные разделения идут по сюжету, как раньше.
+- Упавший игрок, которому некуда перейти, смотрит за живым игроком сзади (от третьего лица): стик или
+  стрелки переключают игрока, правый стик или мышь осматриваются; наблюдение кончается при поднятии.
+- Когда сюжет ведёт персонажа, которого держит игрок, игроку сначала предлагают дойти самому (в том числе
+  хосту); отряд берёт управление только после времени ожидания (или сразу / никогда, по настройке лобби).
 - Замедление времени Коула и Блэка действует на мир для всех, игроки двигаются с обычной скоростью.
 - Катсцены видят все одновременно, оригинальной камерой; если сцена показана глазами
   другого персонажа, вверху подпись «Вид глазами: …». Пропуск сцены — только когда Esc
