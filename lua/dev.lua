@@ -85,7 +85,7 @@ function Coop.botGuard()
   if Coop.level == "levels/menu" then return end
   local usr = Game.UsrEntity(0)
   if not usr or Coop.frame < 40 then return end
-  usr.Invulnerable = 1
+  if not cfg.guardmortal then usr.Invulnerable = 1 end   -- (guardmortal: hurt for real, healed below 50)
   if usr.Life < 50 then usr.Life = 100 end
   if cfg.guardnofire then return end   -- stands and is hurt (enemy melee tests), never fires or dies
   -- G3: the hacker's place is at the console.
@@ -3247,5 +3247,293 @@ if cfg.bosswake and Coop.level ~= "levels/menu" then
       local ok, path = pcall(Net.CoopClip, "save")
       Coop.log("bosswake clip: " .. tostring(ok) .. " " .. tostring(path))
     end
+  end
+end
+
+-- 'efphases' = {{cls='NaziSoldierB', who='remote'|'local', at=300, dist=350, len=500, deg=0}, ...} (host with a client
+-- holding another body; both sides bot='guard',guardnofire=true so the bodies stand): each phase wakes the first
+-- unused enemy of that class (NPC.Groups lists inactive ones too; its group is activated), puts it `dist` units in
+-- front of the body that is its target (`who`: a remote human's body, or the host's own, the reference for the
+-- engine's own hit rate), keeps it alive and aimed at that body (AIEnemy.DoAttack every second) and kills it after
+-- `len` ticks or when the next phase starts. Counters: the host's report line (coop_enemies.lua); the client logs its
+-- own fire and life state. lab\efphases.sh.
+if cfg.efphases and Coop.level ~= "levels/menu" then
+  local prevEp = Coop.dev
+  local used, cur = {}, nil
+  local function human(who)
+    if who == "local" then return Game.UsrEntity(0) end
+    for name in pairs(Coop.owners or {}) do
+      if Coop.isRemoteOwned(name) then
+        local b = Game.GetEntity(name)
+        if b and (b.Life or 0) > 0 then return b end
+      end
+    end
+  end
+  local function groupsOf(cls)
+    local list = {}
+    for gname, g in pairs(NPC.Groups or {}) do
+      for _, e in ipairs(g) do
+        local ok, hit = pcall(function() return e.bValidBaseType ~= false and tostring(e.ActCtrl) == cls end)
+        if ok and hit then list[#list + 1] = gname break end
+      end
+    end
+    return list
+  end
+  -- (a pool enemy of a generator group is replaced by a new one when its group wakes: take the ones that run)
+  local function running(cls)
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 and e.bActive and e.oAI
+         and tostring(e.ActCtrl) == cls and not used[e.Name] then
+        return e
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+  end
+  local function place(e, body, spec)
+    local y = math.rad(body.Ang.y + (spec.deg or 0))
+    local fwd = V3D(-math.sin(y), 0, -math.cos(y))
+    e.Pos = body.Pos + fwd * (spec.dist or 400)
+    pcall(Game.SetOnFloor, e.Name)
+  end
+  -- (the host's counters at the start and end of every phase; the differences are the phase's numbers)
+  local function snapStats(tag)
+    local keys = {}
+    for k, v in pairs(CoopEnemies.stats) do if type(v) == "number" and v ~= 0 then keys[#keys + 1] = k end end
+    table.sort(keys)
+    local t = {}
+    for _, k in ipairs(keys) do t[#t + 1] = k .. "=" .. CoopEnemies.stats[k] end
+    Coop.log("efphases stats " .. tag .. ": " .. table.concat(t, " "))
+  end
+  local function stop(why)
+    if cur and cur.e then
+      local e = cur.e
+      if not cur.spec.reuse then pcall(function() e.Invulnerable = 0 e.Life = 0 end) end   -- (reuse: the next phase takes it again)
+      Coop.log(string.format("efphases: phase %d over (%s): %s %s", cur.n, why, cur.spec.cls, e.Name))
+      snapStats("end of phase " .. cur.n)
+    end
+    cur = nil
+  end
+  local clientLife, clientFire = nil, 0
+  function Coop.dev()
+    if prevEp then prevEp() end
+    local f = Coop.frame
+    if Coop.isHost() then
+      for i, spec in ipairs(cfg.efphases) do
+        if f == spec.at then
+          stop("next phase")
+          snapStats("before phase " .. i)
+          cur = {n = i, spec = spec, started = f}
+          local gl = groupsOf(spec.cls)
+          for _, g in ipairs(gl) do pcall(NPC.ActivateEnemyGroup, g) end
+          Coop.log(string.format("efphases: phase %d: %s, groups activated: %s", i, spec.cls, table.concat(gl, ",")))
+        end
+      end
+      if cur and not cur.e and f % 10 == 0 then
+        local spec = cur.spec
+        local body, e = human(spec.who), running(spec.cls)
+        if body and e then
+          if not spec.reuse then used[e.Name] = true end
+          e.Invulnerable = 1
+          place(e, body, spec)
+          cur.e, cur.started = e, f
+          Coop.log(string.format("efphases: phase %d: %s %s %.0f units from %s (%s)", cur.n, spec.cls, e.Name,
+            spec.dist or 400, body.Name, spec.who))
+        elseif f - cur.started > 150 then
+          Coop.log(string.format("efphases: phase %d: no running %s (body %s)", cur.n, spec.cls, tostring(body)))
+          cur = nil
+        end
+      end
+      if cur and cur.e then
+        local e, spec = cur.e, cur.spec
+        if (e.Life or 0) <= 0 then
+          Coop.log("efphases: " .. e.Name .. " is dead in phase " .. cur.n)
+          cur = nil
+        elseif f >= cur.started + (spec.len or 500) then
+          stop("time")
+        elseif f % 20 == 0 then
+          local body = human(spec.who)
+          if body then
+            e.Invulnerable = 1
+            local d = (body.Pos - e.Pos):mod2D()
+            if d > (spec.dist or 400) * (spec.leash or 1.6) + 300 then
+              place(e, body, spec)
+              Coop.log(string.format("efphases: %s was %.0f away, put back", e.Name, d))
+            end
+            local ok, err = pcall(AIEnemy.DoAttack, e, body)
+            if not ok and not cur.attackError then
+              cur.attackError = true
+              Coop.log("efphases: DoAttack error " .. tostring(err))
+            end
+            if f % 100 == 0 then
+              Coop.log(string.format("efphases: phase %d %s act=%s %.0f from %s", cur.n, e.Name, tostring(e.Action), d, body.Name))
+            end
+          end
+        end
+      end
+    elseif f >= 300 and f % 10 == 0 then
+      local usr = Game.UsrEntity(0)
+      if usr then
+        local fire = usr.FireRemainTime or 0
+        local life = math.floor(usr.Life or 0)
+        if fire > 0 and clientFire <= 0 then
+          Coop.log(string.format("efphases client: %s on fire (remain %.2f, by %s) life %d", usr.Name, fire, tostring(usr.Pyromaniac), life))
+        end
+        clientFire = fire
+        if clientLife and life ~= clientLife then
+          Coop.log(string.format("efphases client: %s life %d -> %d", usr.Name, clientLife, life))
+        end
+        clientLife = life
+      end
+    end
+  end
+end
+
+-- 'sphereprobe' = <tick> (host with a client): which masks of Game.SphereCall find a remote human's puppet (collision
+-- off) and which the host's own body: for masks R, L, G, LPO and flags 0/1 a sphere of 250 units around each body,
+-- the names the callback gets are logged (the bosses' stomp/blade/club attacks use these queries).
+if cfg.sphereprobe and Coop.level ~= "levels/menu" then
+  local prevSp = Coop.dev
+  local got
+  CoopDev = CoopDev or {}
+  function CoopDev.sphere(name) if got then got[#got + 1] = tostring(name) end end
+  function Coop.dev()
+    if prevSp then prevSp() end
+    if not Coop.isHost() or Coop.frame ~= cfg.sphereprobe then return end
+    local who = {}
+    for name in pairs(Coop.owners or {}) do
+      if Coop.isRemoteOwned(name) then who[#who + 1] = {name, "remote"} end
+    end
+    local usr = Game.UsrEntity(0)
+    if usr then who[#who + 1] = {usr.Name, "local"} end
+    for _, w in ipairs(who) do
+      local b = Game.GetEntity(w[1])
+      if b then
+        for _, mask in ipairs({"R", "L", "G", "LPO"}) do
+          for _, flag in ipairs({0, 1}) do
+            got = {}
+            local ok, err = pcall(Game.SphereCall, b.Pos + V3D(0, 80, 0), 250, mask, "CoopDev.sphere", flag)
+            local found = false
+            for _, n in ipairs(got) do if n == b.Name then found = true end end
+            Coop.log(string.format("sphereprobe: %s body %s mask %s flag %d -> body found=%s (%d names%s)", w[2], b.Name, mask, flag,
+              tostring(found), #got, ok and "" or ", error " .. tostring(err)))
+          end
+        end
+        got = nil
+        -- the same lines and spheres with the puppet's collision switched on for a moment (is that immediate?)
+        if w[2] == "remote" then
+          local function rays(tag)
+            local p = b.Pos + V3D(0, 100, 0)
+            local res = {}
+            for _, mask in ipairs({"R", "", "G"}) do
+              local r = {pcall(Game.TestLine, p + V3D(300, 0, 0), p - V3D(300, 0, 0), mask, "", true)}
+              local t = {}
+              for k = 2, #r do t[#t + 1] = type(r[k]) == "string" and r[k] or (type(r[k]) == "userdata" and "pt" or tostring(r[k])) end
+              res[#res + 1] = string.format("%s:[%s]", mask == "" and "-" or mask, table.concat(t, " "))
+            end
+            got = {}
+            pcall(Game.SphereCall, b.Pos + V3D(0, 80, 0), 250, "R", "CoopDev.sphere", 1)
+            local found = false
+            for _, n in ipairs(got) do if n == b.Name then found = true end end
+            got = nil
+            Coop.log(string.format("sphereprobe: %s remote %s: TestLine through the body %s | sphere R found=%s", tag, b.Name, table.concat(res, " "), tostring(found)))
+          end
+          local ok0, was = pcall(function() return b.bIgnoreCollision end)
+          rays("collision ignore " .. tostring(was))
+          pcall(function() b.bIgnoreCollision = false end)
+          rays("collision on (set just now)")
+          pcall(function() b.bIgnoreCollision = was end)
+          rays("restored to " .. tostring(was))
+        end
+      end
+    end
+  end
+end
+
+-- 'bosscycle' = {'Nanna', 'Utu'} (host and client, a level with those bosses, cfg.partcls = the character the client holds):
+-- like 'bitchcycle' for any boss with Disappear/Appear actions (Nanna, Utu, EvilFB, the psychic commander): the host wakes each
+-- one (AI off) in front of the client's body at tick 300, 500 units apart, then Disappear at 400 and 700, Appear at 560
+-- and 860 (two cycles). Both sides log action, fade state, the engine's visibility flag and the screen place every 100
+-- ticks; the client (with dropact='Appear' it ignores every Appear action, as if the packets were lost) saves a clip at 1100.
+if cfg.bosscycle and Coop.level ~= "levels/menu" then
+  local prevBc2 = Coop.dev
+  local function line(e)
+    if not e then return "missing" end
+    local vis, scr = "?", "?"
+    pcall(function() vis = tostring(e.bObjectVisible) end)
+    pcall(function()
+      local x, y = Scorer.Get2DPos(e.Pos)
+      scr = string.format("%s,%s", tostring(x and math.floor(x)), tostring(y and math.floor(y)))
+    end)
+    local ce = CoopEnemies
+    return string.format("act=%s life=%.0f faded=%s vis=%s screen=%s", tostring(e.Action), e.Life or -1,
+      tostring(Coop.isHost() and ce.faded[e.Name] or ce.fadeSet[e.Name]), vis, scr)
+  end
+  function Coop.dev()
+    if prevBc2 then prevBc2() end
+    local f = Coop.frame
+    if Coop.isHost() then
+      local body = Coop.squadEnt(cfg.partcls or "Black")
+      for i, name in ipairs(cfg.bosscycle) do
+        local e = Game.GetEntity(name)
+        if e then
+          if f == 300 and body then
+            local y = math.rad(body.Ang.y)
+            e.bActive = true
+            e.Pos = body.Pos + V3D(-math.sin(y), 0, -math.cos(y)) * (400 + 500 * (i - 1))
+            pcall(Game.SetOnFloor, name)
+            Coop.log("bosscycle: woke " .. name .. " (" .. tostring(e.ActCtrl) .. ") in front of " .. body.Name)
+          end
+          if f > 300 and e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+          if f == 400 or f == 700 then e.ForceAction = "Disappear" end
+          if f == 560 or f == 860 then e.ForceAction = "Appear" end
+        end
+      end
+    end
+    if Coop.isClient() and f == 350 then
+      local usr, e = Game.UsrEntity(0), Game.GetEntity(cfg.bosscycle[1])
+      if usr and e then
+        local d = e.Pos - usr.Pos
+        usr.IgnoreUsrControl = 1
+        usr.Ang = V3D(0, math.deg(math.atan2(-d.x, -d.z)), 0)
+        usr.ViewAng = V3D(0, usr.Ang.y, 0)
+      end
+    end
+    if f >= 300 and f % 100 == 0 then
+      for _, name in ipairs(cfg.bosscycle) do
+        Coop.log(string.format("bosscycle %s %s: %s", cfg.role, name, line(Game.GetEntity(name))))
+      end
+    end
+    if Coop.isClient() and f == 1100 then
+      local ok, path = pcall(Net.CoopClip, "save")
+      Coop.log("bosscycle clip: " .. tostring(ok) .. " " .. tostring(path))
+    end
+  end
+end
+
+-- 'lifecmp' (both roles, with the host's 'fight'): every 150 ticks one line with the life percentage of every living
+-- enemy as this machine sees it: the host Life / the highest it has seen, the client Life / the first Life it saw
+-- (coop_enemies.lua E.driveLife follows the host's percentage in the snapshots). Compare the lines of both sides.
+if cfg.lifecmp and Coop.level ~= "levels/menu" then
+  local prevLc = Coop.dev
+  function Coop.dev()
+    if prevLc then prevLc() end
+    if Coop.frame < 300 or Coop.frame % 150 ~= 0 then return end
+    local E = CoopEnemies
+    local t = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 and e.bActive then
+        local base = Coop.isHost() and E.maxLife[e.Name] or E.cLife[e.Name]
+        if base and base > 0 then
+          local st = E.targets and E.targets[e.Name]
+          t[#t + 1] = string.format("%s=%d(%d/%d%s)", e.Name, math.floor(e.Life / base * 100 + 0.5), e.Life, base,
+            st and st.life and (" snap " .. st.life) or "")
+        end
+      end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+    table.sort(t)
+    Coop.log(string.format("lifecmp %s f=%d: %s", cfg.role, Coop.frame, table.concat(t, " ")))
   end
 end

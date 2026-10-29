@@ -75,6 +75,8 @@ function E.snapshot()
   local n = 0
   E.snapTime = Net.CoopTime()
   local bodies = E.remoteBodies()
+  local usr = Game.UsrEntity(0)
+  local localBodies = usr and {usr} or {}
   while e ~= nil do
     if isEnemy(e) and e.Life > 0 and e.bActive then
       E.scaleEnemy(e)
@@ -101,7 +103,7 @@ function E.snapshot()
       n = n + 1
       if size > E.MAX_PACKET then flush() end
     elseif bodies[1] and e:IsType("Missile") then
-      pcall(E.checkMissile, e, bodies)
+      pcall(E.checkMissile, e, bodies, localBodies)
     end
     e = Game.GetEntity(e.NextInSlot)
   end
@@ -290,11 +292,41 @@ end
 -- Melee: the events of the enemies that swing at a body call o:DrawWeapon(pitch, yaw, reach), a ray
 -- that passes through a puppet. When the game's own call hurt nobody, the same ray (the body's
 -- view direction, the same reach) is tried against the remote bodies.
+-- (a third field: the reach of the ray fix below; none = only the collision window)
 E.MELEE = {
   {"WeaponsCultistaMelee", "HookHitEvent", function(o) return o.Action == "ThrownPunch" and 1000 or 400 end},
   {"WeaponsCruzader", "HookHitEvent", function() return 650 end},
   {"WeaponsChildCruzader", "HookHitEvent", function() return 500 end},
+  {"WeaponsLegionary", "PushEvent", function() return 300 end},
+  {"Behemoth", "DrawAttack"},
+  {"EvilFirstBorn", "OnThrowRay"},
 }
+
+-- The collision window: a puppet's collision is off, so every ray an enemy casts (o:DrawWeapon in the melee events
+-- and the Behemoth's vomit, Game.TestLine) goes through it. For the length of one such event (a synchronous Lua call,
+-- no physics step inside) the remote bodies in reach get their collision back, so that the game's own code meets them
+-- exactly as it meets any solid body: same rays, same spread, same damage, DoHitStrong and sounds included.
+function E.withCollision(fn, ...)
+  local saved
+  for _, b in ipairs(E.remoteBodies()) do
+    local ok, ign = pcall(function() return b.bIgnoreCollision end)
+    if ok and ign then
+      saved = saved or {}
+      saved[#saved + 1] = b
+      pcall(function() b.bIgnoreCollision = false end)
+    end
+  end
+  local r = {n = 0}
+  local function keep(...) r = {n = select("#", ...), ...} end
+  keep(pcall(fn, ...))
+  if saved then
+    for _, b in ipairs(saved) do pcall(function() b.bIgnoreCollision = true end) end
+    bump("windows")
+  end
+  if not r[1] then error(r[2], 0) end
+  return unpack(r, 2, r.n)
+end
+
 function E.meleeFix(o, reach, damage)
   local pitch, yaw = math.rad(o.ViewAng.x), math.rad(o.ViewAng.y)
   local a = o.Pos + V3D(0, 100, 0)
@@ -325,12 +357,17 @@ function E.installMelee()
         local obj = o.AI_ObjectiveDin
         local cls = obj and obj ~= "" and Game.GetEntity(obj) and objClass(obj)
         E.meleeBy, E.meleeHurt = name, nil
-        local r = {pcall(orig, name, ev, time)}
+        local r
+        if Coop.cfg.window ~= false then
+          r = {pcall(E.withCollision, orig, name, ev, time)}
+        else
+          r = {pcall(orig, name, ev, time)}
+        end
         E.meleeBy = nil
         if cls then bump("mSwing" .. cls) end
         if E.meleeHurt then
           if cls then bump("mHit" .. cls) end
-        elseif Coop.cfg.remotehit ~= false then
+        elseif reachOf and Coop.cfg.remotehit ~= false and Coop.cfg.window == false then
           local ok, got = pcall(function() return E.meleeFix(o, reachOf(o), math.floor(tonumber(ev) or 0)) end)
           if ok and got then
             if cls == "Remote" then bump("mHitRemote") end
@@ -487,77 +524,180 @@ end
 -- and shot missiles (pilum, crossbow bolt: the missile's collision), and the hit reaction a strong
 -- hit plays (Soldier.DoHitStrong acts only on the local player's body). The host tests the same
 -- geometry against the remote bodies and sends what the owner's machine has to do.
-E.FLAME_RADIUS = 80
-E.flameEnd = {}
-function E.noteFlameEnd(shooter, point) E.flameEnd[shooter] = point end
 
--- Flame: the engine's own path ends where it hit something (resPoint handed to FXSmoke); the segment
--- from the nozzle to that end is tried against the remote bodies; a body in it burns: its owner gets
--- `pfire` and sets the body alight the way the game does (FireRemainTime).
-E.FLAMERS = {
-  {"WeaponsNaziSoldier", "NaziSoldierB", "NodePosHierarchy_Bip Nazi_Soldier R Forearm"},
-  {"WeaponsPilBox", "WWII_Lanzallamas_A", "NodePosHierarchy_DF_Burst_A"},
-}
+-- Flame: the flamethrowers (the soldier with the tank, the bunker's burner) follow the flame's path in
+-- short segments, each tested by two thin lines (Game.TestLine from WeaponsNaziSoldier/WeaponsPilBox
+-- .DoubleLineTest, the second one 100 units higher); the first line that meets a body ends the flame
+-- there and the body burns (FireRemainTime). A puppet is not met by such a line. The host's wrapper
+-- tests each segment against the capsules of the remote bodies (the same radius as for shots: a thin
+-- line against the same collision shape); a body found nearer than where the engine's line ended is
+-- handed back as the hit, so the game's own code ends the flame there as for any solid body, and the
+-- owner is told (`pfire`) to set the body alight the way the game does.
+E.flameSent = {}
+E.FLAME_RADII = {27, 45, 60, 80}   -- reference counters only (calibration against the engine's lines on a local body)
+function E.humans()
+  -- (once per frame) local human bodies and remote ones that can be hit
+  if E.humansFrame ~= Coop.frame then
+    E.humansFrame = Coop.frame
+    E.humansRemote = E.remoteBodies()
+    local usr = Game.UsrEntity(0)
+    E.humansLocal = usr and (usr.Life or 0) > 0 and {usr} or {}
+  end
+  return E.humansRemote, E.humansLocal
+end
+
+-- Tells the owner of a body that a flame reached it (rate limited: the flame is tested every frame).
+function E.flameSend(bodyName, shooter)
+  local now = Net.CoopTime()
+  if now - (E.flameSent[bodyName] or 0) <= 0.1 then return end
+  E.flameSent[bodyName] = now
+  local cfg = EnemiesCfg and EnemiesCfg.NaziSoldierB and EnemiesCfg.NaziSoldierB.Flamethrower
+  E.stats.flameHits = (E.stats.flameHits or 0) + 1
+  Net.CoopSend(Coop.peerOf(Coop.ownerOf(bodyName)), 1, string.format("pfire|%s|%.3f|%.3f|%s", bodyName,
+    cfg and cfg.FireDuration or 0.3, cfg and cfg.FireDamageDelay or 0.015, shooter.Name))
+  E.pdmgBy = E.pdmgBy or {}
+  local kind = tostring(shooter.ActCtrl) .. "(fire)"
+  E.pdmgBy[kind] = (E.pdmgBy[kind] or 0) + 1
+end
+
+function E.flameLine(orig, a, b, da, db, mask, name, geom)
+  local shooter = Game.GetEntity(name)
+  if not (shooter and isEnemy(shooter)) then return orig(a, b, da, db, mask, name, geom) end
+  -- with the collision window (default) the engine's own lines meet a remote body like any solid one
+  local window = Coop.cfg.window ~= false
+  local r1, r2
+  if window then
+    r1, r2 = E.withCollision(orig, a, b, da, db, mask, name, geom)
+  else
+    r1, r2 = orig(a, b, da, db, mask, name, geom)
+  end
+  local remote, localB = E.humans()
+  bump("flameSegs")
+  -- the path of this segment ends where the engine's line stopped (a wall, a body), else at its end
+  local engineHit = r1 and r2
+  local ex, ey, ez = b.x, b.y, b.z
+  if engineHit then ex, ey, ez = r1.x, r1.y, r1.z end
+  local o2 = da or V3D(0, 0, 0)
+  local function test(body)
+    local d1, s1 = E.rayToBody(a.x, a.y, a.z, ex, ey, ez, body)
+    local d2, s2 = E.rayToBody(a.x + o2.x, a.y + o2.y, a.z + o2.z, ex + o2.x, ey + o2.y, ez + o2.z, body)
+    if d2 < d1 then return d2, s2 end
+    return d1, s1
+  end
+  -- reference: the engine's own lines on this machine's player against the capsule model
+  for _, body in ipairs(localB) do
+    local d = test(body)
+    if d < 400 then
+      bump("flameNearLocal")
+      if r2 == body.Name then
+        bump("flameHitLocal")
+        if (E.stats.flameHitLocal or 0) <= 40 then
+          Coop.log(string.format("flame: the engine's lines hit %s, capsule distance %.1f, from %s", body.Name, d, name))
+        end
+      end
+      for _, r in ipairs(E.FLAME_RADII) do
+        if d < r then bump("flameGeoLocal" .. r) end
+      end
+    end
+  end
+  if Coop.cfg.remotehit == false or Coop.cfg.pfire == false then return r1, r2 end
+  if window then
+    -- the engine met a body held by another player: it burns there
+    for _, body in ipairs(remote) do
+      local d = test(body)
+      if d < 400 then bump("flameNearRemote") end
+      if r2 == body.Name then
+        bump("flameSegHit")
+        E.flameSend(body.Name, shooter)
+        if (E.stats.flameSegHit or 0) <= 40 then
+          Coop.log(string.format("flame: the engine's lines hit %s, capsule distance %.1f, from %s", body.Name, d, name))
+        end
+      end
+    end
+    return r1, r2
+  end
+  -- window=false: the capsule test of the segment (the lines pass through a puppet)
+  local best, bestS
+  for _, body in ipairs(remote) do
+    local d, s = test(body)
+    if d < 400 then
+      bump("flameNearRemote")
+      for _, r in ipairs(E.FLAME_RADII) do
+        if d < r then bump("flameGeoRemote" .. r) end
+      end
+    end
+    if d < E.HIT_RADIUS and (not bestS or s < bestS) then best, bestS = body, s end
+  end
+  if not best or (engineHit and bestS > 0.97) then return r1, r2 end
+  bump("flameSegHit")
+  E.flameSend(best.Name, shooter)
+  return V3D(a.x + (ex - a.x) * bestS, a.y + (ey - a.y) * bestS, a.z + (ez - a.z) * bestS), best.Name
+end
+
 function E.installFlames()
-  for _, m in ipairs(E.FLAMERS) do
-    local wt, ct, nozzle = _G[m[1]], _G[m[2]], m[3]
-    local draw = wt and wt.DrawFlamethrowerArticulated
-    if type(draw) == "function" and ct and type(ct.FXSmoke) == "function" and not (wt.coopFlame == draw) then
-      local smoke = ct.FXSmoke
-      if not (ct.coopSmoke == smoke) then
-        ct.FXSmoke = function(name, point, ...)
-          E.noteFlameEnd(name, point)
-          return smoke(name, point, ...)
-        end
-        ct.coopSmoke = ct.FXSmoke
-      end
-      wt.DrawFlamethrowerArticulated = function(name, ...)
-        E.flameEnd[name] = nil
-        local r = {pcall(draw, name, ...)}
-        local ent = Game.GetEntity(name)
-        local fin = E.flameEnd[name]
-        if ent and fin and isEnemy(ent) then
-          local ok, err = pcall(E.flameHit, ent, fin, nozzle)
-          if not ok and not E.flameError then
+  for _, tn in ipairs({"WeaponsNaziSoldier", "WeaponsPilBox"}) do
+    local t = _G[tn]
+    local orig = t and t.DoubleLineTest
+    if type(orig) == "function" and not (t.coopLine and t.coopLine == orig) then
+      local wrapper = function(a, b, da, db, mask, name, geom)
+        local r = {pcall(E.flameLine, orig, a, b, da, db, mask, name, geom)}
+        if not r[1] then
+          if not E.flameError then
             E.flameError = true
-            Coop.log("flame fix error: " .. tostring(err))
+            Coop.log("flame fix error: " .. tostring(r[2]))
           end
+          return orig(a, b, da, db, mask, name, geom)
         end
-        if not r[1] then error(r[2], 0) end
-        return unpack(r, 2)
+        return r[2], r[3]
       end
-      wt.coopFlame = wt.DrawFlamethrowerArticulated
+      t.DoubleLineTest = wrapper
+      t.coopLine = wrapper
     end
   end
 end
 
-E.flameSent = {}
-function E.flameHit(ent, fin, nozzle)
-  local a = ent[nozzle] or (ent.Pos + V3D(0, 130, 0))
-  for _, b in ipairs(E.remoteBodies()) do
-    local d = E.rayToBody(a.x, a.y, a.z, fin.x, fin.y, fin.z, b)
-    if d < E.FLAME_RADIUS then
-      local now = Net.CoopTime()
-      if now - (E.flameSent[b.Name] or 0) > 0.1 then
-        E.flameSent[b.Name] = now
-        local owner = Coop.ownerOf(b.Name)
-        local cfg = EnemiesCfg and EnemiesCfg.NaziSoldierB and EnemiesCfg.NaziSoldierB.Flamethrower
-        E.stats.flameHits = (E.stats.flameHits or 0) + 1
-        Net.CoopSend(Coop.peerOf(owner), 1, string.format("pfire|%s|%.3f|%.3f|%s", b.Name,
-          cfg and cfg.FireDuration or 0.3, cfg and cfg.FireDamageDelay or 0.015, ent.Name))
-      end
+-- (the engine's own hits of a pilum on this machine's player, to compare with the missile test)
+function E.installMissileRef()
+  local t = WeaponsLegionary
+  local orig = t and t.HitPilum
+  if type(orig) == "function" and not (t.coopHit and t.coopHit == orig) then
+    local wrapper = function(Bullet, x, y, z, Target)
+      local usr = Game.UsrEntity(0)
+      if Target and usr and Target.Name == usr.Name then bump("missileHitLocal") end
+      return orig(Bullet, x, y, z, Target)
     end
+    t.HitPilum = wrapper
+    t.coopHit = wrapper
+  end
+  -- (and how many pilums are thrown at whom: hits per throw, remote against local)
+  local launch = t and t.LaunchPilum
+  if type(launch) == "function" and not (t.coopLaunch and t.coopLaunch == launch) then
+    local wrapper = function(name, ...)
+      local o = Game.GetEntity(name)
+      local obj = o and o.AI_ObjectiveDin
+      if obj and obj ~= "" and Game.GetEntity(obj) then bump("pilumThrown" .. objClass(obj)) end
+      return launch(name, ...)
+    end
+    t.LaunchPilum = wrapper
+    t.coopLaunch = wrapper
   end
 end
 
 -- Missiles (host): once per snapshot every missile an enemy shot is followed from its last place to
 -- its place now; through a remote body it hits that body the way its own callback would have.
+-- {name prefix, what the missile's own callback does with the body it meets, longest believable step}
+-- (blades share one name: positions of two blades are not one path)
 E.MISSILES = {
   {"LegionaryPilum", function(m, x, y, z, b) return WeaponsLegionary.HitPilum(m, x, y, z, b) end},
   {"Virote", function(m, x, y, z, b) return WeaponsCruzader.ExplodeVirotus(m, x, y, z, b) end},
+  {"FireBall_", function(m, x, y, z, b) return SummerianKI.ExplodeFireBall(m, x, y, z, b) end},
+  {"CultistBlade", function(m, x, y, z, b)
+    if tostring(m.oParent and m.oParent.ActCtrl) == "Arnold" then return Arnold.HitBlade(m, x, y, z, b) end
+    return CultistaVolador.HitBlade(m, x, y, z, b)
+  end, 450},
 }
 E.missilePos = {}
-function E.checkMissile(m, bodies)
+function E.checkMissile(m, bodies, localBodies)
   local kind
   for _, k in ipairs(E.MISSILES) do
     if string.find(m.Name, k[1], 1, true) == 1 then kind = k break end
@@ -569,7 +709,19 @@ function E.checkMissile(m, bodies)
   local prev = E.missilePos[m.Name]
   E.missilePos[m.Name] = {x = p.x, y = p.y, z = p.z, t = now}
   if not prev or now - prev.t > 0.3 then return end
+  if kind[3] then
+    local dx, dy, dz = p.x - prev.x, p.y - prev.y, p.z - prev.z
+    if dx * dx + dy * dy + dz * dz > kind[3] * kind[3] then return end
+  end
   local radius = E.HIT_RADIUS + (m.EmbeddedCapsuleRadius or 0)
+  -- reference: the engine's own missile collision against this machine's player
+  for _, b in ipairs(localBodies or {}) do
+    if E.rayToBody(prev.x, prev.y, prev.z, p.x, p.y, p.z, b) < radius then
+      bump("missileNearLocal")
+      E.missileNear = E.missileNear or {}
+      E.missileNear[m.Name] = now
+    end
+  end
   for _, b in ipairs(bodies) do
     local d = E.rayToBody(prev.x, prev.y, prev.z, p.x, p.y, p.z, b)
     if d < radius then
@@ -578,6 +730,31 @@ function E.checkMissile(m, bodies)
       pcall(kind[2], m, p.x, p.y, p.z, b)
       return
     end
+  end
+end
+
+-- Ninlil's blood hit hurts only the body at this machine's controls (Game.UsrEntity(0)); the same hit for the bodies
+-- other humans hold (the host's wrapper; their owners get `pdmg` and `phit` through the usual paths).
+function E.installBloodHit()
+  local t = SummerianNINLIL
+  local orig = t and t.BloodHit
+  if type(orig) == "function" and not (t.coopBlood and t.coopBlood == orig) then
+    local wrapper = function(name, ...)
+      local ent = Game.GetEntity(name)
+      if ent and isEnemy(ent) then
+        for _, b in ipairs(E.remoteBodies()) do
+          local dx, dz = ent.Pos.x - b.Pos.x, ent.Pos.z - b.Pos.z
+          if math.sqrt(dx * dx + dz * dz) < 60 then
+            bump("bloodHits")
+            Weapons.DoDamage(ent, b, 40)
+            Soldier.DoHitStrong(b)
+          end
+        end
+      end
+      return orig(name, ...)
+    end
+    t.BloodHit = wrapper
+    t.coopBlood = wrapper
   end
 end
 
@@ -605,6 +782,8 @@ function E.installHost()
   E.installParts()
   E.installFades()
   E.installFlames()
+  E.installMissileRef()
+  E.installBloodHit()
   E.installHitStrong()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
@@ -1781,6 +1960,9 @@ function E.onMessage(peer, f)
       if (f[3] == "1" or not e.bActive) and e.uData then e.uData.RemoveNow = true end
       e.Invulnerable = 0
       e.Life = 0
+    elseif e then
+      -- already dead here (a kill of this machine's own before the host's word): counted, the death does not run twice
+      E.stats.edieLate = (E.stats.edieLate or 0) + 1
     end
     E.targets[f[2]] = nil
     E.stats.deaths = E.stats.deaths + 1
@@ -1920,7 +2102,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
-    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installHitStrong() end   -- (an enemy class whose script loads later)
+    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installMissileRef() E.installBloodHit() E.installHitStrong() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
@@ -1975,7 +2157,20 @@ function E.report()
     line = line .. string.format(" flames=%d/%d missiles=%d hitstrong=%d/%d", s.flameHits or 0, s.firesApplied or 0,
       s.missileHits or 0, s.hitStrong or 0, s.hitStrongApplied or 0)
   end
+  if s.flameSegs then
+    -- flame segments tested / near a remote body, hit by the capsule test; reference on the host's own body: segments
+    -- near it, the engine's lines that hit it, and what the capsule test says at 27/45/60/80 units
+    line = line .. string.format(" flame-segs=%d near-remote %d hit %d (capsule 27/45/60/80: %d/%d/%d/%d) | near-local %d engine-hit %d (capsule: %d/%d/%d/%d)",
+      s.flameSegs, s.flameNearRemote or 0, s.flameSegHit or 0, s.flameGeoRemote27 or 0, s.flameGeoRemote45 or 0,
+      s.flameGeoRemote60 or 0, s.flameGeoRemote80 or 0, s.flameNearLocal or 0, s.flameHitLocal or 0,
+      s.flameGeoLocal27 or 0, s.flameGeoLocal45 or 0, s.flameGeoLocal60 or 0, s.flameGeoLocal80 or 0)
+  end
+  if s.missileNearLocal or s.missileHitLocal or s.pilumThrownRemote or s.pilumThrownLocal then
+    line = line .. string.format(" pilum thrown at remote %d local %d ai %d, near-local %d engine-hit-local %d", s.pilumThrownRemote or 0,
+      s.pilumThrownLocal or 0, s.pilumThrownAi or 0, s.missileNearLocal or 0, s.missileHitLocal or 0)
+  end
   if s.lifeSet then line = line .. " life-set=" .. s.lifeSet end
+  if s.edieLate then line = line .. " edie-late=" .. s.edieLate end
   if s.shotsOn then line = line .. " fire-shown=" .. s.shotsOn end
   if E.pdmgBy then
     local t = {}
