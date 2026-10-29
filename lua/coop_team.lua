@@ -99,6 +99,15 @@ function T.install()
       return
     end
     local order = {"Black", "Church", "Rawlings", "Jones", "Cole", "Delgado"}
+    -- Two players downed in the same moment each took the first usable body of this list and claimed
+    -- the same one (host log 04:24:55: "claim of Delgado by peer 1 refused", the client's player sat in
+    -- a body that was not its own until it was moved out): each starts at a place of its own.
+    local shift = Coop.cfg.downshift == false and 0 or (Coop.myId() or 0) % #order
+    if shift > 0 then
+      local rot = {}
+      for i = 1, #order do rot[i] = order[(i - 1 + shift) % #order + 1] end
+      order = rot
+    end
     -- (seats 3-4 keep their body: they wait for Rawlings while he can come, coop_souls.lua)
     T.waitsFor = nil
     if CoopSouls and CoopSouls.waitsDowned and CoopSouls.waitsDowned(name) then order = {}; T.waitsFor = name end

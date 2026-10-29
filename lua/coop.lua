@@ -450,11 +450,14 @@ function Coop.stateOf(e)
   end
   -- (the 20th field: the body's floor distance, standing or crouched: the feet are Pos.y - FloorDist,
   -- so a puppet needs the owner's value to stand on the same floor)
+  -- (the 21st: the model's height offset, which the engine's crouch raises by DispCrouch: a puppet
+  -- left at the standing offset had the model 60 units too low, sunk waist-deep)
   local okfd, fd = pcall(function() return tonumber(e.FloorDist) end)
-  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s|%.1f",
+  local okym, ymd = pcall(function() return tonumber(e.YModelDisp) end)
+  return string.format("s|%s|%.0f|%.0f|%.0f|%.1f|%.1f|%.2f|%.2f|%d|%.0f|%s|%d|%d|%d|%.3f|%d|%s|%s|%.1f|%.1f",
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
-    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on, okfd and fd or 0)
+    Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on, okfd and fd or 0, okym and ymd or 0)
 end
 
 -- A puppet of a body the host runs is switched on or off as there: host-only story code
@@ -585,6 +588,10 @@ function Coop.releasePuppet(e)
     Coop.log(string.format("puppet %s released: collision ignore %s -> %s (life %s, action %s)", e.Name,
       tostring(ok0 and cur), tostring(Coop.puppetNoCollide[e.Name]), tostring(e.Life), tostring(e.Action)))
     Coop.puppetNoCollide[e.Name] = nil
+  end
+  if Coop.ymdSet and Coop.ymdSet[e.Name] and Coop.ymdBase[e.Name] then
+    pcall(function() e.YModelDisp = Coop.ymdBase[e.Name] end)
+    Coop.ymdSet[e.Name] = nil
   end
   if Coop.floorSet and Coop.floorSet[e.Name] and Coop.floorBase[e.Name] then
     pcall(function() e.FloorDist = Coop.floorBase[e.Name] end)
@@ -930,6 +937,31 @@ end
 Coop.floorBase = Coop.floorBase or {}   -- name -> standing FloorDist, recorded while the body stands
 Coop.floorSet = Coop.floorSet or {}     -- name -> true while this driver has changed it
 Coop.CROUCH_DISP = 60
+Coop.ymdBase = Coop.ymdBase or {}     -- name -> standing YModelDisp
+function Coop.syncModelDisp(e, name, act, ownerYmd)
+  if cfg.puppetfloor == false then return end
+  local ok, cur = pcall(function() return tonumber(e.YModelDisp) end)
+  if not ok or not cur then return end
+  local want
+  local duck = string.find(tostring(act), "^Duck") ~= nil
+  if ownerYmd then
+    want = ownerYmd
+    -- (standing is the lower value)
+    if not Coop.ymdBase[name] or ownerYmd < Coop.ymdBase[name] then Coop.ymdBase[name] = ownerYmd end
+  else
+    if not duck and not Coop.ymdSet then Coop.ymdSet = {} end
+    Coop.ymdSet = Coop.ymdSet or {}
+    if not duck and not Coop.ymdSet[name] then Coop.ymdBase[name] = cur end
+    local base = Coop.ymdBase[name] or cur
+    want = duck and base + Coop.CROUCH_DISP or base
+  end
+  if math.abs(cur - want) > 0.5 then
+    pcall(function() e.YModelDisp = want end)
+    Coop.ymdSet = Coop.ymdSet or {}
+    Coop.ymdSet[name] = true
+  end
+end
+
 function Coop.syncFloorDist(e, name, act, ownerFd)
   if cfg.puppetfloor == false then return end
   local ok, fd = pcall(function() return tonumber(e.FloorDist) end)
@@ -1032,6 +1064,7 @@ function Coop.drivePuppets(dt)
         e.InCtrl_Sprint = tg.st.sprint
         Coop.syncCrouch(e, name, tg.st)
         Coop.syncFloorDist(e, name, tg.st.action, tg.st.fd)
+        Coop.syncModelDisp(e, name, tg.st.action, tg.st.ymd)
         Coop.perr = Coop.perr or {}
         Coop.perr[name] = err
         Coop.errN = (Coop.errN or 0) + 1
@@ -1178,6 +1211,7 @@ function Coop.onMessage(peer, data)
     if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
     local fd = tonumber(f[20])
     if fd and fd > 1 then st.fd = fd end
+    if f[21] and tonumber(f[21]) and st.fd then st.ymd = tonumber(f[21]) end
     if not st.x or not st.z then return end
     if Coop.pushState(name, st) then Coop.remote[name] = st end
   elseif kind == "hp" and Coop.isClient() then
@@ -1596,7 +1630,7 @@ end
 -- Client: the body this player drives belongs to another player (two switched into the same
 -- free body at once; the host gave it to the other): move to the body the owners give this
 -- player, else to a free one. It drove on as a second driver before (audit 0.2.2 A6).
-Coop.CLAIM_WAIT = 3
+Coop.CLAIM_WAIT = 1.5   -- (was 3: the host answers a refused claim at once; the player sat in a body that was not theirs that long)
 function Coop.checkRefusedClaim(mine)
   local owner = Coop.owners[mine]
   if owner == nil or owner == cfg.myId or Coop.storyDriven[mine] then return end
