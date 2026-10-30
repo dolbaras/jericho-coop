@@ -510,6 +510,11 @@ on the host the bodies other humans hold, on a client every squad body except it
   `mxsrc='Delgado'` (`mxs` lines, where the body really is each frame); lab `smooth_iq.sh`,
   `smooth_sum.py`, `mxt.py`, `mxcmp.py`.
 
+- Solid bodies (`Coop.bodyPush`, after `drivePuppets`; `cfg.bodypush=false` = off): puppets have collision off, so this machine's own bodies (the user, split
+  screen's player 2, and on the host the AI squad bodies it runs) walked through them, while squad bodies are solid in the original game (centre distance 90-100 when
+  one walks into another). A solid body closer than `PUSH_SEP` (90 units) to a puppet is moved away from it by the overlap (at most `PUSH_SPEED` 900 units/s, to
+  either side if the way back is a wall, tested with `Game.TestLine`), not while a script holds it (`IgnoreUsrControl`, story walks, scenes, spirit mode, a downed
+  body); the puppets are never moved. The test bots hold their bodies with `IgnoreUsrControl`: `pushscripted=true` includes them.
 - Wall crossings (dev, chunk W): `wallprobe=true` on both machines tests every drawn step of every remote body with `Game.TestLine` (body height; a hit only
   70 units lower is counted apart as `low`) for the linear, cubic, default and drawn paths and for the sender's raw state pairs, the host's own AI bodies and
   enemies being the control; `laps='Delgado'` walks a host AI body round a loop or back and forth near walls; `simloss=0.15,simburst=3` drops states on

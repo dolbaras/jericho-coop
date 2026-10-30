@@ -1504,6 +1504,82 @@ function Coop.drivePuppets(dt)
   end
 end
 
+-- Squad bodies are solid in the original game (lab 2026-10-30, single player: a body that walks into another stops at a centre distance
+-- of 90-100 units and pushes it aside or stands still; with the other body's collision off it walked through at once). The bodies other
+-- machines drive here are puppets with collision off (placed by the network, they must not shove or shake), so this machine's own bodies
+-- walked through them: the players' bodies (the user, split screen's player 2) and, on the host, the AI squad bodies. A soft push-apart:
+-- a solid body closer than PUSH_SEP to a puppet is moved away from it by the overlap (at most PUSH_SPEED units a second), never into a wall
+-- (a line to where it would go), not while a script holds it (IgnoreUsrControl, story walks, scenes; cfg.pushscripted=true for the test bots that
+-- hold their body that way), not a downed or dead body. cfg.bodypush=false: off. The puppets themselves are never moved (their place is their owner's).
+Coop.PUSH_SEP, Coop.PUSH_SPEED, Coop.PUSH_PART, Coop.PUSH_DY = 90, 900, 1, 130
+Coop.push = Coop.push or {n = 0, blocked = 0, maxOv = 0, logT = 0}
+function Coop.bodyPush(dt)
+  if Scene and Scene.IsPlaying then return end
+  if CoopSpirit and CoopSpirit.active then return end   -- (the player is a spirit: no body of theirs to move)
+  local pups = {}
+  for _, name in ipairs(Coop.SQUAD) do
+    if Coop.isPuppet(name) and Coop.remote[name] and not Coop.storyDriven[name] then
+      local e = Coop.squadEnt(name)
+      if e and (e.Life or 0) > 0 then pups[#pups + 1] = e end
+    end
+  end
+  if #pups == 0 then return end
+  local solids = {}
+  local function add(e)
+    if e and (e.Life or 0) > 0 and (e.IgnoreUsrControl ~= 1 or cfg.pushscripted) and not Coop.storyDriven[e.Name] and not Coop.isPuppet(e.Name) then
+      solids[#solids + 1] = e
+    end
+  end
+  add(Game.UsrEntity(0))
+  if CoopSplit and CoopSplit.on and CoopSplit.body then add(CoopSplit.body()) end
+  if Coop.isHost() then
+    for _, name in ipairs(Coop.SQUAD) do
+      local e = Coop.squadEnt(name)
+      if e and e.bActive and not Coop.isLocalBody(name) then add(e) end
+    end
+  end
+  local P = Coop.push
+  for _, s in ipairs(solids) do
+    for _, p in ipairs(pups) do
+      if p ~= s then
+        local sp, pp = s.Pos, p.Pos
+        local dx, dz = sp.x - pp.x, sp.z - pp.z
+        local d = math.sqrt(dx * dx + dz * dz)
+        if d < Coop.PUSH_SEP and math.abs(sp.y - pp.y) < Coop.PUSH_DY then
+          local ux, uz
+          if d > 1 then
+            ux, uz = dx / d, dz / d
+          else
+            local yaw = math.rad(s.Ang.y)   -- exactly on it: back off the way the body looks away from
+            ux, uz = math.sin(yaw), math.cos(yaw)
+          end
+          local step = math.min((Coop.PUSH_SEP - d) * Coop.PUSH_PART, Coop.PUSH_SPEED * math.min(math.max(dt or 0.033, 0.008), 0.1))
+          -- the way away, or a way to either side, that is not a wall
+          local moved = false
+          for _, a in ipairs({0, 0.6, -0.6, 1.2, -1.2}) do
+            local c, sn = math.cos(a), math.sin(a)
+            local vx, vz = ux * c - uz * sn, ux * sn + uz * c
+            local ok, hit = pcall(Game.TestLine, sp, V3D(sp.x + vx * (step + 40), sp.y, sp.z + vz * (step + 40)), "")
+            if ok and not hit then
+              s.Pos = V3D(sp.x + vx * step, sp.y, sp.z + vz * step)
+              moved = true
+              break
+            end
+          end
+          P.n = P.n + 1
+          P.maxOv = math.max(P.maxOv, Coop.PUSH_SEP - d)
+          if not moved then P.blocked = P.blocked + 1 end
+        end
+      end
+    end
+  end
+  local now = Net.CoopTime()
+  if P.n > (P.logN or 0) and now - P.logT > 30 then
+    P.logT, P.logN = now, P.n
+    Coop.log(string.format("bodypush: %d pushes (%d with no free way), deepest overlap %.0f units", P.n, P.blocked, P.maxOv))
+  end
+end
+
 -- Other players' flashlights: the game has one camera-bound flashlight (the local player's),
 -- so another player's beam is a spot light at their body's weapon, aimed with their view.
 -- How a SpotLight takes its settings (dev.lua 'lighttest', 2026-10-20): Ang (0,0,0) points
@@ -2134,6 +2210,13 @@ function Coop.frameUpdate(now, dt)
     -- handled only at the 20 Hz tick, so they reached the interpolation up to a tick late and in bursts.
     if cfg.fastpump ~= false and Coop.frame >= 40 and Coop.level ~= "levels/menu" then Coop.pump() end
     Coop.drivePuppets(dt)
+    if cfg.bodypush ~= false then
+      local okb, errb = pcall(Coop.bodyPush, dt)
+      if not okb and (Coop.pushErrors or 0) < 5 then
+        Coop.pushErrors = (Coop.pushErrors or 0) + 1
+        Coop.log("bodypush error: " .. tostring(errb))
+      end
+    end
     if cfg.mxsrc and Coop.isHost() then pcall(Coop.mxSource, now) end
     if CoopWorld and CoopWorld.frame then pcall(CoopWorld.frame, now) end
     if CoopPowers then
