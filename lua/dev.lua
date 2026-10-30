@@ -3636,15 +3636,16 @@ if cfg.wallprobe and Coop.level ~= "levels/menu" then
   local prevWP = Coop.devFrame
   local WP = {st = {}, prev = {}, rawX = {}, n = 0, scan = {}, scanFrame = -100}
   Coop.wallProbeState = WP
-  local HEIGHTS = {0, -70}
+  -- A step counts as a crossing when the line at the body's height (Pos) meets the level (a wall, a door, a ceiling); a hit only
+  -- by the line 70 units lower (the floor under a dodging, falling or crouching body, a low step) is counted apart ("low").
   local function crossing(a, b)
     local dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
     local d2 = dx * dx + dy * dy + dz * dz
     if d2 < 1 or d2 > (Coop.TELEPORT or 500) ^ 2 then return nil end
-    for _, h in ipairs(HEIGHTS) do
-      local ok, hit = pcall(Game.TestLine, V3D(a.x, a.y + h, a.z), V3D(b.x, b.y + h, b.z), "")
-      if ok and hit then return true, hit end
-    end
+    local ok, hit = pcall(Game.TestLine, V3D(a.x, a.y, a.z), V3D(b.x, b.y, b.z), "")
+    if ok and hit then return true, hit end
+    local ok2, hit2 = pcall(Game.TestLine, V3D(a.x, a.y - 70, a.z), V3D(b.x, b.y - 70, b.z), "")
+    if ok2 and hit2 then return false, nil, true end
     return false
   end
   local function stat(kind)
@@ -3694,9 +3695,10 @@ if cfg.wallprobe and Coop.level ~= "levels/menu" then
     for _, v in ipairs({"lin", "cub", "def", "drawn"}) do
       local c, o = cur[v], pv[v]
       if c and o then
-        local x, hit = crossing(o, c)
+        local x, hit, low = crossing(o, c)
         if x ~= nil then
           add(kind, v .. "N")
+          if low then add(kind, v .. "L") end
           if x then
             add(kind, v .. "X")
             if raw == "x" then add(kind, v .. "I") end   -- inherent: the sender's own pair crosses too
@@ -3732,9 +3734,10 @@ if cfg.wallprobe and Coop.level ~= "levels/menu" then
     local o = WP.prev["real:" .. name]
     WP.prev["real:" .. name] = {x = p.x, y = p.y, z = p.z}
     if o then
-      local x, hit = crossing(o, p)
+      local x, hit, low = crossing(o, p)
       if x ~= nil then
         add(kind, "realN")
+        if low then add(kind, "realL") end
         if x then
           add(kind, "realX")
           if WP.n < 60 then

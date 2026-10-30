@@ -174,7 +174,7 @@ second, `% 30` 1.5 s, `% 40` 2 s. The level-start guards use it: host 300 ticks 
 | `CoopEnemies.install` | `installHost` (spawn, group, death, damage wrappers), scene host hooks, `SaveGame.LoadLevel` wrapper | `installClient`: guards, `guardAIEvents`, damage filter, scene client hooks |
 | `CoopEnemies.update` | snapshot `e` every tick, `retarget` every 20 ticks, `flushHeldScenes` | `lready` once, `freezeLocalEnemies` every 10 ticks, `guardAIEvents` every 90 |
 | `CoopWorld.install` | every `MapCallbacks` entry wrapped to send `cb` | `Team.SwitchSoldier` refused during a replay |
-| `CoopWorld.update` | blockers polled, digest `wd` every 10 s | rejoin hint (hold T) |
+| `CoopWorld.update` | blockers polled, digest `wd` every 4 s | blockers set back to the host's word (`W.enforceBlockers`), rejoin hint (hold T) |
 | `sendStates` | every body no human holds, Act 1's Ross, relayed client states | its own body, its split screen player's |
 | frame | | `driveEnemies` |
 
@@ -356,8 +356,9 @@ Counters in the 100-tick report line: `windows`, `missile-windows`, `flame-segs`
 | `blk` | host → all | R | blocker, 1/0 | `W.setBlocker` (`bMapCollision`) |
 | `kill` | any → host → all | R | object | `W.killObject` (`Life = 0`, the engine plays the break) |
 | `mv` | mover → host → all; host → one (catch-up) | R | `name,x,y,z,ax,ay,az;...` | `W.applyProps` |
-| `wd` | host → all | R | entries, hash | client compares `W.digest(W.entries())`; two misses in a row send `wdneed` |
+| `wd` | host → all | R | entries, hash | client compares `W.digest(W.entries())`; two misses in a row send `wdneed`; a residual the host's state could not remove (`only here` / `only on the host` in the log) twice in a row delays the next request by `W.NEED_BACKOFF` 120 s |
 | `wdneed` | client → host | R | | `W.sendState(peer)` |
+| `wdl` | host → clients (dev, `doordiag`) | R | host time, entry list (+ door objects `A:`, their collision `C:`), recent changes | `W.diagOnList`: the client logs `door-diag` episodes where its entries differ for more than 1.5 s |
 | `wstate` | host → one | R | `D:name+`, `K:name`, `B:name-`, `;`-separated | `W.applyState` |
 
 ### Team, time, game over (`coop_team.lua`)
@@ -486,7 +487,8 @@ on the host the bodies other humans hold, on a client every squad body except it
   3 x the measured lateness, at least `INTERP_MIN` 0.1 s, at most `INTERP_MAX` 0.25 s, plus half the
   averaging window): `pathAt` is a cubic Hermite path through the states (slopes from the
   neighbours, zero where the path turns round; a jump of more than `TELEPORT` 500 units between two states
-  is not interpolated), extrapolated at most `EXTRAP_MAX` (0.2 s) when states stop; the target is the
+  is not interpolated), extrapolated at most `EXTRAP_MAX` (0.2 s) when states stop (slowing to a stop over that time, `extrapdamp=false` = at full speed: a body
+  that is told nothing runs on past a wall or a turn by up to 90 units at full speed, 45 damped); the target is the
   average of that path over `SMOOTH_W` (0.1 s, five points), because the sender's bodies move in steps of
   the engine's own logic and a run's stride pulses their speed, which 20 Hz sampling turns into stop-and-go
   (an average over two states removes it). Switches: `hermite=false`, `psmooth=0`, `olddelay=true`;
@@ -507,6 +509,12 @@ on the host the bodies other humans hold, on a client every squad body except it
   traces: client `mxtrace='Delgado,enemy'` (`mxt` lines, every drawn frame of one body), host
   `mxsrc='Delgado'` (`mxs` lines, where the body really is each frame); lab `smooth_iq.sh`,
   `smooth_sum.py`, `mxt.py`, `mxcmp.py`.
+
+- Wall crossings (dev, chunk W): `wallprobe=true` on both machines tests every drawn step of every remote body with `Game.TestLine` (body height; a hit only
+  70 units lower is counted apart as `low`) for the linear, cubic, default and drawn paths and for the sender's raw state pairs, the host's own AI bodies and
+  enemies being the control; `laps='Delgado'` walks a host AI body round a loop or back and forth near walls; `simloss=0.15,simburst=3` drops states on
+  receive; `doordiag=true` logs door calls with the nearest body and the episodes where the machines' door/blocker/dead-object entries differ. Results:
+  `notes/bugfix-029.md` (W: walls); the offline simulation of the path code is `lab/sim/pathsim.lua`.
 
 Nothing is driven while a scene plays (scenes hide the squad). Clients drive host enemies the
 same way (`CoopEnemies.driveEnemies`, `E.SNAP_DIST` 250, `E.FOLLOW` 0.9, grabs keep root

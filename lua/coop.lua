@@ -911,9 +911,9 @@ local function pathAt(h, rr)
     if not p or b.rt - p.rt <= 0 or ext <= 0 or jumped(p, b) then
       return {x = b.x, y = b.y, z = b.z, yaw = b.yaw, pitch = b.pitch or 0, st = b}, true
     end
-    -- (cfg.extrapdamp: the body slows to a stop over the extrapolation instead of running on at full speed: at a wall, a
-    -- corner or a turn the sender's body does not run on, and the lost states are the ones that tell)
-    if cfg.extrapdamp then ext = ext - ext * ext / (2 * Coop.EXTRAP_MAX) end
+    -- (the body slows to a stop over the extrapolation instead of running on at full speed: at a wall, a corner or a turn
+    -- the sender's body does not run on, and the lost states are the ones that tell; cfg.extrapdamp=false: full speed, as before 0.2.9)
+    if cfg.extrapdamp ~= false then ext = ext - ext * ext / (2 * Coop.EXTRAP_MAX) end
     local k = ext / (b.rt - p.rt)
     return {x = b.x + (b.x - p.x) * k, y = b.y, z = b.z + (b.z - p.z) * k,
             yaw = b.yaw, pitch = b.pitch or 0, st = b}, true

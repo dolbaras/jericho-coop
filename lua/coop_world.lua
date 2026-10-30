@@ -210,8 +210,9 @@ function W.report()
   for _ in pairs(W.dead or {}) do dead = dead + 1 end
   local props = 0
   for _ in pairs(W.props or {}) do props = props + 1 end
-  return string.format("world: sent=%d replayed=%d doors=%d dead=%d digest_misses=%d props=%d moved_sent=%d moved_set=%d prop_errors=%d",
-    W.sent or 0, W.replayed or 0, doors, dead, W.digestMisses or 0, props, W.propsSent or 0, W.propsSet or 0, W.propErrors or 0)
+  return string.format("world: sent=%d replayed=%d doors=%d dead=%d digest_misses=%d props=%d moved_sent=%d moved_set=%d prop_errors=%d%s",
+    W.sent or 0, W.replayed or 0, doors, dead, W.digestMisses or 0, props, W.propsSent or 0, W.propsSet or 0, W.propErrors or 0,
+    (W.blockEnforced or 0) > 0 and (" blockers_set_back=" .. W.blockEnforced) or "")
 end
 
 ------------------------------------------------------------------------------
@@ -235,7 +236,8 @@ end
 W.doors = {}      -- name -> true open / false closed, as set on this machine
 W.objects = {}    -- name -> last seen alive (physics objects created with Life)
 W.dead = {}       -- name -> true: killed here or on another machine
-W.DIGEST_EVERY = 10
+W.DIGEST_EVERY = 4    -- (10 before 0.2.9: a difference was healed after two digests = 20-30 s; now 8-12 s)
+W.NEED_BACKOFF = 120
 -- Invisible blockers (InvisibleBlocker and other map objects the level's scripts switch with
 -- bMapCollision): the host's state on every machine. The scripts that switch them off often
 -- run at the end of a team chat or an AI walk of the player's own body, which a client's copy
@@ -290,9 +292,11 @@ function W.installObjects()
   for _, fn in ipairs({"OpenDoor", "CloseDoor"}) do
     local orig, open = PhysicsObj[fn], fn == "OpenDoor"
     PhysicsObj[fn] = function(name, ...)
-      if type(name) == "string" and W.doors[name] ~= open then
+      -- (a call that changes the door, by the recorded state or by the door's own: something else may have moved it since the last call)
+      if type(name) == "string" and (W.doors[name] ~= open or W.doorOpen(name) == (not open)) then
         W.doors[name] = open
         if Coop.isHost() and Coop.inSession() then Net.CoopSend(-1, 1, "door|" .. name .. "|" .. (open and 1 or 0)) end
+        if Coop.cfg.doordiag then pcall(W.diagCall, name, open) end
       end
       return orig(name, ...)
     end
@@ -379,6 +383,41 @@ function W.pollBlockers()
       W.blockers[name] = on and true or false
       Net.CoopSend(-1, 1, "blk|" .. name .. "|" .. (on and 1 or 0))
       Coop.log("world: blocker " .. name .. (on and " on" or " off"))
+    end
+  end
+end
+
+-- Client: the host's blockers hold on this machine. The level's own scripts here may switch a blocker back after the host's
+-- word was taken (a replayed callback that ends later, the end of a team chat or an AI walk of a body this machine does not
+-- run): the host sends a blocker only when ITS poll sees it change, so such a blocker stayed on (an invisible wall for this
+-- machine only: "the client runs into a wall nobody else has") or off (everyone else stops at it) until the next digest
+-- miss, and each resend fixed it for a moment only. A blocker that differs from the host's last word for BLOCK_GRACE
+-- seconds is set back (cfg.blockenforce=false: as before 0.2.9).
+W.BLOCK_GRACE = 0.6
+function W.enforceBlockers(t)
+  if t < (W.nextEnforce or 0) then return end
+  W.nextEnforce = t + 0.25
+  W.blockDiff = W.blockDiff or {}
+  for name, want in pairs(W.blockers) do
+    local e = Game.GetEntity(name)
+    local ok, live = pcall(function() return e and e.bMapCollision end)
+    if ok and live ~= nil and (live and true or false) ~= want then
+      local since = W.blockDiff[name]
+      if not since then
+        W.blockDiff[name] = t
+      elseif t - since >= W.BLOCK_GRACE then
+        W.blockDiff[name] = nil
+        W.blockEnforced = (W.blockEnforced or 0) + 1
+        W.blockSeen = W.blockSeen or {}
+        W.blockSeen[name] = (W.blockSeen[name] or 0) + 1
+        if W.blockSeen[name] <= 5 then
+          Coop.log(string.format("world: blocker %s was %s here against the host's %s for %.1f s: set back (%d)", name,
+            live and "on" or "off", want and "on" or "off", t - since, W.blockSeen[name]))
+        end
+        pcall(function() e.bMapCollision = want end)
+      end
+    else
+      W.blockDiff[name] = nil
     end
   end
 end
@@ -787,18 +826,174 @@ function W.applyState(text)
     if not here[item] then lacking[#lacking + 1] = item end
   end
   table.sort(lacking)
+  -- What stays different after the host's state is applied cannot be removed by asking again (an entry only this machine
+  -- has, a door that does not take the state, a blocker the engine rewrites): after two such states in a row the next
+  -- request waits W.NEED_BACKOFF seconds. The residual is named in the log, with the door's own action.
+  W.residualN = (#extra > 0 or #lacking > 0) and (W.residualN or 0) + 1 or 0
+  if W.residualN >= 2 then W.nextNeed = now() + W.NEED_BACKOFF end
+  local function describe(list)
+    local t = {}
+    for i, item in ipairs(list) do
+      local kind, name = string.match(item, "^(%a):(.-)[%+%-]?$")
+      local e = name and Game.GetEntity(name)
+      local more = ""
+      if e and kind == "D" then more = "(action " .. tostring(e.Action) .. ", collision " .. tostring(e.bMapCollision) .. ")" end
+      t[i] = item .. more
+    end
+    return table.concat(t, " ")
+  end
   Coop.log("world: host state applied, " .. fixed .. " fixed" ..
-    (#extra > 0 and (", only here: " .. table.concat(extra, " ")) or "") ..
-    (#lacking > 0 and (", only on the host: " .. table.concat(lacking, " ")) or ""))
+    (#extra > 0 and (", only here: " .. describe(extra)) or "") ..
+    (#lacking > 0 and (", only on the host: " .. describe(lacking)) or "") ..
+    (W.residualN >= 2 and (", the same again: next request in " .. W.NEED_BACKOFF .. " s") or ""))
+end
+
+-- Door/blocker diagnostics (chunk W, dev: cfg.doordiag): where the machines' door, blocker and dead-object entries (what the
+-- digest hashes) differ, for how long, and who called what. Host: every OpenDoor/CloseDoor is logged with the nearest body and the
+-- way it came (script, a replayed callback, a body's use); the entry list goes to the clients (`wdl`) when it changes and every
+-- 5 s. Client: compares it with its own entries 10 times a second; an entry that differs from the host's for more than
+-- DIAG_MIN seconds is an episode (log at the start and at the end, with the age of the host's own change).
+W.DIAG_MIN = 1.5
+W.diagState = {ep = 0, open = {}, maxLen = 0, chg = {}, last = {}}
+local function entryMap(list)
+  local m = {}
+  for _, item in ipairs(list) do
+    local kind, name, sign = string.match(item, "^(%a):(.-)([%+%-]?)$")
+    if kind then m[kind .. ":" .. name] = sign end
+  end
+  return m
+end
+
+function W.diagCall(name, open)
+  local door = Game.GetEntity(name)
+  local best, bd
+  for _, n in ipairs(Coop.SQUAD) do
+    local b = Coop.squadEnt(n)
+    if b and door and (b.Life or 0) > 0 then
+      local ok, dist = pcall(function() local a, c = b.Pos, door.Pos return math.sqrt((a.x - c.x) ^ 2 + (a.z - c.z) ^ 2) end)
+      if ok and (not bd or dist < bd) then best, bd = n, dist end
+    end
+  end
+  local src = W.replaying and "a replayed callback" or (W.forUser and ("a use by " .. W.forUser)) or "a script"
+  Coop.log(string.format("door-diag: %s %s t=%.3f on the %s by %s, nearest body %s %s units, door here: %s", name,
+    open and "OpenDoor" or "CloseDoor", Net.CoopTime(), Coop.isHost() and "host" or "client", src, tostring(best),
+    bd and string.format("%.0f", bd) or "?", tostring(door and door.Action)))
+end
+
+-- Every door-like object of the map (a physics object whose action is a door's), by its real state, whether or not
+-- PhysicsObj.OpenDoor was ever called for it: the digest sees only the doors that went through OpenDoor/CloseDoor here.
+local DOORACT = {Open = "+", Opened = "+", Close = "-", Closed = "-"}
+function W.diagEntries(t)
+  local d = W.diagState
+  if d.scanT and t - d.scanT < 1 then return d.scan end
+  d.scanT, d.scan = t, {}
+  local e = Game.GetFirst()
+  while e ~= nil do
+    local ok, body = pcall(function() return e:IsType("PxBodyPhysics") end)
+    if ok and body then
+      local okA, act = pcall(function() return e.Action end)
+      local sign = okA and DOORACT[tostring(act)]
+      if sign then
+        d.scan[#d.scan + 1] = "A:" .. e.Name .. sign
+        -- (the collision of a door is switched by events of its animation: open with the collision still on = an invisible wall)
+        local okC, coll = pcall(function() return e.bMapCollision end)
+        if okC and coll ~= nil then d.scan[#d.scan + 1] = "C:" .. e.Name .. (coll and "+" or "-") end
+      end
+    end
+    e = Game.GetEntity(e.NextInSlot)
+  end
+  table.sort(d.scan)
+  return d.scan
+end
+
+function W.diagList(t)
+  local list = W.entries()
+  for _, item in ipairs(W.diagEntries(t)) do list[#list + 1] = item end
+  return list
+end
+
+function W.diagHost(t)
+  local d = W.diagState
+  if t < (d.nextHost or 0) then return end
+  d.nextHost = t + 0.25
+  local list = W.diagList(t)
+  local m = entryMap(list)
+  local changed = false
+  for k, s in pairs(m) do if d.last[k] ~= s then d.chg[k], changed = t, true end end
+  for k in pairs(d.last) do if m[k] == nil then d.chg[k], changed = t, true end end
+  d.last = m
+  if changed or t - (d.sentT or -100) > 5 then
+    d.sentT = t
+    local recent = {}
+    for k, ct in pairs(d.chg) do if t - ct < 30 then recent[#recent + 1] = string.format("%s@%.3f", k, ct) end end
+    Net.CoopSend(-1, 1, string.format("wdl|%.3f|%s|%s", t, table.concat(list, ";"), table.concat(recent, ";")))
+  end
+end
+
+function W.diagOnList(f)
+  local d = W.diagState
+  local t = Net.CoopTime()
+  local off = t - (tonumber(f[2]) or t)   -- this clock minus the host's, plus the latency: the least seen is the best
+  if not d.off or off < d.off then d.off = off end
+  local list = {}
+  for item in string.gmatch(f[3] or "", "[^;]+") do list[#list + 1] = item end
+  d.host, d.hostChg = entryMap(list), {}
+  for item in string.gmatch(f[4] or "", "[^;]+") do
+    local k, ct = string.match(item, "^(.-)@([%d%.]+)$")
+    if k then d.hostChg[k] = tonumber(ct) end
+  end
+end
+
+local function diagEnd(d, k, t, why)
+  local ep = d.open[k]
+  d.open[k] = nil
+  if ep and ep.logged then
+    local len = t - ep.t0
+    d.maxLen = math.max(d.maxLen, len)
+    Coop.log(string.format("door-diag: %s agrees again after %.1f s (%s)", k, len, why))
+  end
+end
+
+function W.diagClient(t)
+  local d = W.diagState
+  if not d.host or t < (d.nextCmp or 0) then return end
+  d.nextCmp = t + 0.1
+  local mine = entryMap(W.diagList(t))
+  local keys = {}
+  for k in pairs(d.host) do keys[k] = true end
+  for k in pairs(mine) do keys[k] = true end
+  for k in pairs(keys) do
+    local hs, ms = d.host[k], mine[k]
+    if hs ~= ms then
+      local ep = d.open[k]
+      if not ep then ep = {t0 = t} d.open[k] = ep end
+      if not ep.logged and t - ep.t0 >= W.DIAG_MIN then
+        ep.logged = true
+        d.ep = d.ep + 1
+        local ct = d.hostChg and d.hostChg[k]
+        Coop.log(string.format("door-diag: %s differs for %.1f s: host %s, here %s; host changed it %s", k, t - ep.t0,
+          hs == nil and "absent" or ("'" .. hs .. "'"), ms == nil and "absent" or ("'" .. ms .. "'"),
+          ct and string.format("%.1f s ago", t - (ct + (d.off or 0))) or "more than 30 s ago or never"))
+      end
+    elseif d.open[k] then
+      diagEnd(d, k, t, "same entry")
+    end
+  end
+  for k in pairs(d.open) do if not keys[k] then diagEnd(d, k, t, "gone") end end
 end
 
 function W.update()
   if not Coop.inSession() or Coop.level == "levels/menu" then return end
+  if Coop.cfg.doordiag then
+    local t = now()
+    if Coop.isHost() then pcall(W.diagHost, t) else pcall(W.diagClient, t) end
+  end
   W.installObjects()
   W.installFPAnm()
   W.installCoolUse()
   W.pollObjects()
   if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
+  if Coop.isClient() and Coop.cfg.syncblockers ~= false and Coop.cfg.blockenforce ~= false then pcall(W.enforceBlockers, now()) end
   if Coop.cfg.syncprops ~= false then W.pollProps() end
   local okr, errr = pcall(W.updateRejoin)
   if not okr and (W.rejoinErrors or 0) < 3 then
@@ -854,7 +1049,7 @@ function W.onObjectMessage(peer, f)
   elseif kind == "wd" and Coop.isClient() then
     local n, sum = W.digest(W.entries())
     if n == tonumber(f[2]) and sum == tonumber(f[3]) then
-      W.mismatch = 0
+      W.mismatch, W.residualN, W.nextNeed = 0, 0, nil
     else
       W.mismatch = (W.mismatch or 0) + 1
       W.digestMisses = (W.digestMisses or 0) + 1
@@ -864,11 +1059,13 @@ function W.onObjectMessage(peer, f)
         W.digestShown = (W.digestShown or 0) + 1
         Coop.log("world: entries here: " .. string.sub(table.concat(W.entries(), " "), 1, 1200))
       end
-      if W.mismatch >= 2 then
+      if W.mismatch >= 2 and now() >= (W.nextNeed or 0) then
         W.mismatch = 0
         Net.CoopSend(0, 1, "wdneed")
       end
     end
+  elseif kind == "wdl" then
+    if Coop.isClient() and Coop.cfg.doordiag then pcall(W.diagOnList, f) end
   elseif kind == "wdneed" and Coop.isHost() then
     W.sendState(peer)
   elseif kind == "wstate" and Coop.isClient() then
