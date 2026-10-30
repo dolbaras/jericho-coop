@@ -262,4 +262,53 @@ C.press("right", 1); C.localUpdate()
 assert(C.cur.picks[0].g == 2 and not C.cur.picks[0].conf, "player 1 moved to the second card")
 C.press("confirm", 1); C.localUpdate()
 assert(C.cur.picks[0].conf, "player 1 confirmed")
+-- 19. load order of the real game: coop_splits.lua comes BEFORE coop_choice.lua (coop.lua), which builds its own DEFS.
+-- The split's hook (G6afterChoice) must still run on every machine when the result is known, and the held start
+-- (resume) of every split must run once after the choice.
+CoopChoice = nil
+V3D = V3D or function(x, y, z) return {x = x, y = y, z = z} end
+dofile("coop_splits.lua")
+local Sp = CoopSplits
+dofile("coop_choice.lua")
+C = CoopChoice
+assert(Sp.afterChoice and Sp.afterChoice.G6 == Sp.G6afterChoice, "split registers its hook by name")
+local spy = {}
+for _, fn in ipairs({"G6keepHumans", "setSides", "showNotice"}) do
+  Sp[fn] = function(...) spy[#spy + 1] = fn end
+end
+Sp.G6.free = false
+Coop.role = "host"; Coop.cfg.myId = nil
+for id, def in pairs(C.DEFS) do
+  local g1, g2 = def.groups[1], def.groups[2]
+  local human = {}
+  Coop.owners = {}
+  Coop.owners[g1.chars[1]] = 0
+  Coop.owners[g2.chars[1]] = 1
+  for _, n in ipairs({"Ross"}) do ents[n] = ents[n] or {Name = n, Life = 100, Active = 1} end
+  C.reset(); spy = {}
+  local resumed = 0
+  C.pending[id] = {since = clock, resume = function() resumed = resumed + 1 end}
+  C.start(id)
+  C.setPick(1, 2, true); C.setPick(0, 1, true)
+  C.resolve()
+  if id == "G6" then
+    local seen = table.concat(spy, ",")
+    assert(seen:find("G6keepHumans") and seen:find("setSides") and seen:find("showNotice"),
+           "G6: the split's own code ran after the choice: " .. seen)
+  else
+    assert(#spy == 0, id .. ": no hook expected, got " .. table.concat(spy, ","))
+  end
+  assert(resumed == 0, id .. ": start still held during the explanation")
+  clock = clock + C.RESULT_HOLD + 1
+  C.runLater()
+  assert(resumed == 1, id .. ": the held start ran once: " .. resumed)
+end
+-- a client runs the hook too (chr from the host)
+Coop.role = "client"; Coop.cfg.myId = 1
+Coop.isClient = function() return true end; Coop.isHost = function() return false end
+C.reset(); spy = {}
+C.onMessage(0, {"chr", "G6", "1:Jones:keep"})
+assert(table.concat(spy, ","):find("showNotice"), "client: the G6 hook ran on chr")
+Coop.role = "host"; Coop.cfg.myId = nil
+Coop.isClient = function() return false end; Coop.isHost = function() return true end
 print("choice mock test: ok")

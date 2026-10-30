@@ -696,7 +696,8 @@ function Sp.G6afterChoice()
   end
   Sp.showNotice("captive", Sp.G6.chars)
 end
-if CoopChoice and CoopChoice.DEFS.G6 then CoopChoice.DEFS.G6.after = Sp.G6afterChoice end
+-- (coop_choice.lua loads after this file and builds its own DEFS: it looks the hook up here when the result is known)
+Sp.afterChoice = {G6 = Sp.G6afterChoice}
 
 function Sp.G6afterInit()
   if Sp.G6.initDone then return end

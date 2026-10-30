@@ -34,7 +34,7 @@ C.DEFS = {
   -- 0.2.9 (docs/split-choice.md section 4). `inactive`: bodies the level keeps switched off until a
   -- player holds them (a card counts them, the move switches them on); `pinned`: bodies whose holder
   -- cannot leave (the story script needs them); `settle`: seconds of rest before the screen opens;
-  -- `after`: run on every machine when the result is known (set by coop_splits.lua).
+  -- `after`: run on every machine when the result is known (a split's hook is CoopSplits.afterChoice[id]).
   G6 = {groups = {{key = "sacrifice", chars = {"Church"}}, {key = "top", chars = {"Cole", "Rawlings"}},
                   {key = "base", chars = {"Jones", "Delgado", "Black"}}},
         inactive = {Cole = true, Rawlings = true}, settle = 3},
@@ -701,8 +701,10 @@ end
 -- (def.after) re-reads who holds which body (G6's gate top, ...).
 function C.clientAfter(id)
   local def = C.DEFS[id]
-  if def and def.after then
-    local ok, err = pcall(def.after, id)
+  -- (coop_splits.lua loads before this file: its hooks are looked up by name, not stored in DEFS)
+  local after = (def and def.after) or (CoopSplits and CoopSplits.afterChoice and CoopSplits.afterChoice[id])
+  if after then
+    local ok, err = pcall(after, id)
     if not ok then Coop.log("choice " .. id .. ": after error: " .. tostring(err)) end
   end
 end
