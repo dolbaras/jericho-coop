@@ -682,18 +682,6 @@ function E.installMissileRef()
       tbl.coopHit[fn] = wrapper
     end
   end
-  -- (and how many pilums are thrown at whom: hits per throw, remote against local)
-  local launch = t and t.LaunchPilum
-  if type(launch) == "function" and not (t.coopLaunch and t.coopLaunch == launch) then
-    local wrapper = function(name, ...)
-      local o = Game.GetEntity(name)
-      local obj = o and o.AI_ObjectiveDin
-      if obj and obj ~= "" and Game.GetEntity(obj) then bump("pilumThrown" .. objClass(obj)) end
-      return launch(name, ...)
-    end
-    t.LaunchPilum = wrapper
-    t.coopLaunch = wrapper
-  end
 end
 
 -- Client: the flamethrower soldier's copy here flames with this machine's own lines, which set a body alight where
@@ -722,19 +710,32 @@ function E.installFlamesClient()
   end
 end
 
-E.MW_RANGE = 900         -- units: an enemy missile this near opens a remote body's collision
+E.MW_RANGE = 1500        -- units: an enemy missile this near opens a remote body's collision (a pilum flies 300 units per tick)
+E.MW_HOLD = 0.3          -- s: a window stays open at least this long (the missile is sampled only every tick)
 E.mwOpen = {}
+
+-- Opens the collision of a remote body (the missile window), noting when.
+function E.mwOpenBody(b)
+  local now = Net.CoopTime()
+  if E.mwOpen[b.Name] then
+    E.mwOpen[b.Name] = now
+    return
+  end
+  local ok, ign = pcall(function() return b.bIgnoreCollision end)
+  if ok and ign then
+    pcall(function() b.bIgnoreCollision = false end)
+    E.mwOpen[b.Name] = now
+    bump("mwOpened")
+  end
+end
+
 function E.mwApply(bodies, wanted)
+  local now = Net.CoopTime()
   for _, b in ipairs(bodies) do
-    local open = E.mwOpen[b.Name]
-    if wanted[b.Name] and not open then
-      local ok, ign = pcall(function() return b.bIgnoreCollision end)
-      if ok and ign then
-        pcall(function() b.bIgnoreCollision = false end)
-        E.mwOpen[b.Name] = true
-        bump("mwOpened")
-      end
-    elseif open and not wanted[b.Name] then
+    local since = E.mwOpen[b.Name]
+    if wanted[b.Name] then
+      E.mwOpenBody(b)
+    elseif since and now - since > E.MW_HOLD then
       pcall(function() b.bIgnoreCollision = true end)
       E.mwOpen[b.Name] = nil
     end
@@ -744,6 +745,50 @@ function E.mwApply(bodies, wanted)
     local found = false
     for _, b in ipairs(bodies) do if b.Name == name then found = true end end
     if not found then E.mwOpen[name] = nil end
+  end
+end
+
+-- The launch of a missile opens the window at once (the first sample of the missile comes up to a tick later, and a pilum
+-- covers 300 units in that time: the first runs hit the remote body 0 of 17 at 500 units against 11 of 17 for the host's own body).
+E.LAUNCHERS = {
+  {"WeaponsLegionary", "LaunchPilum"}, {"WeaponsCruzader", "OnShotCrossbow"}, {"CultistaVolador", "CreateBlade"},
+  {"Arnold", "CreateBlade"}, {"SummerianKI", "ShotFireball"}, {"WeaponsNaziSoldier", "LaunchMortar"},
+  {"WeaponsNaziSoldier", "LaunchCluster"},
+}
+function E.installLaunchers()
+  for _, m in ipairs(E.LAUNCHERS) do
+    local t, fn = _G[m[1]], m[2]
+    local orig = t and t[fn]
+    if type(orig) == "function" and not (t.coopLaunchWin and t.coopLaunchWin[fn] == orig) then
+      t.coopLaunchWin = t.coopLaunchWin or {}
+      local wrapper = function(a1, ...)
+        local r = {n = 0}
+        local function keep(...) r = {n = select("#", ...), ...} end
+        if fn == "LaunchPilum" then
+          -- (how many pilums are thrown at whom: hits per throw, remote against local)
+          pcall(function()
+            local o = type(a1) == "string" and Game.GetEntity(a1) or a1
+            local obj = o and o.AI_ObjectiveDin
+            if obj and obj ~= "" and Game.GetEntity(obj) then bump("pilumThrown" .. objClass(obj)) end
+          end)
+        end
+        keep(pcall(orig, a1, ...))
+        if Coop.cfg.mwindow ~= false then
+          pcall(function()
+            local shooter = type(a1) == "string" and Game.GetEntity(a1) or a1
+            if shooter and isEnemy(shooter) then
+              for _, b in ipairs(E.remoteBodies()) do
+                if (b.Pos - shooter.Pos):mod() < E.MW_RANGE + 1000 then E.mwOpenBody(b) end
+              end
+            end
+          end)
+        end
+        if not r[1] then error(r[2], 0) end
+        return unpack(r, 2, r.n)
+      end
+      t[fn] = wrapper
+      t.coopLaunchWin[fn] = wrapper
+    end
   end
 end
 
@@ -923,6 +968,7 @@ function E.installHost()
   E.installMissileRef()
   E.installBloodHit()
   E.installStompRef()
+  E.installLaunchers()
   E.installHitStrong()
   local origCreate = NPC.CreateWithAI
   NPC.CreateWithAI = function(acName, x, y, z, listName, setOnFloor)
@@ -2242,7 +2288,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
-    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installMissileRef() E.installBloodHit() E.installStompRef() E.installHitStrong() end   -- (an enemy class whose script loads later)
+    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installMissileRef() E.installBloodHit() E.installStompRef() E.installLaunchers() E.installHitStrong() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end

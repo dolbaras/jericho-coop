@@ -3255,7 +3255,8 @@ end
 -- unused enemy of that class (NPC.Groups lists inactive ones too; its group is activated), puts it `dist` units in
 -- front of the body that is its target (`who`: a remote human's body, or the host's own, the reference for the
 -- engine's own hit rate), keeps it alive and aimed at that body (AIEnemy.DoAttack every second) and kills it after
--- `len` ticks or when the next phase starts. Counters: the host's report line (coop_enemies.lua); the client logs its
+-- `len` ticks or when the next phase starts. Optional `call = 'WeaponsLegionary.LaunchPilum', callevery = 40`: that attack function is
+-- called for the enemy every callevery ticks (its AI objective set to the body first); `reuse`, `vuln`, `leash` (see below). Counters: the host's report line (coop_enemies.lua); the client logs its
 -- own fire and life state. lab\efphases.sh.
 if cfg.efphases and Coop.level ~= "levels/menu" then
   local prevEp = Coop.dev
@@ -3351,6 +3352,18 @@ if cfg.efphases and Coop.level ~= "levels/menu" then
           cur = nil
         elseif f >= cur.started + (spec.len or 500) then
           stop("time")
+        elseif spec.call and f % (spec.callevery or 40) == 0 then
+          local fn = _G
+          for part in string.gmatch(spec.call, "[^.]+") do fn = fn and fn[part] end
+          local body = human(spec.who)
+          if type(fn) == "function" and body and (e.Life or 0) > 0 then
+            pcall(AIEnemy.DoAttack, e, body)   -- (the objective the attack reads)
+            local ok, err = pcall(fn, e.Name)
+            if not ok and not cur.callError then
+              cur.callError = true
+              Coop.log("efphases: " .. spec.call .. " error " .. tostring(err))
+            end
+          end
         elseif f % 20 == 0 then
           local body = human(spec.who)
           if body then

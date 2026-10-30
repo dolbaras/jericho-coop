@@ -313,7 +313,7 @@ client these events now run only their other parts: the ragdoll and the shield e
 
 A remote human's body on the host is a puppet with collision off: rays (`o:DrawWeapon`, `Game.TestLine`) and missile
 collisions pass through it, area queries (`Game.SphereCall`, masks R/L/G/LPO) find it. Rays are made to meet it by switching its
-collision on for the length of the one enemy event that casts them (the "collision window"), missiles while one is within 900 units;
+collision on for the length of the one enemy event that casts them (the "collision window"), missiles from the launch of one until it is gone (within 1500 units of the body);
 the engine's own code then decides and damages. Details: `architecture.md` ("Enemy attacks against bodies other players
 hold").
 
