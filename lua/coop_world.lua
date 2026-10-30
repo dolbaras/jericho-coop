@@ -829,8 +829,21 @@ function W.applyState(text)
   -- What stays different after the host's state is applied cannot be removed by asking again (an entry only this machine
   -- has, a door that does not take the state, a blocker the engine rewrites): after two such states in a row the next
   -- request waits W.NEED_BACKOFF seconds. The residual is named in the log, with the door's own action.
-  W.residualN = (#extra > 0 or #lacking > 0) and (W.residualN or 0) + 1 or 0
-  if W.residualN >= 2 then W.nextNeed = now() + W.NEED_BACKOFF end
+  -- ("the same": the same residual set; another residual starts the count again, and the back-off ends as soon as the
+  -- digests this machine and the host show are not the ones it was set for: see the `wd` message)
+  local key = (#extra > 0 or #lacking > 0) and (table.concat(extra, ";") .. "|" .. table.concat(lacking, ";")) or nil
+  if not key then
+    W.residualN, W.residualKey = 0, nil
+  elseif key == W.residualKey then
+    W.residualN = (W.residualN or 0) + 1
+  else
+    W.residualN, W.residualKey = 1, key
+  end
+  if W.residualN >= 2 then
+    W.nextNeed = now() + W.NEED_BACKOFF
+    local _, mine = W.digest(W.entries())
+    W.backoff = {mine = mine, host = W.hostSum}
+  end
   local function describe(list)
     local t = {}
     for i, item in ipairs(list) do
@@ -1048,8 +1061,15 @@ function W.onObjectMessage(peer, f)
     W.killObject(f[2])
   elseif kind == "wd" and Coop.isClient() then
     local n, sum = W.digest(W.entries())
+    W.hostSum = tonumber(f[3])
+    -- (a different mismatch than the residual the back-off was set for: this machine's entries or the host's changed since)
+    local bo = W.backoff
+    if bo and not (n == tonumber(f[2]) and sum == tonumber(f[3])) and (bo.mine ~= sum or bo.host ~= W.hostSum) then
+      Coop.log("world: the difference is not the one that was left over: requests are open again")
+      W.backoff, W.nextNeed, W.residualN, W.residualKey = nil, nil, 0, nil
+    end
     if n == tonumber(f[2]) and sum == tonumber(f[3]) then
-      W.mismatch, W.residualN, W.nextNeed = 0, 0, nil
+      W.mismatch, W.residualN, W.nextNeed, W.backoff, W.residualKey = 0, 0, nil, nil, nil
     else
       W.mismatch = (W.mismatch or 0) + 1
       W.digestMisses = (W.digestMisses or 0) + 1
