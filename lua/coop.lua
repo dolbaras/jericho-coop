@@ -1176,7 +1176,7 @@ end
 -- What keeps the engine moving a body after a script left it half way (lab 2026-10-30, the replayed
 -- MakeFP.CoolUse): the entity's MoveMePosAng(2, ...) holds it at the place it had when the call ran
 -- for good (the body is put back after every placement; clearing the lock, invulnerability, model
--- offset and link did not end it), and OffMul 1 draws the model at TgModelPos, the object's node.
+-- offset and link did not end it), and it leaves OffMul 1 with TgModelPos at the object's node (the skeleton's node positions stayed with the body in the lab: no displaced model seen).
 -- A new short move to where the body is replaces the old one; OnEndMove is cleared first (it would
 -- run the script's next step with state that is gone).
 function Coop.clearPins(e)
