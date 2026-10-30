@@ -476,13 +476,31 @@ on the host the bodies other humans hold, on a client every squad body except it
 - AI off (`oAI.bEnable = false`, unless `cfg.puppetai`), collision off (`bIgnoreCollision`,
   restored by `Coop.releasePuppet`), root motion off for its current action
   (`Coop.suppressRootMotion`, the local players' actions keep theirs);
-- target: `Coop.puppetTarget` interpolates the state history (`Coop.hist`, up to 48 states,
-  ordered by the sender's clock) `INTERP_MIN`..`INTERP_MAX` (0.07-0.25 s, from send interval
-  and jitter) in the past, extrapolating at most `EXTRAP_MAX` (0.2 s);
-- position: snap when the horizontal or vertical error is above `SNAP_DIST` (250 units), else
-  remove `FOLLOW` (0.9) of the error per 0.05 s; height only beyond `FOLLOW_Y` (1 unit);
-- `Ang`, `ViewAng`, shot (newest state), weapon slot (`Coop.syncSlot`), arm actions
-  (`Coop.mirrorArms`), walk/strafe/sprint inputs, crouch (`Coop.syncCrouch`).
+- messages are taken every frame (`Coop.frameUpdate` calls `Coop.pump()` before `drivePuppets` once
+  `Coop.frame >= 40`; `cfg.fastpump=false` = only at the 20 Hz tick, as before 0.2.9): a state used to
+  reach the history up to a tick late and in bursts;
+- target: `Coop.puppetTarget` reads the state history (`Coop.hist`, up to 48 states, ordered by the
+  sender's clock) at the sender's time now minus `Coop.puppetDelay` (two states of the sender's rate +
+  3 x the measured lateness, at least `INTERP_MIN` 0.1 s, at most `INTERP_MAX` 0.25 s, plus half the
+  averaging window): `pathAt` is a cubic Hermite path through the states (slopes from the
+  neighbours, zero where the path turns round; a jump of more than `TELEPORT` 500 units between two states
+  is not interpolated), extrapolated at most `EXTRAP_MAX` (0.2 s) when states stop; the target is the
+  average of that path over `SMOOTH_W` (0.1 s, five points), because the sender's bodies move in steps of
+  the engine's own logic and a run's stride pulses their speed, which 20 Hz sampling turns into stop-and-go
+  (an average over two states removes it). Switches: `hermite=false`, `psmooth=0`, `olddelay=true`;
+- position: snap when the horizontal or vertical error is above `SNAP_DIST` (250 units), else the body
+  is placed on the target (`FOLLOW` 1; `cfg.pfollow=0.9` removes 0.9 of the error per 0.05 s as before
+  0.2.9); height only beyond `FOLLOW_Y` (1 unit); the velocity is zeroed after each placement (the engine's
+  own walking on top of the placement made a step of 30 units per frame);
+- `Ang`, `ViewAng`, shot, weapon slot (`Coop.syncSlot`), arm actions (`Coop.mirrorArms`) from the state
+  drawn now (`tg.st`; `cfg.shotnewest=true`: the newest, as before), walk/strafe/sprint inputs, crouch
+  (`Coop.syncCrouch`).
+- Metrics and traces (chunk I): the 100-tick report carries `pm:squad` / `pm:enemy`: packets, interval,
+  lateness, drawn frames on the move, `stall` (no step), `spike`, `und` (frames drawn on an
+  extrapolation), `irr` (speed irregularity of three drawn frames in a row), `jumps`, `snaps`; dev
+  traces: client `mxtrace='Delgado,enemy'` (`mxt` lines, every drawn frame of one body), host
+  `mxsrc='Delgado'` (`mxs` lines, where the body really is each frame); lab `smooth_iq.sh`,
+  `smooth_sum.py`, `mxt.py`, `mxcmp.py`.
 
 Nothing is driven while a scene plays (scenes hide the squad). Clients drive host enemies the
 same way (`CoopEnemies.driveEnemies`, `E.SNAP_DIST` 250, `E.FOLLOW` 0.9, grabs keep root

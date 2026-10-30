@@ -753,6 +753,19 @@ function Coop.mxSource(now)
 end
 
 -- The enemies' drawn places after the client placed them this frame (coop_enemies.lua driveEnemies).
+-- (mxEnemyPre runs before driveEnemies: where the engine left each enemy since it was placed last frame)
+Coop.mxPre, Coop.mxPost = {}, {}
+function Coop.mxEnemyPre()
+  if cfg.mxenemy == false then return end
+  for name in pairs(CoopEnemies.targets) do
+    local e = Game.GetEntity(name)
+    if e then
+      local p = e.Pos
+      Coop.mxPre[name] = {p.x, p.z}
+    end
+  end
+end
+
 function Coop.mxEnemies(now)
   if cfg.mxenemy == false then return end
   for name, st in pairs(CoopEnemies.targets) do
@@ -760,7 +773,14 @@ function Coop.mxEnemies(now)
     local e = h and Game.GetEntity(name)
     if e and e.Life > 0 then
       local pos = e.Pos
-      Coop.mxPuppet("enemy", name, pos, now, nil, nil, nil)
+      local sp = Coop.mxPuppet("enemy", name, pos, now, nil, nil, nil)
+      local pre, post = Coop.mxPre[name], Coop.mxPost[name]
+      if pre and post and sp > 150 then
+        local es = math.sqrt((pre[1] - post[1]) ^ 2 + (pre[2] - post[2]) ^ 2)
+        local m = Coop.mxOf("enemy")
+        m.eS, m.eMax, m.eN = (m.eS or 0) + es, math.max(m.eMax or 0, es), (m.eN or 0) + 1
+      end
+      Coop.mxPost[name] = {pos.x, pos.z}
       Coop.mxTrace(name, now, pos, pos.x, pos.z, nil)
     end
   end
@@ -2048,6 +2068,7 @@ function Coop.frameUpdate(now, dt)
     if cfg.fastpump ~= false and Coop.frame >= 40 and Coop.level ~= "levels/menu" then Coop.pump() end
     Coop.drivePuppets(dt)
     if cfg.mxsrc and Coop.isHost() then pcall(Coop.mxSource, now) end
+    if CoopWorld and CoopWorld.frame then pcall(CoopWorld.frame, now) end
     if CoopPowers then
       local okp, errp = pcall(CoopPowers.frame, now)
       if not okp and (Coop.powerErrors or 0) < 5 then
@@ -2069,6 +2090,7 @@ function Coop.frameUpdate(now, dt)
     end
   end
   if CoopEnemies and CoopEnemies.installed and Coop.isClient() then
+    pcall(Coop.mxEnemyPre)
     CoopEnemies.driveEnemies(dt)
     pcall(Coop.mxEnemies, now)
   end

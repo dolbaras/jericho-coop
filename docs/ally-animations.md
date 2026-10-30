@@ -140,7 +140,14 @@ otesctinv_fp.txt`):
   shot flag already show the throw), Rawlings' `Special_0/1` -> `Special1`/`ShotH` mapping (which first-person
   action is which power is unclear from the scripts: wait for the log lines above), Jones's possession scene.
 
-## 5. Jerky movement of remote bodies: causes noticed (not changed: chunk A's area)
+## 5. Jerky movement of remote bodies: causes noticed
+
+0.2.9 (chunk I) changed the first, second, third and last causes below (every message handled per frame, a
+cubic path averaged over 0.1 s with a delay of two states, bodies placed on the path, shot / slot / arm actions
+from the drawn state); numbers and switches in `architecture.md` section 5.2 and `notes/bugfix-029.md`
+section I. Found on the way: the host's own bodies move in steps of the engine's logic (a zero step every third
+frame at 30 fps) and a run's stride pulses their speed, so the sampled path itself stutters; the average over two
+states takes that out. Not changed: root motion of a shared action object, `ForceAction` restarts, the frame cap.
 
 - State rate is 20 Hz (`Coop.TICK`, `SEND_EVERY = 1` tick); a puppet is drawn `INTERP_MIN..INTERP_MAX` (0.07-0.25 s) behind
   and extrapolates at most `EXTRAP_MAX` 0.2 s: a lost or late unreliable `s` packet shows as a stop-and-jump.

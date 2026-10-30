@@ -641,6 +641,36 @@ function W.sendProps(peer)
   if #lines > 0 then sendLines(peer, lines) end
 end
 
+-- Props on their way to the place the host said (W.applyProps): per frame, a smooth step over TWEEN_TIME.
+W.tweens = {}
+W.TWEEN_TIME = 0.4    -- seconds
+W.TWEEN_MAX = 800     -- units: beyond that the prop is put there at once
+function W.cfgTween() return Coop.cfg.proptween ~= false end
+
+local function lerpDeg(a, b, u)
+  return a + ((b - a + 180) % 360 - 180) * u
+end
+
+function W.frame(t)
+  if next(W.tweens) == nil then return end
+  for name, w in pairs(W.tweens) do
+    local e = Game.GetEntity(name)
+    local u = (t - w.t0) / W.TWEEN_TIME
+    if not e or W.dead[name] then
+      W.tweens[name] = nil
+    else
+      local done = u >= 1
+      if done then u = 1 end
+      local k = u * u * (3 - 2 * u)   -- ease in and out
+      local ok = pcall(function()
+        e.Pos = V3D(w.x0 + (w.x1 - w.x0) * k, w.y0 + (w.y1 - w.y0) * k, w.z0 + (w.z1 - w.z0) * k)
+        e.Ang = V3D(lerpDeg(w.ax0, w.ax1, k), lerpDeg(w.ay0, w.ay1, k), lerpDeg(w.az0, w.az1, k))
+      end)
+      if done or not ok then W.tweens[name] = nil end
+    end
+  end
+end
+
 -- Another machine's places for props, where they are not already; they are where they were
 -- said to be from now on (not sent back as moved here).
 function W.applyProps(text)
@@ -654,9 +684,18 @@ function W.applyProps(text)
       local ok = pcall(function()
         local p = e.Pos
         local dx, dy, dz = p.x - x, p.y - y, p.z - z
-        if dx * dx + dy * dy + dz * dz > W.PROP_MOVED * W.PROP_MOVED then
-          e.Pos = V3D(x, y, z)
-          e.Ang = V3D(tonumber(ax), tonumber(ay), tonumber(az))
+        local d2 = dx * dx + dy * dy + dz * dz
+        if d2 > W.PROP_MOVED * W.PROP_MOVED then
+          if W.cfgTween() and d2 < W.TWEEN_MAX * W.TWEEN_MAX then
+            -- a prop the host moved is carried to its place, not popped there (the client sees it at rest
+            -- somewhere else first, as its own physics left it)
+            local a = e.Ang
+            W.tweens[name] = {x0 = p.x, y0 = p.y, z0 = p.z, ax0 = a.x, ay0 = a.y, az0 = a.z,
+                              x1 = x, y1 = y, z1 = z, ax1 = tonumber(ax), ay1 = tonumber(ay), az1 = tonumber(az), t0 = now()}
+          else
+            e.Pos = V3D(x, y, z)
+            e.Ang = V3D(tonumber(ax), tonumber(ay), tonumber(az))
+          end
           W.propsSet = (W.propsSet or 0) + 1
         end
       end)
