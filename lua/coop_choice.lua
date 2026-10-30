@@ -470,6 +470,7 @@ function C.setPick(owner, g, conf)
   if not ok then return end
   if p.conf and p.g == g and conf then return end
   p.g = g
+  Coop.log("choice " .. cur.id .. ": owner " .. owner .. " " .. (conf and "confirms" or "points at") .. " card " .. g)
   if conf and not p.conf then C.seq = (C.seq or 0) + 1; p.t = C.seq end
   p.conf = conf and true or false
   cur.dirty = true
@@ -735,6 +736,7 @@ function C.readInput(L)
     if v and not L.keys[k] then edges[#edges + 1] = k end
     L.keys[k] = v
   end
+  if #edges > 0 and Coop.cfg.dev then Coop.log("choice: player " .. L.owner .. " pad " .. L.pad .. " input " .. table.concat(edges, ",") .. " buttons=" .. tostring(b)) end
   for _, k in ipairs(L.injected or {}) do edges[#edges + 1] = k end
   L.injected = nil
   return edges
@@ -764,13 +766,18 @@ function C.step(s, L, dir)
   C.send(s, L, L.cursor, false)
 end
 
+-- Text width: in split screen the HUD is drawn into one viewport, a narrower strip of the screen.
+function C.width()
+  return (CoopSplit and CoopSplit.on) and 400 or 560
+end
+
 function C.localUpdate()
   local s = C.scr
   if not s then return end
   if s.result then
     for k = 1, 3 do Coop.textBlockHide("CoopChoiceCard" .. k) end
     Coop.textBlockHide("CoopChoiceHint")
-    Coop.textBlock("CoopChoice", s.result.text, {y = 190, color = Color(255, 230, 130, 255), width = 560})
+    Coop.textBlock("CoopChoice", s.result.text, {y = 190, color = Color(255, 230, 130, 255), width = C.width()})
     if now() >= s.result.untilT then C.closeLocal() end
     return
   end
@@ -807,11 +814,27 @@ local function nick(owner)
   return owner == 0 and "Host" or ("P" .. owner)
 end
 
+-- Number of rows a text takes in a block of this width (Coop.textBlock breaks the same way).
+function C.rows(text, width)
+  local n = 0
+  for part in string.gmatch(text .. "\n", "([^\n]*)\n") do
+    local k = 1
+    if Scorer.SplitString and part ~= "" then
+      local ok, r = pcall(Scorer.SplitString, part, (Menu and Menu.SmallFont) or "ScrapMedium", width)
+      if ok and type(r) == "table" and #r > 0 then k = #r end
+    end
+    n = n + k
+  end
+  return n
+end
+
 function C.draw(s)
   local def = C.DEFS[s.id]
   local left = math.max(0, math.ceil(s.untilT - now()))
-  Coop.textBlock("CoopChoice", C.text(s.id .. "_title") .. "  (" .. left .. ")", {y = 36, color = Color(255, 220, 160, 255)})
-  local step = #s.cards == 3 and 112 or 128
+  local width = C.width()
+  Coop.textBlock("CoopChoice", C.text(s.id .. "_title") .. "  (" .. left .. ")", {y = 24, color = Color(255, 220, 160, 255), width = width})
+  -- the cards stack by their real height (a narrow screen wraps more rows)
+  local y = 24 + 22 * C.rows(C.text(s.id .. "_title") .. "  (00)", width) + 8
   for k, gi in ipairs(s.cards) do
     local g = def.groups[gi]
     local names = {}
@@ -830,14 +853,14 @@ function C.draw(s)
       .. C.text(s.id .. "_" .. g.key .. "_blurb") .. "\n"
       .. (#who > 0 and table.concat(who, ", ") or C.text("nobody"))
     local color = here and Color(255, 230, 130, 255) or Color(190, 190, 190, 255)
-    Coop.textBlock("CoopChoiceCard" .. k, text, {y = 70 + (k - 1) * step, color = color, width = 560, step = 22})
+    Coop.textBlock("CoopChoiceCard" .. k, text, {y = y, color = color, width = width, step = 22})
+    y = y + 22 * C.rows(text, width) + 10
   end
   local mine = s.locals[1] and s.state[s.locals[1].owner]
   local hint = (mine and mine.conf) and C.text("wait") or C.text("hint")
   if s.locals[1] and s.pinned and s.pinned[s.locals[1].owner] then hint = C.text("pinnedhint") end
   if s.locals[2] then hint = hint .. "\n" .. C.text("hint2") end
-  Coop.textBlock("CoopChoiceHint", hint,
-    {y = 70 + #s.cards * step + 4, color = Color(210, 215, 225, 255), width = 600})
+  Coop.textBlock("CoopChoiceHint", hint, {y = y, color = Color(210, 215, 225, 255), width = width, step = 22})
 end
 
 ------------------------------------------------------------------------------
