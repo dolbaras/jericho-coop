@@ -905,7 +905,9 @@ end
 -- Client: a call held for a result that never came (the host's game went away) runs after a while.
 function C.heldCheck()
   for id, h in pairs(C.held or {}) do
-    if now() - h.t > C.TIME + 12 then
+    -- (the screen's own length when one is up here: the host may have set another time)
+    local limit = (C.scr and C.scr.id == id) and (C.scr.untilT - h.t) or C.TIME
+    if now() - h.t > math.max(C.TIME, limit) + 12 then
       Coop.log("choice " .. id .. ": no result from the host, the held call runs")
       C.clientDone(id, 0)
     elseif now() - (h.q or 0) >= 2 then

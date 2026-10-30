@@ -130,6 +130,18 @@ g(10)
 clock = clock + C.TIME + 13
 C.heldCheck(); C.runLater()
 assert(calls == 17, "timeout releases the held call")
+-- a screen of 100 s (the host set another time): the held call waits for it
+C.reset()
+g = C.gate("G8", function(a) calls = calls + a end)
+g(100)
+C.scr = {id = "G8", untilT = clock + 100, locals = {}}
+clock = clock + 40
+C.heldCheck(); C.runLater()
+assert(calls == 17, "held while the screen is up")
+clock = clock + 80
+C.heldCheck(); C.runLater()
+assert(calls == 117, "released after the screen's time")
+C.scr = nil
 Coop.role = "host"; Coop.cfg.myId = nil
 Coop.isClient = function() return false end; Coop.isHost = function() return true end
 
