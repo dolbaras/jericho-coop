@@ -193,6 +193,7 @@ function A.sync(e, name, st)
   elseif life and life > 0 and (tonumber(e.Life) or 1) > 0 then
     s.downT, s.reviveT, s.seenDown = nil, nil, nil
   end
+  A.dragonArm(e, name, st, s)
   A.syncFP(e, name, st)
   A.noteFpMove(s, st)
   A.syncState(e, name, st)
@@ -248,6 +249,28 @@ function A.syncFP(e, name, st)
     A.unmappedFp[key] = true
     A.nUnmappedFp = (A.nUnmappedFp or 0) + 1
     Coop.log("anim: first-person " .. key .. " on the owner's arms, no third-person action mapped")
+  end
+end
+
+-- Delgado's open arm is closed by the game's own code when the replayed spirit arrives (Ababanili.OnAbabaniliArrived sends
+-- Shot1EndAlt). If that never comes (a lost abby message, a spirit that cannot reach its target here) the arm would stay open:
+-- when the owner's body has been out of Shot1* for ARM_MAX s and the puppet still holds it, it is closed.
+A.ARM_MAX = 6
+function A.dragonArm(e, name, st, s)
+  local mine = tostring(e.Action)
+  local open = string.find(mine, "^Shot1") or string.find(mine, "^DuckShot1")
+  local owner = tostring(st.action)
+  if not open or string.find(owner, "Shot1") then s.armSince = nil return end
+  local t = now()
+  s.armSince = s.armSince or t
+  if t - s.armSince < A.ARM_MAX then return end
+  s.armSince = nil
+  local cls = actClass(e, name)
+  local end_ = string.find(mine, "^Duck") and "DuckShot1End" or "Shot1EndAlt"
+  if hasAct(cls, end_) and (tonumber(e.Life) or 1) > 0 then
+    e.ForceAction = end_
+    A.armCloses = (A.armCloses or 0) + 1
+    if A.armCloses <= 10 or cfg.animlog then Coop.log("anim: " .. name .. "'s open arm closed after " .. A.ARM_MAX .. " s (no spirit arrival)") end
   end
 end
 

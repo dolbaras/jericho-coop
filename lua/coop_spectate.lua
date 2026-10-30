@@ -33,6 +33,8 @@ S.ANCHOR_RATE = 14
 S.SNAP_DIST = 700       -- a watched body farther from the view than this was teleported
 S.HUD_ITEMS = {"Damage", "Ammo", "Selector", "Aim"}   -- hidden while watching
 S.KEY_PREV, S.KEY_NEXT = 0x25, 0x27   -- arrow keys
+S.KEY_FIRE = 0x01                      -- left mouse button read straight too (live: the engine's MainShot reads 0 on a dead body)
+S.KEY_A, S.KEY_D = 0x41, 0x44          -- A / D read straight from the keyboard (live 2026-10-30: the engine's strafe input reads 0 on a dead body)
 
 S.TEXT = {
   en = {watch = "Watching: %s",
@@ -291,6 +293,9 @@ local function switchDir()
   S.shotHeld = shot
   if pressed(S.KEY_NEXT) then dir = 1 end
   if pressed(S.KEY_PREV) then dir = -1 end
+  if pressed(S.KEY_FIRE) then dir = 1 end
+  if pressed(S.KEY_D) then dir = 1 end
+  if pressed(S.KEY_A) then dir = -1 end
   return dir
 end
 

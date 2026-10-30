@@ -12,7 +12,7 @@ Coop.ARM_ACTIONS = {{"^Combo(%d)Hit(%d)$", "x"}, {"^Punch", "Punch"}, {"^Reload"
 Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
 local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, StupidInit = 1, StupidEnd = 1, Shot1Init = 1,
               HitStrong = 1, Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
-              Reload = 1, Relax = 1, Run = 1}
+              Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1}
 Act = {GetClass = function(n) return {GetAct = function(self, a) return ACTS[a] and {} or nil end} end}
 
 dofile("coop_anim.lua")
@@ -194,5 +194,17 @@ step(0.5)
 assert(A.moveOverride("Jones") == nil, "and stops")
 A.sync(eu, "Jones", {life = 100, action = "Relax", fpa = "01_SkipWall"})
 assert(A.moveOverride("Jones").sprint == 0, "a climb walks")
+
+-- 13. Delgado's arm stays open (no spirit arrival): closed after ARM_MAX s, not before; not while the owner's body is in Shot1*
+local ed = body("Delgado"); ed.Action = "Shot1"; step(1)
+A.sync(ed, "Delgado", {life = 100, action = "Shot1"}); step(A.ARM_MAX + 1)
+A.sync(ed, "Delgado", {life = 100, action = "Shot1"})
+assert(ed.ForceAction ~= "Shot1EndAlt", "owner still in Shot1: left open")
+A.sync(ed, "Delgado", {life = 100, action = "Relax"}); step(2)
+A.sync(ed, "Delgado", {life = 100, action = "Relax"})
+assert(ed.ForceAction ~= "Shot1EndAlt", "not before ARM_MAX")
+step(A.ARM_MAX)
+A.sync(ed, "Delgado", {life = 100, action = "Relax"})
+assert(ed.ForceAction == "Shot1EndAlt", "closed: " .. tostring(ed.ForceAction))
 
 print("anim mock test: OK")
