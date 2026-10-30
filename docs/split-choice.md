@@ -211,7 +211,7 @@ The split's own hook is moved *before* the original instead of after:
   top, G1C's Alpha): a card counts them, the move switches them on (`evict|from|to|a`) and clears the game's switch lock for the move
   (`CoopChoice.enter`).
 - **Where each split is held** (`Sp.gate(path, id)` in `coop_splits.lua`): G6 no call is held, the screen sits on top of the level 3 s after
-  the level start (everyone loaded, no scene; a checkpoint reload does not ask again; `def.after` = `Sp.G6afterChoice` keeps the gate-top
+  the level start (everyone loaded, no scene; a checkpoint reload does not ask again; the after hook `CoopSplits.afterChoice[id]` (G6: `Sp.G6afterChoice`, looked up by name in `C.clientAfter`, because `coop_choice.lua` loads after `coop_splits.lua` and rebuilds `DEFS`) keeps the gate-top
   bodies on); G11 `MapCallbacks.o249_0` (the Church-only use of TriggerTheAbyss); G15 `EvilFirstBorn.SchMakeAllUnavailable` (the first rune,
   mid-fight: the world goes on, the local bodies are locked and invulnerable); G4 `Scene.PlayFPNNI("Pathofsouls")` on the host (the scene chains
   into the shot, so the choice comes before the whole chain; the player who picks Rawlings is in his body when he is shot); G1A

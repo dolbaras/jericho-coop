@@ -334,6 +334,8 @@ A body another human holds is a puppet on the host with `bIgnoreCollision = true
 collision of the engine passes through it, only area queries (`Game.SphereCall`, all masks R/L/G/LPO) find it. How each
 kind of attack reaches it (each measured live with the dev scenario `efphases`, `lua/dev.lua`):
 
+The reference diagnostics (what the engine did with the host's own body next to a puppet, the calibration counters, the per-event phase lines) are gated by `E.diag()` = `cfg.dev` or `cfg.enemydiag`: off in a player's game, so the host's hot path only runs the hit logic.
+
 | Attack | Mechanism | Code |
 |---|---|---|
 | Hitscan (soldiers, crossbow guard...) | the shot's ray (muzzle estimate to the engine's impact point) tested against the body's capsule, radius `E.HIT_RADIUS` 27 (calibrated against the engine's hit rate on the host's own body) | `E.noteShot` (wrapper of `Weapons.OnShot`) |
@@ -398,7 +400,7 @@ Counters in the 100-tick report line: `windows`, `missile-windows`, `flame-segs`
 | `sturndone` | body's machine → host | R | char | `St.finishTurn` |
 | `ev` | power user → host → all | R | `St.EVENTS` index, origin peer, encoded args | `St.onEvent`: the story callback on every machine |
 | `gv` | client → host | R | variable, value | `Game.Set` if the sender holds the character in `St.VARS` (`RuneBloodActive`) |
-| `evict` | host → the holder's machine | R | char, new char or empty | `St.onEvict`: switch out (or `CoopSplit.moveOut`) |
+| `evict` | host → the holder's machine | R | char, new char or empty, 4th field `a` (a choice move that switches an inactive body on) or `c` (a choice move) | `St.onEvict`: switch out (or `CoopSplit.moveOut`) |
 
 ### Story splits (`coop_splits.lua`)
 
@@ -701,7 +703,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
 - **`dev.lua`**: test bots (`cfg.bot`), probes and campaign steps for the test scripts, the test
   console. **`probe.lua`**: a one-off listing of the game's Lua environment.
   **`lang_de/fr/es/it.lua`**: `{["<Module>.TEXT"] = {...}}` tables merged by `Coop.addLangs`.
-  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`);
+  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`, `talk`, `anim`, `choice`, `cooluse`, `enemies`, `spectate`); the release gate runs all of them;
   `tests/net_ping.lua`: transport smoke test.
 
 ## 7. Native side map (`native/`)
