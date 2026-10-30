@@ -494,6 +494,10 @@ on the host the bodies other humans hold, on a client every squad body except it
   is placed on the target (`FOLLOW` 1; `cfg.pfollow=0.9` removes 0.9 of the error per 0.05 s as before
   0.2.9); height only beyond `FOLLOW_Y` (1 unit); the velocity is zeroed after each placement (the engine's
   own walking on top of the placement made a step of 30 units per frame);
+- snap storm safety net (`Coop.stormRelease`): more than 20 snaps of one puppet within 5 s (the engine puts the body back after every
+  placement: a pin left by a script) releases it for 1 s (2, 4, 8 s when it comes back within 5 s): collision and AI back, velocity zeroed,
+  `OnEndMove` cleared, `OffMul` 0, a new short `MoveMePosAng` to where the body is (that replaces a held move); logged `snap storm: released X`;
+  `stormrelease=false` switches it off. The known cause: a replayed `MakeFP.CoolUse` (see `coop_world.lua`).
 - `Ang`, `ViewAng`, shot, weapon slot (`Coop.syncSlot`), arm actions (`Coop.mirrorArms`) from the state
   drawn now (`tg.st`; `cfg.shotnewest=true`: the newest, as before), walk/strafe/sprint inputs, crouch
   (`Coop.syncCrouch`).
@@ -608,7 +612,8 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   (`reportBurns`).
 - **`coop_world.lua`** (`CoopWorld`, `W`): map callbacks (host wraps every `MapCallbacks` entry;
   `W.replay`), `AreaTriggers.IsPlayer` accepting any human body, `MakeFP.LaunchFpsAnm` (no
-  first-person animation for another player's use), doors (wraps `PhysicsObj.OpenDoor`/
+  first-person animation for another player's use), `MakeFP.CoolUse` (for a puppet only the object acts: the pin and the lock the
+  first-person animation would end stayed for ever and the engine put the body back every frame; `cooluse=false` = old), doors (wraps `PhysicsObj.OpenDoor`/
   `CloseDoor`), breakable objects (`PhysicsObj.CreateObj`, `pollObjects`), blockers, props,
   digest, the rejoin hint. `W.isHuman(name)` is the "is this a player" test other modules use.
 - **`coop_claim.lua`** (`CoopClaim`): character-only objects (`UseJustEntity` in

@@ -1134,6 +1134,43 @@ local function pdSnap(name, e, d, tg, err, dy, pos, now)
       Coop.log("snap storm " .. name .. " near the body: " .. CoopWorld.near(pos, 1000))
     end
   end
+  if d.win > Coop.STORM_SNAPS and cfg.stormrelease ~= false then Coop.stormRelease(name, e, d, now) end
+end
+
+-- Safety net: a body the engine puts back after every placement (a replayed use that pins it, a
+-- link, a script that moves it) gets more than STORM_SNAPS snaps within the window: the driver
+-- lets go of it for a while (collision and AI back, the engine's pins undone, nothing placed), then
+-- places it again; a storm that comes back at once is let go for twice as long (up to 8 s).
+Coop.STORM_SNAPS, Coop.STORM_HOLD = 20, 1
+function Coop.stormRelease(name, e, d, now)
+  local hold = Coop.STORM_HOLD
+  if d.holdEnd and now - d.holdEnd < 5 then hold = math.min(8, (d.holdLen or hold) * 2) end
+  d.holdLen, d.holdEnd = hold, now + hold
+  d.win, d.winT = 0, now
+  d.stormReleases = (d.stormReleases or 0) + 1
+  Coop.log(string.format("snap storm: released %s for %.0f s (%d snaps in %.1f s; act=%s lock=%s inv=%s offmul=%s)", name, hold,
+    Coop.STORM_SNAPS + 1, Coop.PD_WINDOW, tostring(e.Action), tostring(e.IgnoreUsrControl), tostring(e.Invulnerable),
+    tostring(e.OffMul)))
+  pcall(Coop.releasePuppet, e)
+  Coop.clearPins(e)
+end
+
+-- What keeps the engine moving a body after a script left it half way (lab 2026-10-30, the replayed
+-- MakeFP.CoolUse): the entity's MoveMePosAng(2, ...) holds it at the place it had when the call ran
+-- for good (the body is put back after every placement; clearing the lock, invulnerability, model
+-- offset and link did not end it), and OffMul 1 draws the model at TgModelPos, the object's node.
+-- A new short move to where the body is replaces the old one; OnEndMove is cleared first (it would
+-- run the script's next step with state that is gone).
+function Coop.clearPins(e)
+  pcall(function() e.Vel = V3D(0, 0, 0) end)
+  pcall(function() e.OnEndMove = "" end)
+  pcall(function() e.OffMul = 0 e.DeltaOffMul = 0 end)
+  pcall(function() e:MoveMePosAng(1, 0.05, e.Pos, e.Ang) end)
+end
+
+function Coop.stormHeld(name, now)
+  local d = Coop.pd[name]
+  return d and d.holdEnd and now < d.holdEnd
 end
 
 -- The body is not where this driver put it: the engine (gravity, floor, an action) or another
@@ -1316,7 +1353,7 @@ function Coop.drivePuppets(dt)
     if e and st and Coop.isPuppet(name) then Coop.syncPuppetActive(e, st) end
     if e and st and CoopAnim and Coop.isPuppet(name) then CoopAnim.sync(e, name, st) end
     if e and e.Life and e.Life > 0 then
-      local tg = Coop.isPuppet(name) and st and Coop.puppetTarget(name, now)
+      local tg = Coop.isPuppet(name) and st and not Coop.stormHeld(name, now) and Coop.puppetTarget(name, now)
       if tg then
         if e.oAI and e.oAI.bEnable and not cfg.puppetai then e.oAI.bEnable = false end
         -- The network places this body: colliding with the local player or other soldiers

@@ -99,6 +99,30 @@ function W.installFPAnm()
   end
 end
 
+-- The cool use of an object (MakeFP.CoolUse: Delgado's light door o191, levers, valves) locks the user
+-- (IgnoreUsrControl, Invulnerable), pins its body with MoveMePosAng and links its model to the
+-- object's node; the first-person animation it then plays ends all of that. Replayed for a body
+-- another machine drives (its UsrControl is -1: no first-person view here, LaunchFpsAnm(-1) finds no
+-- user), the animation never plays and the pin stays: the engine put the puppet back at the place it
+-- had when the callback ran, every second frame, for the rest of the level (perpetual snap storms of
+-- the same body, 500-1000 snaps per run, Delgado at the light door of Rom_Outskirts; the owner's
+-- minute-long storms). A puppet takes only the object's half of it: the object plays its action.
+function W.installCoolUse()
+  if W.coolUseInstalled or not MakeFP or not MakeFP.CoolUse or Coop.cfg.cooluse == false then return end
+  W.coolUseInstalled = true
+  local orig = MakeFP.CoolUse
+  MakeFP.CoolUse = function(ent, obj, entAct, objAct, node, ...)
+    if type(ent) == "string" and Coop.inSession() and Coop.isPuppet(ent) then
+      local o = type(obj) == "string" and Game.GetEntity(obj)
+      if o and objAct and objAct ~= "" then pcall(function() o.Action = objAct end) end
+      W.coolUsePuppets = (W.coolUsePuppets or 0) + 1
+      Coop.log(string.format("world: cool use of %s by the puppet %s: only the object acts (%s)", tostring(obj), ent, tostring(objAct)))
+      return
+    end
+    return orig(ent, obj, entAct, objAct, node, ...)
+  end
+end
+
 function W.installClient()
   if W.installed then return end
   W.installed = true
@@ -772,6 +796,7 @@ function W.update()
   if not Coop.inSession() or Coop.level == "levels/menu" then return end
   W.installObjects()
   W.installFPAnm()
+  W.installCoolUse()
   W.pollObjects()
   if Coop.isHost() and Coop.cfg.syncblockers ~= false then W.pollBlockers() end
   if Coop.cfg.syncprops ~= false then W.pollProps() end
