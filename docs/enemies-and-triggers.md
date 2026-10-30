@@ -309,6 +309,14 @@ vtable +0x3a4) -> `005035f0` (AI mode 3) -> `00507c30`, from the Lua method call
 client these events now run only their other parts: the ragdoll and the shield effects
 (`CoopEnemies.guardAIEvents`, "enemy event ... without its AI" in the log).
 
+### 5.4 Attacks against bodies other players hold (0.2.9)
+
+A remote human's body on the host is a puppet with collision off: rays (`o:DrawWeapon`, `Game.TestLine`) and missile
+collisions pass through it, area queries (`Game.SphereCall`, masks R/L/G/LPO) find it. Rays are made to meet it by switching its
+collision on for the length of the one enemy event that casts them (the "collision window"), missiles while one is within 900 units;
+the engine's own code then decides and damages. Details: `architecture.md` ("Enemy attacks against bodies other players
+hold").
+
 ---
 
 ## 6. Weapons and firing

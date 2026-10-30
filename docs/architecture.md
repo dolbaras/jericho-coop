@@ -332,7 +332,7 @@ Payload fields follow the kind, `|`-separated, in the order given.
 
 A body another human holds is a puppet on the host with `bIgnoreCollision = true`: every ray, line test and missile
 collision of the engine passes through it, only area queries (`Game.SphereCall`, all masks R/L/G/LPO) find it. How each
-kind of attack reaches it (live numbers: `notes/bugfix-029.md`, section C2):
+kind of attack reaches it (each measured live with the dev scenario `efphases`, `lua/dev.lua`):
 
 | Attack | Mechanism | Code |
 |---|---|---|
