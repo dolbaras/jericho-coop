@@ -1,6 +1,7 @@
 # Split choice: one "choose your squad" screen for every human player
 
-Status: design for 0.2.8 (owner bug 8), written before the code. The owner's decision (2026-10-29): ONE shared
+Status: designed for 0.2.8 (owner bug 8); 0.2.8 shipped G8, G10 and the Lost Patrol, 0.2.9 adds G6, G11, G15, G4, G1A, G1C, G3 and split screen
+(section 8 says where the code differs from the first design below). The owner's decision (2026-10-29): ONE shared
 screen for all human players, **the host included**, shown **before** the scene or split starts; each player goes to
 the group he wants, several players may go to the same group or apart (no "the host stays" rule); two or three cards
 with the group's members, a short mission blurb and the live nicknames of who picked what; pad left/right + A,
@@ -184,3 +185,35 @@ The split's own hook is moved *before* the original instead of after:
    captured frame.
 2. Step 2: G6, G11, G15, G4 (hold points inside the existing hooks).
 3. Step 3: Act 1 splits (G1A, G1C, G3) with the Ross pin; split screen on both halves; the swap cycle.
+
+## 8. What the code does (0.2.9; the design above, as built)
+
+- **Both machines hold the same call.** `CoopChoice.gate(id, fn, when, replayOnly)` wraps a split's entry on the host AND on clients.
+  The host's first call opens the screen; a client's call (the replay of the host's callback, or the level script's own call such as
+  `MapInit.StartSayGoodbye`) waits for the host's `chr`/`chd` and then runs after the same 3.5 s the host waits, so neither machine starts the
+  split alone. A client that loaded after the host decided asks (`chq`, every 2 s) and gets `chd`; with no word at all a held call runs after
+  `TIME + 12` s. Map callbacks are held on a client only when they are a replay (`Coop.replay`): the client's own use must reach the guard that
+  tells the host. The gate is always installed OUTSIDE the `Sp.after` hooks of the same entry (the hooks belong to the split's start).
+- **Reset.** `C.reset()` clears `done`, `pending`, `cur`, the resume queue and the held calls at every file load, level load (new `Coop`
+  table) and session end; the resume queue (`C.later`) is FIFO, so two splits finishing inside `RESULT_HOLD` both start.
+- **Owners.** `chp` carries the owner id (split screen player 2 = peer + `Coop.P2`; the host stores it under the sender when the id is not one
+  of that machine's). Each local player is one entry of `scr.locals` with his own cursor; the keyboard and pad 1 belong to the first, pad 2
+  to the second (`C.press(key, n)` for bots, `cfg.choice` / `cfg.choice2` auto picks).
+- **Exchange of bodies.** Two players who want each other's groups and have no spare free body swap: both moves are decided together, the owner
+  table is rewritten at once, the host's own player switches directly and the client gets `evict`. (The first design said "both stay"; the
+  resolution already did the exchange in 0.2.8, now tested: `choice_mock_test.lua` case 8.) If a mover's target is held by somebody who does not
+  leave, both stay with the reason `full`.
+- **Lost Patrol.** `LP.chosenTrio` sends to the side instance the machines whose players HOLD a trio body at the end (`result.final`), not the
+  ones who asked for it: a player refused for `full` goes on with the main group.
+- **Pinned.** `def.pinned()` names bodies whose holder cannot leave (Ross in act 1: the level scripts read `Game.UsrEntity(0) == Ross`). He sees
+  the screen with his card fixed and confirmed (`chs` carries the pinned owner ids; reason `pinned`, "You are Ross: ...").
+- **Inactive bodies.** `def.inactive` names bodies the level keeps switched off until a player holds them (G6's Cole and Rawlings on the gate
+  top, G1C's Alpha): a card counts them, the move switches them on (`evict|from|to|a`) and clears the game's switch lock for the move
+  (`CoopChoice.enter`).
+- **Where each split is held** (`Sp.gate(path, id)` in `coop_splits.lua`): G6 no call is held, the screen sits on top of the level 3 s after
+  the level start (everyone loaded, no scene; a checkpoint reload does not ask again; `def.after` = `Sp.G6afterChoice` keeps the gate-top
+  bodies on); G11 `MapCallbacks.o249_0` (the Church-only use of TriggerTheAbyss); G15 `EvilFirstBorn.SchMakeAllUnavailable` (the first rune,
+  mid-fight: the world goes on, the local bodies are locked and invulnerable); G4 `Scene.PlayFPNNI("Pathofsouls")` on the host (the scene chains
+  into the shot, so the choice comes before the whole chain; the player who picks Rawlings is in his body when he is shot); G1A
+  `MapInit.StartSayGoodbye`; G1C `MapInit.DisableAlpha` (called by the start trigger, which is where the pocket closes; the design table's
+  `EnableAlpha` is the end of the split); G3 `MapInit.GoToRawlings`.

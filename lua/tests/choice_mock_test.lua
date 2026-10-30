@@ -133,6 +133,27 @@ assert(calls == 17, "timeout releases the held call")
 Coop.role = "host"; Coop.cfg.myId = nil
 Coop.isClient = function() return false end; Coop.isHost = function() return true end
 
+-- 11b. a held replay runs later in the same replay context (the client's guard lets replays through only)
+Coop.role = "client"; Coop.cfg.myId = 1
+Coop.isClient = function() return true end; Coop.isHost = function() return false end
+CoopWorld = {replaying = nil}
+C.reset()
+local seenReplay, seenTrig
+local gr = C.gate("G8", function() seenReplay = Coop.replay; seenTrig = Game.GetTriggeredEntity(1) end, nil, true)
+Game.GetTriggeredEntity = function() return "orig" end
+gr()   -- not a replay: runs at once (the client's own use reaches its guard)
+assert(seenReplay == nil and not C.held.G8, "own call is not held")
+Coop.replay = true; CoopWorld.replaying = true; CoopWorld.replayTriggered = "Church"
+gr()
+Coop.replay = false; CoopWorld.replaying = false; CoopWorld.replayTriggered = nil
+assert(C.held.G8 and seenReplay == nil, "replay is held")
+C.onMessage(0, {"chd", "G8"}); C.runLater()
+assert(seenReplay == true and seenTrig == "Church", "held replay runs in its replay context: " .. tostring(seenReplay) .. tostring(seenTrig))
+assert(Coop.replay == false and Game.GetTriggeredEntity(1) == "orig", "context restored")
+CoopWorld = nil
+Coop.role = "host"; Coop.cfg.myId = nil
+Coop.isClient = function() return false end; Coop.isHost = function() return true end
+
 -- 12. chp carries the owner id: a client's split screen player 2 (owner peer + P2) can pick, a forged owner cannot
 Coop.owners = {Church = 0, Black = 1, Delgado = 9}
 C.reset(); switched, sent = {}, {}
@@ -199,7 +220,7 @@ C.reset(); switched, sent = {}, {}
 Coop.owners = {Ross = 0, Church = 1}
 C.pending.G1A = {since = clock}; C.start("G1A")
 for _, m in ipairs(sent) do if m:find("^%-1>chs|") then chs = m end end
-assert(chs == "-1>chs|G1A|25|0,1|0", "pinned list in chs: " .. tostring(chs))
+assert(chs == "-1>chs|G1A|25|0,1|0|1,2", "pinned list and cards in chs: " .. tostring(chs))
 assert(C.cur.pinned[0] and C.cur.picks[0].conf, "pinned player is confirmed from the start")
 
 -- 16. G3: a one-body card (Cole at the console): the first confirmed wins, the others defend

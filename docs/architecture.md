@@ -403,8 +403,10 @@ Counters in the 100-tick report line: `windows`, `missile-windows`, `flame-segs`
 
 | Kind | From → to | | Payload | Handled in |
 |---|---|---|---|---|
-| `chs` | host → all | R | split id (`G8`, `G10`, `LP`), seconds, owner ids | `coop_choice.lua:C.onMessage`: the shared "choose your squad" screen opens ([split-choice.md](split-choice.md)) |
-| `chp` | player → host | R | split id, group index, confirmed 0/1 | `C.setPick` (the sender's own player) |
+| `chs` | host → all | R | split id (`G8`, `G10`, `LP`, `G6`, `G11`, `G15`, `G4`, `G1A`, `G1C`, `G3`), seconds, owner ids, pinned owner ids | `coop_choice.lua:C.onMessage`: the shared "choose your squad" screen opens ([split-choice.md](split-choice.md)) |
+| `chp` | player → host | R | split id, group index, confirmed 0/1, OWNER id | `C.setPick` (the sender's own players: its machine's player or its split screen player 2, owner peer + `Coop.P2`; a forged owner is stored under the sender) |
+| `chd` | host → all | R | split id | `C.clientDone`: decided with no screen (or asked for with `chq` by a client that loaded late); a client's held call runs |
+| `chq` | client → host | R | split id | a held call asks every 2 s whether the split is decided; the host answers `chd` once it is (and the explanation is read) |
 | `chst` | host → all | R | split id, `owner:group:confirmed;...` | `C.applyState`: who points where, on every change and once a second |
 | `chr` | host → all | R | split id, `owner:char:reason;...` | `C.onResult`: the one-line explanation, the screen closes. Moves go as `evict` first (owners rewritten at once) |
 | `spn` | host → all | R | text key, chars | `Sp.showNotice` for the players holding those chars |
@@ -656,7 +658,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   agony (`Soldier.OnDeath` replica after 0.6 s), one `Team.RevivePlayer` per revive (`A.revive`, called by
   `CoopTeam.syncPuppetLife`), one-shot actions of the owner's body (`A.ONESHOT`: hits, reloads, hacks,
   powers) played once through `ForceAction`. Test: `lua/tests/anim_mock_test.lua`, `labnimtest.sh`.
-- **`coop_choice.lua`** (`CoopChoice`, `C`): the shared squad choice at a story split ([split-choice.md](split-choice.md)). `C.DEFS` (G8, G10, LP: groups of characters), `C.request(id, resume)` / `C.gate(id, fn, when)` hold a split's start on the host (`Sp.gate` wraps the `MapCallbacks` entries, `coop_patrol.lua` wraps `Scene.PlayFP("BridgeCollapses")`), the screen is text rows (`C.draw`, input by pad/arrows/digits, `C.press` for bots), `C.resolve` turns the picks into moves (keepers, free bodies, swaps through one owner-table rewrite plus `evict`, reasons `full`/`host`). One human or fewer than two groups: no screen. Test: `lua/tests/choice_mock_test.lua`, `lab/choicetest.sh`.
+- **`coop_choice.lua`** (`CoopChoice`, `C`): the shared squad choice at a story split ([split-choice.md](split-choice.md)). `C.DEFS` (G8, G10, LP, G6, G11, G15, G4, G1A, G1C, G3: groups of characters, `inactive` bodies a card may take, `pinned` holders, `settle` seconds, `after` hook), `C.request(id, resume)` / `C.gate(id, fn, when, replayOnly)` hold a split's start (`Sp.gate` wraps `MapCallbacks` entries, `MapInit` functions and `Scene.PlayFPNNI`, `coop_patrol.lua` wraps `Scene.PlayFP("BridgeCollapses")`); on the host the first call opens the screen, on a client the same call (a replayed callback, a level script's own call) waits for the host's `chr`/`chd` (a map callback only for a replay: the client's own use must reach its guard), so both machines start the split together. State (`done`, `pending`, `cur`, the resume queue `later`) is reset at every level load and session change (`C.reset`), the screen is text rows (`C.draw`, input by pad/arrows/digits, `C.press(key, n)` for bots; `s.locals`: one entry per local player, the split screen's player 2 uses pad 2 only), `C.resolve` turns the picks into moves (keepers, free bodies, an exchange of two players' bodies through one owner-table rewrite plus `evict`, reasons `full`/`host`/`pinned`; `result.final` = who ended in which body). One human or fewer than two groups: no screen. Test: `lua/tests/choice_mock_test.lua`.
 - **`coop_spectate.lua`** (`CoopSpectate`, `S`): the spectator camera of a downed player (`CoopTeam.down`, all living bodies held by other players): own FCam `CoopSpecCam`, third person behind the watched body's shoulder, smoothed, kept out of walls with `Game.TestLine`, a caption with the nickname (its nameplate is off), A/D / left stick / arrows / fire switch the watched player, mouse / right stick orbit, automatic switch when the watched body dies, normal camera back on revive, scene or level change; split screen keeps the old MainCam targets (`T.watchPartner`). Per-frame hook in `Coop.frameUpdate`; test `lab/spectest.sh`.
 - **`coop_ctl.lua`** (`CoopCtl`, `C`): diagnostics of who drives a body a human holds (owner's bug 7, "the body walks by itself").
   One `ctl:` log line whenever a held body's owner, UsrControl, oAI.bEnable, bActive, input lock, AI objective or puppet
@@ -812,8 +814,8 @@ reverse engineering scripts.
 - **A new story split line.** In `coop_splits.lua`: `Sp.installGx(isHost)` registered in
   `Sp.LEVELS`; host hooks with `Sp.after("MapCallbacks.X", fn)`; `Sp.setSides` at its start and
   end; waves with `Sp.rearm` or `Sp.spawnWave` (+ `Sp.newList`, which clients mirror from
-  `espawn`); notices with `Sp.notice` and keys in `Sp.TEXT` (+ lang files); a choice with
-  `Sp.SPLITS` and `spc`; a body held down with `CoopTeam.holdDowned`. Add a line to
+  `espawn`); notices with `Sp.notice` and keys in `Sp.TEXT` (+ lang files); a squad choice with
+  a `CoopChoice.DEFS` entry and `Sp.gate(path, id)` on the split's entry (outside the `Sp.after` hooks); a body held down with `CoopTeam.holdDowned`. Add a line to
   `SS.LINES` (`coop_storysolo.lua`) and `tools/storylines.ps1` to test it alone; update
   [coop-story-extensions.md](coop-story-extensions.md).
 - **Story code that assumes one player.** Add a row to `St.AS` (`char`, `attacker`,

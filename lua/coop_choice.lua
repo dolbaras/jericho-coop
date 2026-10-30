@@ -307,7 +307,27 @@ function C.gate(id, fn, when, replayOnly)
     -- (`when`: only a call that would really start the split opens the screen)
     if when and not when(...) then return fn(...) end
     local args = {n = select("#", ...), ...}
-    local call = function() return fn(unpack(args, 1, args.n)) end
+    -- (a held call runs later, outside the replay or host-replay it was made in: those flags go with it,
+    -- also the world replay's "who triggered it")
+    local replay, fromHost = Coop.replay, Coop.fromHost
+    local W = CoopWorld
+    local wr, wt, wu = W and W.replaying, W and W.replayTriggered, W and W.forUser
+    local call = function()
+      local r0, f0 = Coop.replay, Coop.fromHost
+      local w0, t0, u0 = W and W.replaying, W and W.replayTriggered, W and W.forUser
+      local origTrig = Game.GetTriggeredEntity
+      Coop.replay, Coop.fromHost = replay, fromHost
+      if W and wr then
+        W.replaying, W.replayTriggered, W.forUser = wr, wt, wu
+        Game.GetTriggeredEntity = function(eid) return W.replayTriggered or origTrig(eid) end
+      end
+      local res = {pcall(fn, unpack(args, 1, args.n))}
+      Game.GetTriggeredEntity = origTrig
+      Coop.replay, Coop.fromHost = r0, f0
+      if W and wr then W.replaying, W.replayTriggered, W.forUser = w0, t0, u0 end
+      if not res[1] then error(res[2], 0) end
+      return unpack(res, 2)
+    end
     if Coop.isHost() then
       if C.pending[id] then return end
       C.request(id, call)
@@ -363,6 +383,8 @@ function C.hostUpdate()
     for id, p in pairs(C.pending) do
       local def = C.DEFS[id]
       local rest = not (Scene and Scene.IsPlaying) and not (CoopEnemies and (CoopEnemies.curtain or CoopEnemies.fpBlackT))
+      -- (everybody is in the level: a screen sent to a machine that is still loading is lost)
+      if rest and CoopEnemies and CoopEnemies.gateOpen and not CoopEnemies.gateOpen() then rest = false end
       -- (some seconds at rest first: at a level's start the other machines claim their bodies)
       if not rest then p.restT = nil elseif not p.restT then p.restT = now() end
       local settled = p.restT and now() - p.restT >= ((def and def.settle) or 0)
@@ -418,8 +440,8 @@ function C.start(id)
     end
   end
   C.cur = cur
-  Net.CoopSend(-1, 1, "chs|" .. id .. "|" .. C.TIME .. "|" .. table.concat(humans, ",") .. "|" .. table.concat(pinList, ","))
-  C.openLocal(id, C.TIME, humans)
+  Net.CoopSend(-1, 1, "chs|" .. id .. "|" .. C.TIME .. "|" .. table.concat(humans, ",") .. "|" .. table.concat(pinList, ",") .. "|" .. table.concat(cards, ","))
+  C.openLocal(id, C.TIME, humans, cards)
   if C.scr then C.scr.pinned = cur.pinned end
   C.sendState()
   Coop.log("choice " .. id .. ": screen open, " .. #humans .. " players")
@@ -573,10 +595,11 @@ end
 -- Every machine: the screen
 ------------------------------------------------------------------------------
 
-function C.openLocal(id, secs, humans)
+function C.openLocal(id, secs, humans, cards)
   local def = C.DEFS[id]
   if not def then return end
-  local cards = C.cards(def)
+  -- (the host's list of cards when it sent one: every machine shows the cards the host resolves with)
+  cards = cards or C.cards(def)
   if #cards < 1 then return end
   -- this machine's players: its own (keyboard and pad 1) and its split screen player (pad 2 only)
   local locals = {}
@@ -826,8 +849,10 @@ function C.onMessage(peer, f)
   if kind == "chs" and Coop.isClient() then
     local humans = {}
     for h in string.gmatch(f[4] or "", "%d+") do humans[#humans + 1] = tonumber(h) end
+    local cards = {}
+    for g in string.gmatch(f[6] or "", "%d+") do cards[#cards + 1] = tonumber(g) end
     if not C.scr and not C.done[f[2]] then
-      C.openLocal(f[2], f[3], humans)
+      C.openLocal(f[2], f[3], humans, #cards > 0 and cards or nil)
       for h in string.gmatch(f[5] or "", "%d+") do
         C.scr.pinned = C.scr.pinned or {}
         C.scr.pinned[tonumber(h)] = true
