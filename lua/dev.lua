@@ -3334,7 +3334,7 @@ if cfg.efphases and Coop.level ~= "levels/menu" then
         local body, e = human(spec.who), running(spec.cls)
         if body and e then
           if not spec.reuse then used[e.Name] = true end
-          e.Invulnerable = 1
+          if not spec.vuln then e.Invulnerable = 1 end
           place(e, body, spec)
           cur.e, cur.started = e, f
           Coop.log(string.format("efphases: phase %d: %s %s %.0f units from %s (%s)", cur.n, spec.cls, e.Name,
@@ -3354,7 +3354,7 @@ if cfg.efphases and Coop.level ~= "levels/menu" then
         elseif f % 20 == 0 then
           local body = human(spec.who)
           if body then
-            e.Invulnerable = 1
+            if not spec.vuln then e.Invulnerable = 1 end
             local d = (body.Pos - e.Pos):mod2D()
             if d > (spec.dist or 400) * (spec.leash or 1.6) + 300 then
               place(e, body, spec)
@@ -3469,9 +3469,15 @@ if cfg.bosscycle and Coop.level ~= "levels/menu" then
     return string.format("act=%s life=%.0f faded=%s vis=%s screen=%s", tostring(e.Action), e.Life or -1,
       tostring(Coop.isHost() and ce.faded[e.Name] or ce.fadeSet[e.Name]), vis, scr)
   end
+  local t0   -- (host: the timeline starts when the client has reported its level loaded, 250 ticks later it wakes the bosses)
   function Coop.dev()
     if prevBc2 then prevBc2() end
     local f = Coop.frame
+    if Coop.isHost() then
+      local rp = CoopEnemies.readyPeers
+      if not t0 and rp and next(rp) then t0 = Coop.frame - 50 end
+      f = t0 and (Coop.frame - t0 + 250) or 0
+    end
     if Coop.isHost() then
       local body = Coop.squadEnt(cfg.partcls or "Black")
       for i, name in ipairs(cfg.bosscycle) do
@@ -3535,5 +3541,71 @@ if cfg.lifecmp and Coop.level ~= "levels/menu" then
     end
     table.sort(t)
     Coop.log(string.format("lifecmp %s f=%d: %s", cfg.role, Coop.frame, table.concat(t, " ")))
+  end
+end
+
+-- 'efboom' = <tick> (host with a client): a mortar-sized explosion (NaziSoldierC's numbers: 250 radius, 300 damage; the same
+-- Weapons.ExplotaExplotaQueExplo the mortar, the cluster, Ki's fireball and the crossbow bolt call) at the feet of a remote
+-- human's puppet and 150 units to its side: does the damage reach the owner (pdmg sent) from the area query?
+if cfg.efboom and Coop.level ~= "levels/menu" then
+  local prevBm = Coop.dev
+  function Coop.dev()
+    if prevBm then prevBm() end
+    if not Coop.isHost() or Coop.frame ~= cfg.efboom then return end
+    local E = CoopEnemies
+    local attacker
+    local e = Game.GetFirst()
+    while e ~= nil and not attacker do
+      if e:IsType("WalkChar") and e.TgType == "red" and (e.Life or 0) > 0 then attacker = e.Name end
+      e = Game.GetEntity(e and e.NextInSlot)
+    end
+    for name in pairs(Coop.owners or {}) do
+      if Coop.isRemoteOwned(name) then
+        local b = Game.GetEntity(name)
+        if b then
+          for _, off in ipairs({0, 150, 300}) do
+            local before = E.stats.pdmgSent
+            local p = b.Pos + V3D(off, 0, 0)
+            local ok, err = pcall(Weapons.ExplotaExplotaQueExplo, p.x, p.y, p.z, attacker, 250, 300, 0, 30000)
+            Coop.log(string.format("efboom: explosion %d units from %s (attacker %s): pdmg sent %d -> %d %s", off, name, tostring(attacker),
+              before, E.stats.pdmgSent, ok and "" or tostring(err)))
+          end
+        end
+      end
+    end
+  end
+end
+
+-- 'stompprobe' = <tick> (host with a client, Rom_Outskirts): the Behemoth 'Digimon00' (AI off) is put so that the stomp sphere
+-- of Behemoth.StompLeft / StompRight is centred 300 units from the remote body, then from the host's own body, and the
+-- game's own stomp functions are called: does ApplyStomp reach the puppet (pdmg sent) as it reaches the real player?
+if cfg.stompprobe and Coop.level ~= "levels/menu" then
+  local prevSt = Coop.dev
+  function Coop.dev()
+    if prevSt then prevSt() end
+    if not Coop.isHost() then return end
+    local f = Coop.frame - cfg.stompprobe
+    if f < 0 or f % 60 ~= 0 or f > 240 then return end
+    local E = CoopEnemies
+    local beh = Game.GetEntity("Digimon00")
+    if not beh then return end
+    local remote
+    for name in pairs(Coop.owners or {}) do
+      if Coop.isRemoteOwned(name) then remote = Game.GetEntity(name) end
+    end
+    local body = (f % 120 == 0) and remote or Game.UsrEntity(0)
+    local who = (f % 120 == 0) and "remote" or "local"
+    if not body then return end
+    beh.bActive = true
+    if beh.oAI and beh.oAI.bEnable then beh.oAI.bEnable = false end
+    beh.Ang = V3D(0, 0, 0)
+    beh.ViewAng = V3D(0, 0, 0)
+    local off = f < 120 and V3D(700, -600, -1300) or V3D(-800, -600, -1300)
+    beh.Pos = body.Pos - off + V3D(300, 0, 0)
+    local before = E.stats.pdmgSent
+    local fn = f < 120 and "StompLeft" or "StompRight"
+    -- (the left stomp for the remote body and the host's own, then the right one for both)
+    local ok, err = pcall(Behemoth[fn], beh.Name)
+    Coop.log(string.format("stompprobe: %s at the %s body %s: pdmg sent %d -> %d %s", fn, who, body.Name, before, E.stats.pdmgSent, ok and "" or tostring(err)))
   end
 end

@@ -312,17 +312,39 @@ Payload fields follow the kind, `|`-separated, in the order given.
 
 | Kind | From → to | | Payload | Handled in |
 |---|---|---|---|---|
-| `e` | host → all | U | host time, then `name,x,y,z,yaw,action,1;...` (packets of about 900 bytes) | `E.onSnapshot` → `Coop.pushState` → `E.targets`; every tick |
+| `e` | host → all | U | host time, then `name,x,y,z,yaw,action,flags,pitch,life%;...` (flags: 1 active, 2 pulling the trigger, 4 faded out; life% of the highest the host saw; packets of about 900 bytes) | `E.onSnapshot` → `Coop.pushState` → `E.targets`; every tick |
 | `espawn` | host → all; host → one (catch-up) | R | name, class, group, x, y, z | `E.onMessage` (client): `NPC.Counter` set to the host's number, `NPC.CreateWithAI` through `fromHost`, renamed if needed |
 | `egroup` | host → all; host → one | R | group | client: `NPC.ActivateEnemyGroup` with `EnemyGen` spawning stubbed out |
 | `edie` | host → all | R | name, `1` if removed quietly | client: `Life = 0` (`uData.RemoveNow` for quiet ones) |
-| `pdmg` | host → owner's machine | R | victim, damage, attacker | `E.onMessage`: `E.origDamage` on the local body |
+| `pdmg` | host → owner's machine | R | victim, damage, attacker, attacker's x, y, z | `E.onMessage`: `E.origDamage` on the local body (the shooter's place only when its entity is missing here) |
+| `pfire` | host → owner's machine | R | victim, fire duration, fire delay, attacker | `E.onMessage`: `FireRemainTime`/`FireDelayTime`/`Pyromaniac` on the local body (a flamethrower's flame reached it); a client's own copy of the flamer does not set bodies alight (`E.installFlamesClient`) |
+| `phit` | host → owner's machine | R | victim | `E.onMessage`: `Soldier.DoHitStrong` (the hit reaction; the client suppresses its own) |
+| `epart` | host → all; host → one | R | enemy, `seal`/`bomb`/`bombs`, node or 0/1 mask | `E.applyPart`: Behemoth seals and exploding cultists' pustules as the host has them |
+| `eact` | host → all | R | boss, action | `E.onMessage`: a boss's non-locomotion action forced at once (fades, attacks) |
 | `hit` | client → host | R | enemy, damage (body multiplier applied), attacker, bone, part damage | `E.applyHit` (no check that the attacker is the sender's body) |
 | `scene` | host → all | R | `play`/`fp`/`fpni`/`fpnni`/`abort`, class | `E.onScene` (client) |
 | `skipvote` | client → host | R | scene name | `E.voteSkip`: skip when every player voted |
 | `skipv` | host → all | R | votes, players | `E.showSkip` |
 | `level` | host → all | R | level name | `E.onLevel` (client): `CoopSave.applyPending`, `SaveGame.LoadLevel` through `fromHost` |
 | `lready` | client → host | R | level name | `E.onMessage` (host): `E.sendCatchup(peer)`, `E.readyPeers[peer] = true` |
+
+### Enemy attacks against bodies other players hold (0.2.9; `coop_enemies.lua`, host)
+
+A body another human holds is a puppet on the host with `bIgnoreCollision = true`: every ray, line test and missile
+collision of the engine passes through it, only area queries (`Game.SphereCall`, all masks R/L/G/LPO) find it. How each
+kind of attack reaches it (live numbers: `notes/bugfix-029.md`, section C2):
+
+| Attack | Mechanism | Code |
+|---|---|---|
+| Hitscan (soldiers, crossbow guard...) | the shot's ray (muzzle estimate to the engine's impact point) tested against the body's capsule, radius `E.HIT_RADIUS` 27 (calibrated against the engine's hit rate on the host's own body) | `E.noteShot` (wrapper of `Weapons.OnShot`) |
+| Melee events, Behemoth vomit, Legionary push, EvilFirstBorn's ray, flamethrower lines | **collision window**: `bIgnoreCollision = false` on the remote bodies for the length of the one Lua call that casts the ray, then true again (no physics step inside, it takes effect at once for rays); the game's own code then hits the puppet exactly as it hits a solid body, damage and `DoHitStrong` included | `E.withCollision`, `E.MELEE` (wrapped events), `E.flameLine` (`DoubleLineTest`). `cfg.window=false`: the old capsule fix |
+| Flames | the engine's line meets the puppet inside the window; the host sends `pfire` to the owner, who sets the body alight. A client's own copy of the flamer does not (`E.installFlamesClient`) | `E.flameSend` |
+| Missiles (pilum, blades, crossbow bolt, Ki's fireball, mortar, cluster) | **missile window**: while an enemy missile is within `E.MW_RANGE` (900) of a remote body its collision is on, so the engine's own missile collision and the game's callbacks (`HitPilum`, `HitBlade`, the explosions) meet it. `cfg.mwindow=false`: the geometric test of the missile's path against the capsule | `E.mwApply`, `E.checkMissile` |
+| Area attacks (stomp, blades, club, explosions) | already found by `Game.SphereCall` | nothing to do |
+| Damage | `Weapons.DoDamage` wrapper: a hit on a remote body becomes `pdmg` (the owner applies it with the game's own function); `Soldier.DoHitStrong` on a remote body becomes `phit` | `E.installHost` |
+
+Switches for tests: `remotehit=false` (no fix at all), `window=false`, `mwindow=false`, `pfire=false`, `localfire=true`.
+Counters in the 100-tick report line: `windows`, `missile-windows`, `flame-segs`, `melee swings`, `<kind>: remote hits`, `pdmgby=`.
 
 ### World (`coop_world.lua`)
 
