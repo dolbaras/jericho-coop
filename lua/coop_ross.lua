@@ -27,7 +27,9 @@ for _, n in ipairs({"Relax", "Relax0", "Relax1", "Relax2", "RelaxLeft", "RelaxRi
                     "WalkViewLeft0", "WalkViewLeft1", "WalkViewRear", "WalkViewRight0", "WalkViewRight1",
                     "TurnLeft", "TurnRight", "TurnSprint", "Turn180", "Turn90Left", "Turn90Right",
                     "Reload", "Reload0", "ShotInit", "Shot", "Shot0", "ShotEnd", "Punch", "HitStrong",
-                    "ShelterDown", "ShelterLeft", "ShelterRight"}) do
+                    "ShelterDown", "ShelterLeft", "ShelterRight",
+                    -- (his astral state, chars/ross.lua: set by the engine's soul power; the other players see it)
+                    "AstralInit", "Astral", "AstralEnd"}) do
   R.ACTS[#R.ACTS + 1] = n
 end
 for _, n in ipairs({"Relax", "Relax0", "RelaxLeft", "RelaxRight", "RelaxInit", "RelaxEnd",
@@ -216,7 +218,7 @@ end
 R.LOOP_AFTER = {WalkInit = "Walk", BackInit = "Back", RunInit = "Run", SprintInit = "Sprint",
   WalkDuckInit = "DuckWalk", RunDuckInit = "DuckRun", SprintDuckInit = "DuckSprint",
   DuckRelaxInit = "DuckRelax", DuckRelaxEnd = "Relax", ShotInit = "Shot", Shot0 = "Shot",
-  DuckShotInit = "DuckShot", DuckShot0 = "DuckShot", TurnSprint = "Sprint"}
+  DuckShotInit = "DuckShot", DuckShot0 = "DuckShot", TurnSprint = "Sprint", AstralInit = "Astral"}
 function R.loopFor(act)
   local a = Act.GetClass(R.NAME):GetAct(act)
   if a and a.isLoop == 1 then

@@ -113,10 +113,18 @@ A.sync(e8b, "Delgado", {life = 100, action = "StupidInit"}); e8b.ForceAction = n
 A.sync(e8b, "Delgado", {life = 100, action = "Stupid"})
 A.sync(e8b, "Delgado", {life = 100, action = "Run"})
 assert(e8b.ForceAction == "StupidEnd", "End when the family is left: " .. tostring(e8b.ForceAction))
+-- (a dazed body is held: no walk input from the drawn state; cover is not)
+local eh = body("Church"); step(1)
+A.sync(eh, "Church", {life = 100, action = "StupidInit"})
+local mo = A.moveOverride("Church")
+assert(mo and mo.walk == 0 and mo.sprint == 0, "held while dazed")
+A.sync(eh, "Church", {life = 100, action = "Relax"})
+assert(A.moveOverride("Church") == nil, "free again")
 -- cover
 local e9 = body("Black")
 A.sync(e9, "Black", {life = 100, action = "ShelterDownInit"})
 assert(e9.ForceAction == "ShelterDownInit", "cover starts")
+assert(A.moveOverride("Black") == nil, "a body in cover walks")
 step(1); e9.ForceAction = nil
 A.sync(e9, "Black", {life = 100, action = "ShelterDown"})
 A.sync(e9, "Black", {life = 100, action = "ShelterDownReload"})
@@ -176,5 +184,15 @@ Coop.cfg.puppetgrenade = true
 WeaponsCole.LaunchGrenade("Cole")
 assert(#launched == 3, "switch: old behaviour")
 Coop.cfg.puppetgrenade = nil
+
+-- 12. a first-person hurdle runs on the spot for a moment, then the drawn state's inputs again
+local eu = body("Jones"); step(1)
+A.sync(eu, "Jones", {life = 100, action = "Relax", fpa = "01_Hurdle"})
+local mo2 = A.moveOverride("Jones")
+assert(mo2 and mo2.walk == 1 and mo2.sprint == 1, "hurdle runs")
+step(0.5)
+assert(A.moveOverride("Jones") == nil, "and stops")
+A.sync(eu, "Jones", {life = 100, action = "Relax", fpa = "01_SkipWall"})
+assert(A.moveOverride("Jones").sprint == 0, "a climb walks")
 
 print("anim mock test: OK")

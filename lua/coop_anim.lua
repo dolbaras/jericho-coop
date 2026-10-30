@@ -194,6 +194,7 @@ function A.sync(e, name, st)
     s.downT, s.reviveT, s.seenDown = nil, nil, nil
   end
   A.syncFP(e, name, st)
+  A.noteFpMove(s, st)
   A.syncState(e, name, st)
   -- one-shots of the owner's body
   local act = st.action
@@ -250,6 +251,23 @@ function A.syncFP(e, name, st)
   end
 end
 
+function A.noteFpMove(s, st)
+  local fpa = st.fpa
+  if type(fpa) ~= "string" then return end
+  local act = string.match(fpa, "^%d+_(.+)$") or fpa
+  for _, p in ipairs(A.FP_MOVES) do
+    if string.find(act, p) then
+      if not (s.moveUntil and now() < s.moveUntil) then
+        A.fpMoves = (A.fpMoves or 0) + 1
+        if A.fpMoves <= 20 or cfg.animlog then Coop.log("anim: first-person " .. act .. " shown as a run on the spot") end
+      end
+      s.moveUntil = now() + A.MOVE_HOLD
+      s.moveSprint = string.find(act, "^Hurdle") ~= nil
+      return
+    end
+  end
+end
+
 -- A state that lasts (A.FAMILIES): the Init action starts it, the End action ends it. The End starts when the
 -- owner's body plays its own End action (live 2026-10-30: waiting for the owner's body to leave the family put it
 -- 1.2 s behind: the owner's StupidEnd was over before the puppet began its own), or at the latest when it left the family.
@@ -300,6 +318,24 @@ function A.syncState(e, name, st)
       A.famLog(name, "enters " .. fam .. " from " .. old .. " (owner's action " .. act .. ")")
     end
   end
+end
+
+-- Bodies in these states do not walk: Coop.drivePuppets sends no walk input to them (the drawn state is up to 0.2 s behind: its
+-- walk input cut the Init of the low-priority Possessed action short, live 2026-10-30). Cover is left out (the body walks in cover).
+A.HOLD = {Stupid = true, Trance = true, Astral = true, Possessed = true}
+-- The owner's first-person-only moves with no third-person action (Hurdle over a low obstacle, SkipWall climbs): the body itself
+-- stays in Relax while the engine moves it, so the puppet slid over the obstacle standing. It runs on the spot instead (the legs of
+-- the closest third-person action, with no root motion: the network places it).
+A.FP_MOVES = {"^Hurdle", "^SkipWall"}
+A.MOVE_HOLD = 0.35   -- s the run lasts after the last state that named the first-person move
+
+-- nil, or the walk / strafe / sprint inputs (a table) the body gets instead of the drawn state's (Coop.drivePuppets).
+function A.moveOverride(name)
+  local s = A.state[name]
+  if not s or cfg.animhold == false then return nil end
+  if s.fam and A.HOLD[s.fam] then return {walk = 0, str = 0, sprint = 0} end
+  if s.moveUntil and now() < s.moveUntil then return {walk = 1, str = 0, sprint = s.moveSprint and 1 or 0} end
+  return nil
 end
 
 function A.famLog(name, what)

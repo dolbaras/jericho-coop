@@ -1467,9 +1467,12 @@ function Coop.drivePuppets(dt)
         if e.owc then e.owc.Shot = sst.shot or 0 end
         Coop.syncSlot(e, sst.slot)
         Coop.mirrorArms(e, name, sst)
-        e.InCtrl_Walk = tg.st.walk
-        e.InCtrl_Str = tg.st.str
-        e.InCtrl_Sprint = tg.st.sprint
+        -- (coop_anim.lua may override the inputs: a body held in a state (dazed, trance, astral, possessed) does not walk, the
+        -- drawn state's walk input is up to 0.2 s behind and broke the low-priority Init; a first-person hurdle/climb runs)
+        local mo = CoopAnim and CoopAnim.moveOverride and CoopAnim.moveOverride(name)
+        e.InCtrl_Walk = mo and mo.walk or tg.st.walk
+        e.InCtrl_Str = mo and mo.str or tg.st.str
+        e.InCtrl_Sprint = mo and mo.sprint or tg.st.sprint
         Coop.syncCrouch(e, name, tg.st)
         Coop.syncFloorDist(e, name, tg.st.action, tg.st.fd)
         Coop.syncModelDisp(e, name, tg.st.action, tg.st.ymd)

@@ -125,8 +125,19 @@ on purpose; what other players should see is the third-person action in the tabl
   the AI runs, the natural AI start did not happen in the 3-minute fights; the abby message path is the old one).
 - **States that last** (`A.FAMILIES`, `A.syncState`): cover (`ShelterDown/Left/Right`), dazed (`Stupid`), trance
   (`Trance`, Jones), astral (`Astral`, Ross), possessed (`Possessed`, Jones): the Init action is played when the
-  owner's body enters the family, the End action when it leaves it (the loop in between follows the Init through
-  its own event). Mock-tested only; frequency order for live checks: cover, dazed, trance/astral, possessed.
+  owner's body enters the family, the End action when the owner's body plays its own End (`<family>End`), or at the
+  latest when it leaves the family (the loop in between follows the Init through its own event). Live results
+  (2026-10-30, N100 host + this PC client, `labnimstates.sh`, `cfg.animtrace` log of every action change of the
+  puppet and of the owner): dazed Delgado (`StupidInit` -> `Stupid` -> `StupidEnd`), cover Rawlings/Cole/Delgado
+  (`ShelterDown/Left/Right`), trance Jones, possessed Jones (Sum_Ziggurat_01): the puppet played Init and End in step
+  with the host's body, no Lua error. Found and fixed on the way: (1) the End started only when the owner had left the
+  family, 1.2 s after the owner's own End began (now it starts with the owner's End); (2) the Init of `Possessed` has
+  the lowest priority (the level script adds it with no `PriorityLevel`), the puppet's walk input (drawn state, up to
+  0.2 s old) cut it short: `CoopAnim.moveOverride` gives bodies held in Stupid/Trance/Astral/Possessed no walk input
+  (`cfg.animhold=false` = old). Cover is left out (a body walks in cover). Astral (Ross): nothing in the scripts sets
+  Ross's `AstralInit`; in Act 1 the other players see Ross through the stand-in `CoopRossBody` (`coop_ross.lua`), whose
+  class had no Astral actions: `AstralInit/Astral/AstralEnd` added; run live by a forced `AstralInit` on the host's
+  Ross (the stand-in's Action followed: `AstralInit`, `AstralEnd`), the pose itself was not judged on a frame.
 - **First-person names -> third-person actions** (`A.FPMAP`): `TKCombo*` -> `TKHit` (Black; `Coop.mirrorArms` had
   no pattern for it), `Reequip`, `Hit*`/`HitStrong` of a human body. `Coop.mirrorArms` keeps what it maps
   (Combo, Punch, Reload, Spell, Hack, Special_0*). Every other first-person name that is not movement, posture or a
@@ -136,9 +147,26 @@ otesctinv_fp.txt`):
   there is no third-person action for `Hurdle*`, `Fall*`, `SkipWall*`, `Heal`, `Order*`, `OpenPalancaA`,
   `OpenLightDoor`, `ThrowEnd`, `Activation`, `Special_1*` (Rawlings), `Aim*`: the body's own `Action` carries what
   exists (jumps/falls are locomotion).
-- Not done: Cole's grenade (`Shot0`: its launch event runs on the puppet and makes a grenade there; the slot and
-  shot flag already show the throw), Rawlings' `Special_0/1` -> `Special1`/`ShotH` mapping (which first-person
-  action is which power is unclear from the scripts: wait for the log lines above), Jones's possession scene.
+- **Cole's grenade** (0.2.9): the third-person `Shot0` plays on a puppet from the owner's shot flag and slot, and its
+  frame-29 event `WeaponsCole.LaunchGrenade` made a SECOND grenade on the puppet (own physics and explosion, next to the
+  one the owner's machine throws). `CoopAnim.installGrenade` drops that launch event for a puppet (the throw is shown,
+  the grenade is the owner's machine's; `cfg.puppetgrenade=true` = old). Live (`lab\grenade.sh`, client holds Cole,
+  real virtual pad, LT = the grenade launcher): host log `anim: Cole's grenade launch dropped (puppet ...)`, no
+  `Cole_Grenade` entity on the host; with the switch on the host's puppet makes `Cole_Grenade` at once (1 of 1).
+  Not seen: a grenade of another player in flight (it exists on the owner's machine only).
+- **First-person-only moves** (`CoopAnim.noteFpMove`): `Hurdle*` and `SkipWall*` are moves of the body by the engine
+  (`Soldier.HurdleJump`: three `MoveMePosAng` steps) while only the arms play; the body's own `Action` stays `Relax`, so
+  the other players saw the ally slide over the obstacle standing. The puppet now gets walk (+ sprint for a hurdle)
+  input while the owner's arms name it (0.35 s after the last state): the legs of the closest third-person action,
+  root motion off. Live (host `Soldier.LauchHurdleJump`, client frame sheet): Delgado runs on the spot over the move
+  instead of sliding upright. Accepted and left out: `Fall*` (the engine's own falling pose), `Heal`, `Special_0/1` of
+  Rawlings (his third-person twins `ShotH`, `ShotH_GH`, `Special1` fire game events - a heal, a curse - on the
+  puppet's machine too; the powers themselves are relayed as `pw|r*` and shown by the aura; Rawlings' `Special_0` is
+  the ghost heal, `Special_1` Vlad's course, from `chars/rawlings.lua` `SpecialInit`), `Order*` (a gesture of the
+  squad leader, no twin), `OpenPalancaA` / `OpenLightDoor` (Delgado's lever and door use: the door or lever acts, the
+  body stands: no twin; live `labpmap.sh`: the log names it once, the puppet stays in `Relax`), `ThrowEnd`
+  (the grenade throw is shown through `Shot0`), `Activation`, `Aim*`.
+- Not done: Jones's possession scene as a whole (only the `Possessed` actions).
 
 ## 5. Jerky movement of remote bodies: causes noticed
 
@@ -163,8 +191,10 @@ states takes that out. Not changed: root motion of a shared action object, `Forc
 
 ## 6. Still open
 
-- Live checks of the state families and of the AI Delgado's spirit; Cole's grenade; the 3-player check of
-  relayed `talk`.
+- The 3-player check of relayed `talk`. The AI Delgado's release of the dragon was seen live by itself (runs of
+  2026-10-30 on Rom_Outskirts, both sides on autoplay: client `anim: Delgado plays Shot1Init`, `powers: Delgado's
+  Ababanili attacks Enemy...`, `own AbabaniliStart event dropped (puppet)`, `comes back`, two cycles in a row);
+  the arm opening on a frame is not shown yet (the client camera was in the fight elsewhere).
 - Verification of every class on a live pair (action by action) once the whitelist is settled.
 
 ## Appendix: every action (generated by `labctinv.lua`, 2026-10-28)
