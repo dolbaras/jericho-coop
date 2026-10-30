@@ -4,12 +4,13 @@ local clock = 100
 local logs, sent = {}, {}
 Net = {CoopTime = function() return clock end, CoopSend = function(to, rel, msg) sent[#sent + 1] = to .. ">" .. msg end}
 Coop = {cfg = {}, log = function(s) logs[#logs + 1] = s end, owners = {}, P2 = 8, storyDriven = {},
-        isHost = function() return true end, isClient = function() return false end, inSession = function() return true end,
+        isHost = function() return Coop.role ~= "client" end, isClient = function() return Coop.role == "client" end, inSession = function() return true end,
         myId = function() return 0 end, isMine = function(o) return o == 0 or o == 8 end,
         peerOf = function(o) return o >= 8 and o - 8 or o end, broadcastOwners = function() sent[#sent + 1] = "own" end,
         lang = function() return "en" end, enc = function(s) return s end, addLangs = function() end,
         charName = function(c) return c end, frame = 0, textBlockHide = function() end, textBlock = function() end}
 local ents, switched = {}, {}
+Coop.role = "host"
 for _, n in ipairs({"Black", "Church", "Delgado", "Jones", "Cole", "Rawlings"}) do ents[n] = {Name = n, Life = 100, Active = 1} end
 Game = {GetTime = function() return clock end, GetEntity = function(n) return ents[n] end, UsrEntity = function() return ents.Church end}
 Team = {SwitchSoldier = function(a, b) switched[#switched + 1] = a .. "->" .. b end}
@@ -21,7 +22,7 @@ local C = CoopChoice
 local function setup(id, holders, picks)
   Coop.owners = {}
   for name, owner in pairs(holders) do Coop.owners[name] = owner end
-  C.done, C.pending, C.cur, C.result = {}, {}, nil, nil
+  C.reset()
   switched, sent = {}, {}
   C.pending[id] = {since = clock}
   C.start(id)
@@ -74,4 +75,94 @@ assert(ran and C.done.G8 and not C.cur, "single player: resumes at once")
 ents.Delgado.Life = 0
 r = setup("G8", {Church = 0, Black = 1}, {[1] = {1, false}})
 assert(owner("Church") == 1 or owner("Church") == 0, "resolved")
+
+-- 8. a pure exchange: Church (host) and Black (client) want each other's group, Delgado is dead (no spare body):
+-- both move, through the owner table, evict for the client, one direct switch for the host
+ents.Delgado.Life = 0
+r = setup("G8", {Church = 0, Black = 1}, {[0] = {2, true}, [1] = {1, true}})
+assert(owner("Church") == 1 and owner("Black") == 0, "exchange: Church " .. tostring(owner("Church")) .. " Black " .. tostring(owner("Black")))
+assert(r.final[0] == "Black" and r.final[1] == "Church", "result final")
+ents.Delgado.Life = 100
+
+-- 9. a second finish inside the result hold does not overwrite the first resume (queue), and both run in order
+local order = {}
+C.reset()
+Coop.owners = {Church = 0, Black = 1}
+C.pending.G8 = {since = clock, resume = function() order[#order + 1] = "G8" end}
+C.pending.G10 = {since = clock, resume = function() order[#order + 1] = "G10" end}
+C.start("G8"); C.setPick(0, 1, true); C.setPick(1, 2, true); C.resolve()
+C.start("G10"); C.setPick(0, 1, true); C.setPick(1, 2, true); C.resolve()
+assert(#order == 0 and #C.later == 2, "both resumes queued: " .. #C.later)
+clock = clock + C.RESULT_HOLD + 1
+C.runLater()
+assert(order[1] == "G8" and order[2] == "G10", "resumes run in order: " .. table.concat(order, ","))
+
+-- 10. level change: the reset clears done/pending/cur (a replayed split asks again)
+C.done.G8 = true; C.pending.G10 = {since = clock}; C.cur = {}
+Coop = setmetatable({}, {__index = Coop})   -- a new Coop table, as coop.lua builds at every level load
+Coop.level = "levels/cru_sewers"
+C.update()
+assert(not C.done.G8 and not next(C.pending) and not C.cur, "reset on level change")
+
+-- 11. client gate: holds the call until the host's chd/chr, then runs it (after the hold for a result)
+Coop.role = "client"; Coop.cfg.myId = 1
+Coop.isClient = function() return true end; Coop.isHost = function() return false end
+local calls = 0
+local g = C.gate("G8", function(a) calls = calls + a end)
+g(1); g(1)
+assert(calls == 0 and C.held.G8, "client holds the call")
+C.onMessage(0, {"chd", "G8"})
+C.runLater()
+assert(calls == 1, "client call ran once after chd: " .. calls)
+g(5); assert(calls == 6, "after the result the gate lets calls through")
+C.reset()
+g = C.gate("G8", function(a) calls = calls + a end)
+g(1)
+C.onMessage(0, {"chr", "G8", "1:Black:moved"})
+C.runLater(); assert(calls == 6, "result: the call waits for the explanation to be read")
+clock = clock + C.RESULT_HOLD + 0.1
+C.runLater(); assert(calls == 7, "then runs")
+-- no answer from the host: the held call runs after a while
+C.reset()
+g = C.gate("G8", function(a) calls = calls + a end)
+g(10)
+clock = clock + C.TIME + 13
+C.heldCheck(); C.runLater()
+assert(calls == 17, "timeout releases the held call")
+Coop.role = "host"; Coop.cfg.myId = nil
+Coop.isClient = function() return false end; Coop.isHost = function() return true end
+
+-- 12. chp carries the owner id: a client's split screen player 2 (owner peer + P2) can pick, a forged owner cannot
+Coop.owners = {Church = 0, Black = 1, Delgado = 9}
+C.reset(); switched, sent = {}, {}
+C.pending.G8 = {since = clock}
+C.start("G8")
+C.onMessage(1, {"chp", "G8", "1", "1", "9"})
+assert(C.cur.picks[9].conf and C.cur.picks[9].g == 1, "second local player's pick stored under its owner")
+assert(not C.cur.picks[1].conf, "the first player's pick untouched")
+C.onMessage(1, {"chp", "G8", "2", "1", "0"})   -- peer 1 claiming the host's owner id: stored under peer 1
+assert(not C.cur.picks[0].conf and C.cur.picks[1].conf and C.cur.picks[1].g == 2, "forged owner id ignored")
+
+-- 13. the Lost Patrol: a refused player (full card) stays in his main-group body and is not sent to the trio
+dofile("coop_patrol.lua")
+cfg = Coop.cfg
+Coop.rearm = function() end
+Coop.owners = {Church = 0, Jones = 1, Cole = 2}
+C.reset()
+C.pending.LP = {since = clock}
+C.start("LP")
+C.setPick(1, 1, true); C.setPick(2, 2, true)   -- peer 1 (holding Jones) asks for the main group, peer 2 for the trio
+C.resolve()
+CoopPatrol.chosenTrio()
+assert(Coop.cfg.patrol == "2", "trio = the players holding a trio body at the end: " .. tostring(Coop.cfg.patrol))
+-- a player who asked for the trio but found no free body of it (full) stays in his main-group body
+Coop.cfg.patrol = nil
+Coop.storyDriven.Cole, Coop.storyDriven.Rawlings = true, true
+Coop.owners = {Church = 0, Black = 1, Jones = 2}
+C.reset(); C.pending.LP = {since = clock}; C.start("LP")
+C.setPick(1, 2, true); C.setPick(2, 2, true); C.resolve()
+assert(Coop.owners.Black == 1 and Coop.owners.Jones == 2, "refused player keeps Black")
+CoopPatrol.chosenTrio()
+assert(Coop.cfg.patrol == "2", "full: only the real trio holder goes to the side instance (old code: want = 1,2): " .. tostring(Coop.cfg.patrol))
+Coop.storyDriven.Cole, Coop.storyDriven.Rawlings = nil, nil
 print("choice mock test: ok")

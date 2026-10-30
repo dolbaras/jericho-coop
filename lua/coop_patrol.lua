@@ -50,16 +50,20 @@ end
 -- CoopChoice.HOST_PINNED_LP). Its result decides who plays the trio (cfg.patrol).
 ------------------------------------------------------------------------------
 
--- Hub: after the screen, the machines whose players picked the trio (their bodies are Jones,
--- Cole or Rawlings by now) go to the side instance when the main group reaches Cru_Labyrinth.
+-- Hub: after the screen, the machines whose players HOLD a trio body (their final bodies, `result.final`:
+-- where the players ended up, not what they asked for: a player refused for `full` stays in his main-group
+-- body and goes on with the main group) go to the side instance when the main group reaches Cru_Labyrinth.
 function LP.chosenTrio()
   local r = CoopChoice and CoopChoice.result
-  if not r or not r.want then return end
-  local ids = {}
-  for owner, g in pairs(r.want) do
-    if g == 2 and owner ~= 0 then
+  if not r or not r.final then return end
+  local ids, seen = {}, {}
+  for owner, char in pairs(r.final) do
+    if LP.TRIO[char] and owner ~= 0 then
       local peer = Coop.peerOf(owner)
-      if peer and peer ~= 0 then ids[#ids + 1] = tostring(peer) end
+      if peer and peer ~= 0 and not seen[peer] then
+        seen[peer] = true
+        ids[#ids + 1] = peer
+      end
     end
   end
   table.sort(ids)

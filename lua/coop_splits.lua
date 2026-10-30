@@ -117,13 +117,13 @@ end
 
 -- The choice itself (screen, resolution, moves) is coop_choice.lua; a split's start is held
 -- with Sp.gate(path, id) until it is over.
-function Sp.gate(path, id, when)
+function Sp.gate(path, id, when, replayOnly)
   local tname, fname = string.match(path, "^([%w_]+)%.([%w_]+)$")
   local tbl = _G[tname]
   local f = tbl and tbl[fname]
   if type(f) ~= "function" or Sp.hooked["gate:" .. path] or not CoopChoice then return end
   Sp.hooked["gate:" .. path] = true
-  tbl[fname] = CoopChoice.gate(id, f, when)
+  tbl[fname] = CoopChoice.gate(id, f, when, replayOnly)
 end
 
 ------------------------------------------------------------------------------
@@ -298,7 +298,16 @@ function Sp.installG8(isHost)
     end
     if isHost then Sp.G8phase(2) end
   end)
-  if not isHost then return end
+  -- The choice screen comes before the climb starts (coop_choice.lua). The gates go on last, outside
+  -- the hooks below, so a held call runs them too when it is let through. On a client the replay of the
+  -- host's callback waits for the result as well: the machines start the split together.
+  local function gates()
+    Sp.gate("MapCallbacks.TriggerEscalada_0", "G8", nil, true)
+    Sp.gate("MapCallbacks.PlayEscalada", "G8", function(_, playerid)
+      return AreaTriggers.IsPlayer(playerid, "Church")
+    end, true)
+  end
+  if not isHost then gates() return end
   -- Church starts the climb (use object or area trigger): the choice, then phase 1 when
   -- the scene hands control back.
   local function climb()
@@ -308,11 +317,6 @@ function Sp.installG8(isHost)
   Sp.after("MapCallbacks.TriggerEscalada_0", climb)
   Sp.after("MapCallbacks.PlayEscalada", function(_, Playerid)
     if Scene and Scene.IsPlaying then climb() end
-  end)
-  -- The choice screen comes before the climb starts (coop_choice.lua).
-  Sp.gate("MapCallbacks.TriggerEscalada_0", "G8")
-  Sp.gate("MapCallbacks.PlayEscalada", "G8", function(_, playerid)
-    return AreaTriggers.IsPlayer(playerid, "Church")
   end)
   Sp.after("MapCallbacks.BloodWarGroup_0", function() Sp.G8phase(3) end)
   Sp.after("MapCallbacks.TriggerAperturaPuerta_0", function()
@@ -324,6 +328,7 @@ function Sp.installG8(isHost)
       Coop.log("split G8: held")
     end
   end)
+  gates()
 end
 
 ------------------------------------------------------------------------------
@@ -406,11 +411,10 @@ function Sp.installG10(isHost)
     Sp.G10.loadChecked = true
     if Team and Team.GetSavedSpawnPlayerPoint and Team.GetSavedSpawnPlayerPoint() >= 1 then Sp.G10keepHumans() end
   end
-  if not isHost then return end
+  if not isHost then Sp.gate("MapCallbacks.AreaTrigger_Fire_0", "G10", nil, true) return end
   Sp.after("MapCallbacks.AreaTrigger_Fire_0", function()
     Sp.setSides("G10", {"Delgado"}, Sp.G10.list)
   end)
-  Sp.gate("MapCallbacks.AreaTrigger_Fire_0", "G10")
   Sp.after("MapCallbacks.puerta_delgado_1_0", function() Sp.G10wave(2) end)
   Sp.after("MapCallbacks.AreaTrigger308_0", function() Sp.G10wave(3) end)
   Sp.after("MapCallbacks.AreaTriggerDelgadoCae_0", function()
@@ -422,6 +426,7 @@ function Sp.installG10(isHost)
       Coop.log("split G10: Delgado is back")
     end
   end)
+  Sp.gate("MapCallbacks.AreaTrigger_Fire_0", "G10", nil, true)
 end
 
 ------------------------------------------------------------------------------

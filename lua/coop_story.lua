@@ -52,7 +52,7 @@ function St.installWalks()
         if remote then St.drive(nameEnt, true) end
         local done = function(ent, ...)
           if remote then St.drive(nameEnt, false) end
-          Net.CoopSend(-1, 1, "sdone|" .. nameEnt)
+          Net.CoopSend(-1, 1, St.doneMsg(nameEnt, pos))
           if funcExec then return funcExec(ent, ...) end
         end
         return orig(nameEnt, pos, posEnd, done, velocity)
@@ -168,13 +168,34 @@ function St.clientWalks()
   end
 end
 
-function St.onDone(name)
+-- Host: the message that ends a walk of `name`. A step that walks "the player" also says where it
+-- went ("p|x|z"): a client's own player-step arrival (no walk of its own body) is released by that
+-- one only, not by a look-at step or another body's walk.
+function St.doneMsg(name, pos)
+  local m = "sdone|" .. name
+  if pos and pos.x and pos.z and St.isPlayerStep(name) then
+    m = m .. string.format("|p|%.0f|%.0f", pos.x, pos.z)
+  end
+  return m
+end
+
+-- Client: a walk of `name` is over on the host. `ps`/`x`/`z`: the host's step walked its player.
+function St.onDone(name, ps, x, z)
   local p = St.pending[name]
   if not p then
-    -- the host's player finished the walk this client's replay did not do for its own body
+    -- the host's player finished the walk this client's replay did not do for its own body:
+    -- the pending player steps with the same destination (all of them if none matches)
+    if ps ~= "p" then return end
+    x, z = tonumber(x), tonumber(z)
+    local same, all = {}, {}
     for n, q in pairs(St.pending) do
-      if q.playerStep then St.onDone(n) end
+      if q.playerStep then
+        all[#all + 1] = n
+        local d = q.args and q.args[2]
+        if x and z and d and d.x and math.abs(d.x - x) <= 2 and math.abs(d.z - z) <= 2 then same[#same + 1] = n end
+      end
     end
+    for _, n in ipairs(#same > 0 and same or all) do St.onDone(n) end
     return
   end
   St.pending[name] = nil
@@ -200,7 +221,7 @@ function St.onMessage(peer, f)
     return true
   end
   if f[1] == "sdone" and Coop.isClient() then
-    St.onDone(f[2])
+    St.onDone(f[2], f[3], f[4], f[5])
     return true
   end
   if f[1] == "sturn" and Coop.isClient() then
@@ -622,7 +643,12 @@ function St.onEvict(f)
   Coop.log("story: the story takes " .. name .. ", moving to " .. (target ~= "" and target or "spirit"))
   if target and target ~= "" and Team and Team.SwitchSoldier then
     Coop.cfg.char = target
-    Team.SwitchSoldier(name, target)
+    -- (the squad choice: also into a body the game keeps locked or switched off, f[4] == "a")
+    if CoopChoice and CoopChoice.enter and Coop.inSession() then
+      CoopChoice.enter(name, target, f[4] == "a")
+    else
+      Team.SwitchSoldier(name, target)
+    end
   end
 end
 
@@ -691,7 +717,7 @@ function St.finishTurn(name, who)
   if who then
     Coop.log("story: " .. name .. "'s action done by " .. who)
     local ent = Game.GetEntity(name)
-    Net.CoopSend(-1, 1, "sdone|" .. name)
+    Net.CoopSend(-1, 1, St.doneMsg(name, turn.pos))
     if turn.func and ent then
       local ok, err = pcall(turn.func, ent)
       if not ok then Coop.log("story turn error: " .. tostring(err)) end

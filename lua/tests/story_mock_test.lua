@@ -51,4 +51,23 @@ St.onEvent(2, {"ev", "1", "2"})
 assert(seen == "ward2" and Church.callOnWard == nil and #sent == 1, "host relay")
 seen = nil; Church.callOnWard = function() seen = "bad" end
 St.onEvent(3, {"ev", "1", "3"}); assert(seen == nil, "non-owner event accepted")
+-- sdone matching: an unrelated sdone (look-at step, another body's walk) leaves a player-step arrival
+-- pending; the host's player-step sdone ("p|x|z") releases the one with its destination
+local arrived = {}
+St.pending = {Black = {func = function() arrived[#arrived + 1] = "a" end, args = {"Black", V3D(10, 0, 20)}, playerStep = true, t = 0}}
+St.onDone("Church")
+assert(#arrived == 0 and St.pending.Black, "unrelated sdone released a player step")
+St.onDone("Ross", nil, nil, nil)
+assert(#arrived == 0 and St.pending.Black, "sdone without the player-step flag released it")
+St.pending.Cole = {func = function() arrived[#arrived + 1] = "b" end, args = {"Cole", V3D(500, 0, 500)}, playerStep = true, t = 0}
+ents.Cole = {Name = "Cole"}
+St.onDone("Ross", "p", "10", "20")
+assert(#arrived == 1 and arrived[1] == "a" and not St.pending.Black and St.pending.Cole, "player-step sdone matched by destination")
+St.onDone("Ross", "p", "9999", "9999")
+assert(#arrived == 2 and not St.pending.Cole, "no destination matches: the pending player steps are released")
+-- the host's message carries the flag only for a step that walks the player
+MapInit.player = {Name = "Church"}
+assert(St.doneMsg("Church", V3D(10, 0, 20)) == "sdone|Church|p|10|20", St.doneMsg("Church", V3D(10, 0, 20)))
+assert(St.doneMsg("Black", V3D(10, 0, 20)) == "sdone|Black")
+MapInit.player = nil
 print("story mock test ok")

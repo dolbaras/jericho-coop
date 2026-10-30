@@ -9,6 +9,10 @@
 --   chp|<split>|<group>|<1 confirmed>   player -> host: his highlight / confirmed pick
 --   chst|<split>|owner:group:conf;...   host -> all: who points where (every change, 1/s)
 --   chr|<split>|owner:char:reason;...   host -> all: the result (reason keep, moved, default, full, host)
+--   chd|<split>                         host -> all: the choice is over with no screen (one player...)
+-- A client holds the same calls the host holds (C.gate on both): whichever machine runs a split's
+-- trigger, nothing starts until the host's result (chr/chd) has come and been read. `chp` carries the
+-- OWNER id (a split screen's player 2 is another owner on the same machine).
 -- A split's start is held on the host with CoopChoice.request(id, resume): `resume` runs when the
 -- choice is over (at once with one human, or when no two groups can be chosen).
 CoopChoice = CoopChoice or {}
@@ -52,6 +56,9 @@ C.TEXT = {
     LP_trio_name = "THE LOST PATROL", LP_trio_blurb = "Wake in the blood river and fight your way to the chapel.",
     LP_main_ex = "You go on with the main group.",
     LP_trio_ex = "You stay with the lost patrol: Jones, Cole and Rawlings.",
+    pinned = "You are %s: the story needs him, you go on with him.",
+    pinnedhint = "Your character is fixed by the story. The others are choosing...",
+    hint2 = "Player 2: pad 2 left / right and A",
   },
   ru = {
     hint = "Влево / Вправо: выбор   A или Enter: подтвердить   1 2 3: быстрый выбор",
@@ -76,6 +83,9 @@ C.TEXT = {
     LP_trio_name = "ПОТЕРЯННЫЙ ПАТРУЛЬ", LP_trio_blurb = "Очнитесь в кровавой реке и пробейтесь к часовне.",
     LP_main_ex = "Вы идёте дальше с основной группой.",
     LP_trio_ex = "Вы остаётесь с потерянным патрулём: Джонс, Коул и Роулингс.",
+    pinned = "Вы %s: он нужен сюжету, вы идёте с ним.",
+    pinnedhint = "Ваш персонаж закреплён сюжетом. Остальные выбирают...",
+    hint2 = "Игрок 2: геймпад 2, влево / вправо и A",
   },
 }
 
@@ -116,9 +126,13 @@ local function groupIndexOf(def, char)
 end
 
 -- A body a player could move into: alive, on, not driven or taken by the story, not rune-bound.
-local function usable(name)
+local function usable(name, def)
   local e = Game.GetEntity(name)
-  if not e or (e.Life or 0) <= 0 or e.Active == 0 or e.bActive == false then return false end
+  if not e or (e.Life or 0) <= 0 then return false end
+  -- (a body the level keeps switched off, a prop until a player holds it: def.inactive names those)
+  if e.Active == 0 or e.bActive == false then
+    if not (def and def.inactive and def.inactive[name]) then return false end
+  end
   if Coop.storyDriven and Coop.storyDriven[name] then return false end
   if CoopStory and CoopStory.taken and CoopStory.taken(name) then return false end
   if CoopSplits and CoopSplits.runeBound and CoopSplits.runeBound(name) then return false end
@@ -131,7 +145,7 @@ function C.cards(def)
   for i, g in ipairs(def.groups) do
     local n = 0
     for _, c in ipairs(g.chars) do
-      if usable(c) or Coop.owners[c] ~= nil then n = n + 1 end
+      if usable(c, def) or Coop.owners[c] ~= nil then n = n + 1 end
     end
     if n > 0 then cards[#cards + 1] = i end
   end
@@ -142,7 +156,16 @@ end
 -- Host: hold a split's start, open the screen, resolve
 ------------------------------------------------------------------------------
 
-C.done, C.pending = {}, {}
+-- Everything of one level/session: a level load builds a new Coop table (coop.lua), a session end
+-- or a new one starts clean, so a replayed split never finds an old "done".
+function C.reset(why)
+  if C.scr then pcall(C.closeLocal) end
+  C.done, C.pending, C.cur, C.result = {}, {}, nil, nil
+  C.later = {}     -- queue of resumes {t, id, fn}: a second finish never overwrites the first
+  C.held = {}      -- a client's held calls by split id
+  C.coopRef = Coop
+  if why then Coop.log("choice: reset (" .. why .. ")") end
+end
 
 -- Host: `resume` runs once the choice for split `id` is over (it may run at once).
 function C.request(id, resume)
@@ -152,17 +175,40 @@ function C.request(id, resume)
   Coop.log("choice " .. id .. ": requested")
 end
 
--- A wrapper for a split's entry (a MapCallbacks entry, Scene.PlayFP...): the first call is held
--- until the choice is over, then runs with its own arguments; calls meanwhile are dropped.
-function C.gate(id, fn, when)
+-- A wrapper for a split's entry (a MapCallbacks entry, Scene.PlayFP, a MapInit function...): the
+-- first call is held until the choice is over, then runs with its own arguments; calls meanwhile
+-- are dropped. Host and client both hold: the client's call (a replay of the host's callback) waits
+-- for the host's chr/chd, so the two machines start the split together (`replayOnly`: map callbacks,
+-- where a call by this machine's own player is no replay and goes through to its guard).
+function C.gate(id, fn, when, replayOnly)
   return function(...)
-    if not Coop.isHost() or not Coop.inSession() or C.done[id] then return fn(...) end
+    if not Coop.inSession() or C.done[id] then return fn(...) end
     -- (`when`: only a call that would really start the split opens the screen)
     if when and not when(...) then return fn(...) end
     local args = {n = select("#", ...), ...}
-    if C.pending[id] then return end
-    C.request(id, function() return fn(unpack(args, 1, args.n)) end)
+    local call = function() return fn(unpack(args, 1, args.n)) end
+    if Coop.isHost() then
+      if C.pending[id] then return end
+      C.request(id, call)
+    elseif Coop.isClient() and Coop.cfg.myId then
+      -- (a map callback the client's own player triggers must reach the guard that tells the host: only
+      -- the host's replayed calls are held)
+      if replayOnly and not (Coop.replay or Coop.fromHost) then return fn(...) end
+      if C.held[id] then return end
+      C.held[id] = {fn = call, t = now()}
+      Coop.log("choice " .. id .. ": call held until the host's result")
+    else
+      return fn(...)
+    end
   end
+end
+
+-- Client: the host says split `id` is decided (`hold`: seconds the explanation stays up first).
+function C.clientDone(id, hold)
+  C.done[id] = true
+  local h = C.held[id]
+  C.held[id] = nil
+  if h then C.later[#C.later + 1] = {t = now() + hold, id = id, fn = h.fn} end
 end
 
 local function finish(id, result)
@@ -171,19 +217,22 @@ local function finish(id, result)
   C.done[id] = true
   C.cur = nil
   C.result = result
+  -- (a client holds the same call: told that nothing is to be read, it goes on at once)
+  if not result and Coop.inSession() then Net.CoopSend(-1, 1, "chd|" .. id) end
   if p and p.resume then
     -- (after the explanation was read; at once when no screen was shown)
-    C.later = {t = result and now() + C.RESULT_HOLD or 0, id = id, fn = p.resume}
+    C.later[#C.later + 1] = {t = result and now() + C.RESULT_HOLD or 0, id = id, fn = p.resume}
     C.runLater()
   end
 end
 
 function C.runLater()
-  local l = C.later
-  if not l or now() < l.t then return end
-  C.later = nil
-  local ok, err = pcall(l.fn)
-  if not ok then Coop.log("choice " .. l.id .. ": resume error: " .. tostring(err)) end
+  local q = C.later
+  while q[1] and now() >= q[1].t do
+    local l = table.remove(q, 1)
+    local ok, err = pcall(l.fn)
+    if not ok then Coop.log("choice " .. l.id .. ": resume error: " .. tostring(err)) end
+  end
 end
 
 -- Host, 20 Hz: open a requested screen when the squad is at rest (no cutscene, no black curtain).
@@ -232,13 +281,22 @@ function C.start(id)
     finish(id, nil)
     return
   end
-  local cur = {id = id, untilT = now() + C.TIME, humans = humans, picks = {}, cards = cards, seq = 0}
+  local cur = {id = id, untilT = now() + C.TIME, humans = humans, picks = {}, cards = cards, seq = 0, pinned = {}}
+  local pins = def.pinned and def.pinned() or {}
+  local pinList = {}
   for _, h in ipairs(humans) do
     cur.picks[h] = {g = groupIndexOf(def, body[h]) or cards[1], conf = false, t = 0}
+    -- (the holder of a body the story script needs: his card is fixed, he only watches the others pick)
+    if pins[body[h]] then
+      cur.pinned[h] = true
+      cur.picks[h].conf = true
+      pinList[#pinList + 1] = h
+    end
   end
   C.cur = cur
-  Net.CoopSend(-1, 1, "chs|" .. id .. "|" .. C.TIME .. "|" .. table.concat(humans, ","))
+  Net.CoopSend(-1, 1, "chs|" .. id .. "|" .. C.TIME .. "|" .. table.concat(humans, ",") .. "|" .. table.concat(pinList, ","))
   C.openLocal(id, C.TIME, humans)
+  if C.scr then C.scr.pinned = cur.pinned end
   C.sendState()
   Coop.log("choice " .. id .. ": screen open, " .. #humans .. " players")
 end
@@ -259,7 +317,7 @@ end
 -- Host: a player's highlight or confirmed pick.
 function C.setPick(owner, g, conf)
   local cur = C.cur
-  if not cur or not cur.picks[owner] then return end
+  if not cur or not cur.picks[owner] or cur.pinned[owner] then return end
   local p = cur.picks[owner]
   local ok = false
   for _, c in ipairs(cur.cards) do if c == g then ok = true end end
@@ -290,7 +348,7 @@ function C.resolve()
   local hostGroup = def.hostGroup and def.hostGroup()
   for _, h in ipairs(order) do
     local g = cur.picks[h].g
-    reason[h] = cur.picks[h].conf and "keep" or "default"
+    reason[h] = cur.pinned[h] and "pinned" or (cur.picks[h].conf and "keep" or "default")
     if hostGroup and h == 0 and g ~= hostGroup then g = hostGroup; reason[h] = "host" end
     want[h] = g
   end
@@ -306,7 +364,7 @@ function C.resolve()
     for _, c in ipairs(def.groups[want[h]].chars) do
       local holder = Coop.owners[c]
       local free = holder == nil or (leaving[c] and not preferFree)
-      if free and not keeps[c] and not given[c] and usable(c) then return c end
+      if free and not keeps[c] and not given[c] and usable(c, def) then return c end
     end
   end
   for _, h in ipairs(leavers) do
@@ -344,31 +402,47 @@ function C.resolve()
     if Coop.isMine(h) then
       localMoves[#localMoves + 1] = {h, from[h], target}
     else
-      Net.CoopSend(Coop.peerOf(h), 1, "evict|" .. from[h] .. "|" .. target)
+      -- (a body the level keeps switched off is switched on for its new player: the 4th field)
+      Net.CoopSend(Coop.peerOf(h), 1, "evict|" .. from[h] .. "|" .. target .. ((def.inactive and def.inactive[target]) and "|a" or ""))
     end
   end
   Coop.broadcastOwners()
-  for _, m in ipairs(localMoves) do C.moveLocal(m[1], m[2], m[3]) end
+  for _, m in ipairs(localMoves) do C.moveLocal(m[1], m[2], m[3], def) end
+  local final = {}
   for _, h in ipairs(order) do
     local char = move[h] or body[h] or "-"
+    final[h] = char
     lines[#lines + 1] = h .. ":" .. char .. ":" .. (reason[h] or "keep")
   end
   Net.CoopSend(-1, 1, "chr|" .. id .. "|" .. table.concat(lines, ";"))
   C.onResult(id, table.concat(lines, ";"))
   Coop.log("choice " .. id .. ": result " .. table.concat(lines, " "))
-  finish(id, {move = move, want = want})
+  finish(id, {move = move, want = want, final = final})
 end
 
 -- This machine's own player moves into `to` (the host's player, or its split screen player).
-function C.moveLocal(owner, old, to)
+function C.moveLocal(owner, old, to, def)
   if owner == 0 then
     if Team and Team.SwitchSoldier then
       Coop.cfg.char = to
-      pcall(Team.SwitchSoldier, old, to)
+      C.enter(old, to, def and def.inactive and def.inactive[to])
     end
   elseif CoopSplit and CoopSplit.on and CoopSplit.char == old and CoopSplit.moveOut then
     CoopSplit.moveOut(to)
   end
+end
+
+-- Switch into `to` although the game keeps it unavailable (a tutorial lock, or a body it switched off).
+function C.enter(old, to, activate)
+  local locks = Team.UnavaliablePlayers
+  local was = locks and locks[to]
+  if locks then locks[to] = nil end
+  local e = Game.GetEntity(to)
+  if activate and e and e.bActive == false then e.bActive = true end
+  local ok, res = pcall(Team.SwitchSoldier, old, to)
+  if locks then locks[to] = was end
+  if not ok then Coop.log("choice: switch " .. tostring(old) .. " -> " .. tostring(to) .. " failed: " .. tostring(res)) end
+  return ok and res
 end
 
 ------------------------------------------------------------------------------
@@ -380,11 +454,16 @@ function C.openLocal(id, secs, humans)
   if not def then return end
   local cards = C.cards(def)
   if #cards < 1 then return end
-  C.scr = {id = id, untilT = now() + (tonumber(secs) or C.TIME), humans = humans, cards = cards, state = {}, keys = {},
-           mine = Coop.myId(), cursor = nil, conf = false, locked = {}}
+  -- this machine's players: its own (keyboard and pad 1) and its split screen player (pad 2 only)
+  local locals = {}
+  for _, h in ipairs(humans) do
+    if Coop.isMine(h) then locals[#locals + 1] = {owner = h, pad = h >= Coop.P2 and 1 or 0, conf = false, keys = {}} end
+  end
+  C.scr = {id = id, untilT = now() + (tonumber(secs) or C.TIME), humans = humans, cards = cards, state = {},
+           locals = locals, mine = locals[1] and locals[1].owner or Coop.myId(), locked = {}}
   C.lockBodies(true)
   if Scorer and Scorer.Fade then pcall(Scorer.Fade, 0, Color(0, 0, 0, 0), Color(0, 0, 0, 120), 0.3) end
-  Coop.log("choice " .. id .. ": screen")
+  Coop.log("choice " .. id .. ": screen, " .. #locals .. " local player(s)")
 end
 
 function C.closeLocal()
@@ -434,26 +513,32 @@ function C.applyState(id, text)
     st[tonumber(owner)] = {g = tonumber(g), conf = conf == "1"}
   end
   s.state = st
-  local mine = st[s.mine]
-  if mine and not s.cursor then s.cursor = mine.g end
+  for _, L in ipairs(s.locals) do
+    local mine = st[L.owner]
+    if mine and not L.cursor then L.cursor = mine.g end
+  end
 end
 
 function C.onResult(id, text)
   local s = C.scr
-  local me = Coop.myId()
-  local line
+  local def = C.DEFS[id]
+  local lines = {}
   for owner, char, reason in string.gmatch(text or "", "(%d+):([%w_%-]+):(%a+)") do
-    if tonumber(owner) == me then
-      local def = C.DEFS[id]
+    if def and Coop.isMine(tonumber(owner)) then
       local gi = groupIndexOf(def, char) or 1
+      local line
       if reason == "full" then line = C.text("full", Coop.charName(char))
       elseif reason == "host" then line = C.text("host")
+      elseif reason == "pinned" then line = C.text("pinned", Coop.charName(char))
       elseif reason == "default" then line = C.text("default", Coop.charName(char)) .. " " .. C.text(id .. "_" .. def.groups[gi].key .. "_ex")
       else line = C.text(id .. "_" .. def.groups[gi].key .. "_ex") end
+      lines[#lines + 1] = line
     end
   end
-  if line then
-    Coop.log("choice " .. id .. ": " .. line)
+  if id then C.clientAfter(id) end
+  local line = table.concat(lines, "\n")
+  if #lines > 0 then
+    Coop.log("choice " .. id .. ": " .. string.gsub(line, "\n", " | "))
     if s then
       -- the cards go, the explanation stays a moment (the bodies stay locked until then)
       s.result = {text = line, untilT = now() + C.RESULT_HOLD}
@@ -464,24 +549,35 @@ function C.onResult(id, text)
   C.closeLocal()
 end
 
-local function padButtons()
-  local pad = {pcall(Net.CoopKey, -1, 0)}
+-- Every machine, when the result is known and the owner table is current: the split's own code
+-- (def.after) re-reads who holds which body (G6's gate top, ...).
+function C.clientAfter(id)
+  local def = C.DEFS[id]
+  if def and def.after then
+    local ok, err = pcall(def.after, id)
+    if not ok then Coop.log("choice " .. id .. ": after error: " .. tostring(err)) end
+  end
+end
+
+local function padButtons(n)
+  local pad = {pcall(Net.CoopKey, -1, n)}
   if not pad[1] or pad[2] == nil then return nil end
   return tonumber(pad[2]) or 0, tonumber(pad[5]) or 0
 end
 
 local function bit(v, n) return math.floor(v / n) % 2 == 1 end
 
--- Which input edges happened this tick: left, right, confirm, digit.
-function C.readInput(s)
+-- Which input edges happened this tick for local player `L`: left, right, confirm, digit. The keyboard
+-- (arrows, Enter, digits) and pad 1 belong to the first player; the split screen player 2 has pad 2 only.
+function C.readInput(L)
   local down = {}
-  if Net.CoopKey then
+  if L.pad == 0 and Net.CoopKey then
     down.left = Net.CoopKey(0x25) == 1
     down.right = Net.CoopKey(0x27) == 1
     down.confirm = Net.CoopKey(0x0D) == 1
     for d = 1, 3 do down["d" .. d] = Net.CoopKey(0x30 + d) == 1 end
   end
-  local b, lx = padButtons()
+  local b, lx = padButtons(L.pad)
   if b then
     down.left = down.left or bit(b, 4) or lx < -16000
     down.right = down.right or bit(b, 8) or lx > 16000
@@ -489,33 +585,36 @@ function C.readInput(s)
   end
   local edges = {}
   for k, v in pairs(down) do
-    if v and not s.keys[k] then edges[#edges + 1] = k end
-    s.keys[k] = v
+    if v and not L.keys[k] then edges[#edges + 1] = k end
+    L.keys[k] = v
   end
-  for _, k in ipairs(C.injected or {}) do edges[#edges + 1] = k end
-  C.injected = nil
+  for _, k in ipairs(L.injected or {}) do edges[#edges + 1] = k end
+  L.injected = nil
   return edges
 end
 
--- Tests and bots: press a key by name (left, right, confirm, d1..d3).
-function C.press(key)
-  C.injected = C.injected or {}
-  C.injected[#C.injected + 1] = key
-  return #C.injected
+-- Tests and bots: press a key by name (left, right, confirm, d1..d3) for local player n (1 or 2).
+function C.press(key, n)
+  local L = C.scr and C.scr.locals[n or 1]
+  if not L then return 0 end
+  L.injected = L.injected or {}
+  L.injected[#L.injected + 1] = key
+  return #L.injected
 end
 
-function C.send(s, g, conf)
-  if Coop.isHost() then C.setPick(0, g, conf) else Net.CoopSend(0, 1, "chp|" .. s.id .. "|" .. g .. "|" .. (conf and 1 or 0)) end
+function C.send(s, L, g, conf)
+  if Coop.isHost() then C.setPick(L.owner, g, conf)
+  else Net.CoopSend(0, 1, "chp|" .. s.id .. "|" .. g .. "|" .. (conf and 1 or 0) .. "|" .. L.owner) end
   -- (shown at once; the host's state message corrects it)
-  s.state[s.mine] = {g = g, conf = conf}
+  s.state[L.owner] = {g = g, conf = conf}
 end
 
-function C.step(s, dir)
+function C.step(s, L, dir)
   local at = 1
-  for i, g in ipairs(s.cards) do if g == s.cursor then at = i end end
-  s.cursor = s.cards[(at - 1 + dir) % #s.cards + 1]
-  s.conf = false
-  C.send(s, s.cursor, false)
+  for i, g in ipairs(s.cards) do if g == L.cursor then at = i end end
+  L.cursor = s.cards[(at - 1 + dir) % #s.cards + 1]
+  L.conf = false
+  C.send(s, L, L.cursor, false)
 end
 
 function C.localUpdate()
@@ -529,22 +628,26 @@ function C.localUpdate()
     return
   end
   local menu = Input.GetActionSet and Input.GetActionSet() == "Menu"
-  if not menu then
-    for _, e in ipairs(C.readInput(s)) do
-      if e == "left" then C.step(s, -1)
-      elseif e == "right" then C.step(s, 1)
-      elseif e == "confirm" and s.cursor then s.conf = true; C.send(s, s.cursor, true)
-      elseif string.match(e, "^d%d$") then
-        local g = s.cards[tonumber(string.sub(e, 2))]
-        if g then s.cursor = g; s.conf = true; C.send(s, g, true) end
+  for n, L in ipairs(s.locals) do
+    if not menu and not (s.pinned and s.pinned[L.owner]) then
+      for _, e in ipairs(C.readInput(L)) do
+        if e == "left" then C.step(s, L, -1)
+        elseif e == "right" then C.step(s, L, 1)
+        elseif e == "confirm" and L.cursor then L.conf = true; C.send(s, L, L.cursor, true)
+        elseif string.match(e, "^d%d$") then
+          local g = s.cards[tonumber(string.sub(e, 2))]
+          if g then L.cursor = g; L.conf = true; C.send(s, L, g, true) end
+        end
       end
     end
-  end
-  local auto = cfg.choice or (s.id == "LP" and cfg.lpchoice)   -- tests: confirm this card after 2 s
-  if auto and not s.autoDone and now() > s.untilT - C.TIME + 2 then
-    s.autoDone = true
-    local g = s.cards[tonumber(auto)]
-    if g then s.cursor = g; s.conf = true; C.send(s, g, true) end
+    -- tests: confirm this card after 2 s (cfg.choice for the first player, cfg.choice2 for the second;
+    -- cfg.lpchoice for the Lost Patrol)
+    local auto = (n == 1 and (cfg.choice or (s.id == "LP" and cfg.lpchoice))) or (n == 2 and cfg.choice2)
+    if auto and not L.autoDone and now() > s.untilT - C.TIME + 2 and not (s.pinned and s.pinned[L.owner]) then
+      L.autoDone = true
+      local g = s.cards[tonumber(auto)]
+      if g then L.cursor = g; L.conf = true; C.send(s, L, g, true) end
+    end
   end
   C.draw(s)
 end
@@ -571,16 +674,22 @@ function C.draw(s)
       local p = s.state[h]
       if p and p.g == gi then who[#who + 1] = nick(h) .. (p.conf and (" " .. C.text("ok")) or "") end
     end
-    local mine = s.state[s.mine]
-    local here = (mine and mine.g == gi) or (s.cursor == gi)
+    local here = false
+    for _, L in ipairs(s.locals) do
+      local mine = s.state[L.owner]
+      if (mine and mine.g == gi) or L.cursor == gi then here = true end
+    end
     local text = (here and "> " or "  ") .. k .. "  " .. C.text(s.id .. "_" .. g.key .. "_name") .. ":  " .. table.concat(names, ", ") .. "\n"
       .. C.text(s.id .. "_" .. g.key .. "_blurb") .. "\n"
       .. (#who > 0 and table.concat(who, ", ") or C.text("nobody"))
     local color = here and Color(255, 230, 130, 255) or Color(190, 190, 190, 255)
     Coop.textBlock("CoopChoiceCard" .. k, text, {y = 70 + (k - 1) * step, color = color, width = 560, step = 22})
   end
-  local mine = s.state[s.mine]
-  Coop.textBlock("CoopChoiceHint", (mine and mine.conf) and C.text("wait") or C.text("hint"),
+  local mine = s.locals[1] and s.state[s.locals[1].owner]
+  local hint = (mine and mine.conf) and C.text("wait") or C.text("hint")
+  if s.locals[1] and s.pinned and s.pinned[s.locals[1].owner] then hint = C.text("pinnedhint") end
+  if s.locals[2] then hint = hint .. "\n" .. C.text("hint2") end
+  Coop.textBlock("CoopChoiceHint", hint,
     {y = 70 + #s.cards * step + 4, color = Color(210, 215, 225, 255), width = 600})
 end
 
@@ -593,31 +702,60 @@ function C.onMessage(peer, f)
   if kind == "chs" and Coop.isClient() then
     local humans = {}
     for h in string.gmatch(f[4] or "", "%d+") do humans[#humans + 1] = tonumber(h) end
-    if not C.scr then C.openLocal(f[2], f[3], humans) end
+    if not C.scr and not C.done[f[2]] then
+      C.openLocal(f[2], f[3], humans)
+      for h in string.gmatch(f[5] or "", "%d+") do
+        C.scr.pinned = C.scr.pinned or {}
+        C.scr.pinned[tonumber(h)] = true
+      end
+    end
     return true
   elseif kind == "chst" and Coop.isClient() then
     C.applyState(f[2], f[3])
     return true
   elseif kind == "chr" and Coop.isClient() then
     C.onResult(f[2], f[3])
+    C.clientDone(f[2], C.RESULT_HOLD)
+    return true
+  elseif kind == "chd" and Coop.isClient() then
+    C.clientDone(f[2], 0)
     return true
   elseif kind == "chp" and Coop.isHost() then
-    -- (the sender's own player only)
-    C.setPick(peer, tonumber(f[3]) or 0, f[4] == "1")
+    -- (the sender's own players only: the machine's player or its split screen player)
+    local owner = tonumber(f[5])
+    if not owner or Coop.peerOf(owner) ~= peer then owner = peer end
+    C.setPick(owner, tonumber(f[3]) or 0, f[4] == "1")
     return true
   end
   return false
 end
 
 function C.update()
-  if Coop.level == "levels/menu" or not Coop.inSession() then
+  local inSession = Coop.inSession() and Coop.level ~= "levels/menu"
+  -- (a level load builds a new Coop table, a session end or a new session starts clean)
+  if C.coopRef ~= Coop or (C.wasIn and not inSession) then C.reset("level or session change") end
+  C.wasIn = inSession
+  if not inSession then
     if C.scr then C.closeLocal() end
     return
   end
-  if Coop.isHost() then C.hostUpdate(); C.runLater() end
+  if Coop.isHost() then C.hostUpdate() end
+  C.runLater()
+  C.heldCheck()
   C.localUpdate()
   -- a screen the host never closed (its game went away): back to play after a while
   if C.scr and now() > C.scr.untilT + 8 then C.closeLocal() end
 end
 
+-- Client: a call held for a result that never came (the host's game went away) runs after a while.
+function C.heldCheck()
+  for id, h in pairs(C.held or {}) do
+    if now() - h.t > C.TIME + 12 then
+      Coop.log("choice " .. id .. ": no result from the host, the held call runs")
+      C.clientDone(id, 0)
+    end
+  end
+end
+
+C.reset()
 Coop.addLangs(C.TEXT, "CoopChoice.TEXT")

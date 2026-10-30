@@ -122,9 +122,12 @@ return {
     default = "Sin elección: te quedas como %s.",
     full = "Ese grupo estaba lleno: te quedas como %s.",
     hint = "Izquierda / Derecha: elegir   A o Intro: confirmar   1 2 3: elección rápida",
+    hint2 = "Jugador 2: mando 2, izquierda / derecha y A",
     host = "La partida del anfitrión lleva al grupo principal: te quedas con él.",
     nobody = "nadie todavía",
     ok = "(ok)",
+    pinned = "Eres %s: la historia lo necesita, sigues con él.",
+    pinnedhint = "Tu personaje lo fija la historia. Los demás están eligiendo...",
     wait = "Esperando a los demás...",
   },
   ["CoopSpectate.TEXT"] = {
