@@ -149,9 +149,42 @@ function A.revive(e, name, st, origRevive)
   end
 end
 
+-- Cole's grenade (D3, 0.2.9). The third-person Shot0 action launches the grenade with its frame-29 event
+-- (cole.lua: WeaponsCole.LaunchGrenade). On a puppet the throw comes from the owner's shot flag and slot, so
+-- the animation plays here by itself and its event made a SECOND grenade next to the one the owner's machine
+-- throws (own physics, own explosion, own damage). The throw is shown, the grenade is not made on a puppet
+-- (the real one flies on the machine that holds the body). cfg.puppetgrenade = true: the old behaviour.
+function A.installGrenade()
+  if A.grenadeInstalled or not WeaponsCole or not WeaponsCole.LaunchGrenade then return end
+  A.grenadeInstalled = true
+  local orig = WeaponsCole.LaunchGrenade
+  WeaponsCole.LaunchGrenade = function(name, ...)
+    if cfg.puppetgrenade ~= true and Coop.inSession() and Coop.isPuppet then
+      local ok, ent = pcall(Game.GetEntity, name)
+      if ok and ent and not ent:IsType("FP") and Coop.isPuppet(ent.Name) then
+        A.grenadesDropped = (A.grenadesDropped or 0) + 1
+        if A.grenadesDropped <= 5 or cfg.animlog then
+          Coop.log("anim: " .. ent.Name .. "'s grenade launch dropped (puppet, the owner's machine throws it)")
+        end
+        return
+      end
+    end
+    return orig(name, ...)
+  end
+end
+
 -- Every frame for every puppet that has a state (Coop.drivePuppets).
 function A.sync(e, name, st)
   local s = stOf(name)
+  if not A.grenadeInstalled then A.installGrenade() end
+  if cfg.animtrace and string.find(cfg.animtrace, name, 1, true) then
+    -- (dev: every change of the body's own action and of the owner's, with the time, to see what follows an Init/End action)
+    local k = tostring(e.Action) .. "|" .. tostring(st.action) .. "|" .. tostring(e.DefLoop)
+    if k ~= s.traceKey then
+      s.traceKey = k
+      Coop.log(string.format("anim trace %s: body %s (defloop %s) owner %s", name, tostring(e.Action), tostring(e.DefLoop), tostring(st.action)))
+    end
+  end
   local life = tonumber(st.life)
   -- downed
   if life and life <= 0 then
@@ -217,7 +250,9 @@ function A.syncFP(e, name, st)
   end
 end
 
--- A state that lasts (A.FAMILIES): the Init action starts it, the End action ends it.
+-- A state that lasts (A.FAMILIES): the Init action starts it, the End action ends it. The End starts when the
+-- owner's body plays its own End action (live 2026-10-30: waiting for the owner's body to leave the family put it
+-- 1.2 s behind: the owner's StupidEnd was over before the puppet began its own), or at the latest when it left the family.
 function A.syncState(e, name, st)
   local act = st.action
   if type(act) ~= "string" then return end
@@ -226,22 +261,43 @@ function A.syncState(e, name, st)
   for _, f in ipairs(A.FAMILIES) do
     if string.find(act, "^" .. f) then fam = f break end
   end
+  local function playEnd(f)
+    local fe = f .. "End"
+    s.endPlayed = true
+    local cls = actClass(e, name)
+    if hasAct(cls, fe) and (tonumber(e.Life) or 1) > 0 then
+      e.ForceAction = fe
+      return true
+    end
+  end
   if fam and not s.fam then
     -- begins: the Init action (a state already running when this machine first sees it is joined at its loop)
     local init = fam .. "Init"
-    s.fam = fam
+    s.fam, s.endPlayed = fam, false
     if string.find(act, "Init$") then A.play(e, name, init, true) end
     A.famLog(name, "enters " .. fam .. " (owner's action " .. act .. ")")
+  elseif fam and fam == s.fam then
+    if not s.endPlayed and string.find(act, "^" .. fam .. "End$") then
+      playEnd(fam)
+      A.famLog(name, "ends " .. fam .. " (owner's action " .. act .. ")")
+    elseif s.endPlayed and not string.find(act, "End$") and string.find(act, "Init$") then
+      s.endPlayed = false    -- a new Init in the same family: the next End plays again
+      A.play(e, name, fam .. "Init", true)
+    end
   elseif s.fam and fam ~= s.fam then
-    -- the owner's body left it: End action (it ends in Relax by its own event)
-    local fe = s.fam .. "End"
+    -- the owner's body left it: End action unless it already began with the owner's own (it ends in Relax by its own event)
+    local old = s.fam
     s.fam = fam
     if not fam then
-      local cls = actClass(e, name)
-      if hasAct(cls, fe) and (tonumber(e.Life) or 1) > 0 then
-        e.ForceAction = fe
-      end
-      A.famLog(name, "leaves " .. tostring(fe))
+      if not s.endPlayed then playEnd(old) end
+      s.endPlayed = false
+      A.famLog(name, "leaves " .. old .. "End")
+    else
+      -- straight into another family (cover to dazed): the new one begins
+      s.endPlayed = false
+      s.fam = fam
+      if string.find(act, "Init$") then A.play(e, name, fam .. "Init", true) end
+      A.famLog(name, "enters " .. fam .. " from " .. old .. " (owner's action " .. act .. ")")
     end
   end
 end

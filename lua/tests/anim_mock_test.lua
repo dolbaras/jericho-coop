@@ -102,17 +102,30 @@ A.sync(e8, "Delgado", {life = 100, action = "Stupid"})
 assert(e8.ForceAction == nil, "the loop is left to the engine")
 step(1)
 A.sync(e8, "Delgado", {life = 100, action = "StupidEnd"})
-assert(e8.ForceAction == nil, "End of the owner's own: still in the family")
+assert(e8.ForceAction == "StupidEnd", "dazed ends with the owner's own End: " .. tostring(e8.ForceAction))
+e8.ForceAction = nil
+step(1.2)
 A.sync(e8, "Delgado", {life = 100, action = "Relax"})
-assert(e8.ForceAction == "StupidEnd", "dazed ends: " .. tostring(e8.ForceAction))
+assert(e8.ForceAction == nil, "no second End when the owner leaves the family")
+-- an owner that leaves the family without an End action of its own (a cut): the End plays at the latest then
+local e8b = body("Delgado"); step(1)
+A.sync(e8b, "Delgado", {life = 100, action = "StupidInit"}); e8b.ForceAction = nil
+A.sync(e8b, "Delgado", {life = 100, action = "Stupid"})
+A.sync(e8b, "Delgado", {life = 100, action = "Run"})
+assert(e8b.ForceAction == "StupidEnd", "End when the family is left: " .. tostring(e8b.ForceAction))
 -- cover
 local e9 = body("Black")
 A.sync(e9, "Black", {life = 100, action = "ShelterDownInit"})
 assert(e9.ForceAction == "ShelterDownInit", "cover starts")
 step(1); e9.ForceAction = nil
 A.sync(e9, "Black", {life = 100, action = "ShelterDown"})
-A.sync(e9, "Black", {life = 100, action = "Walk"})
+A.sync(e9, "Black", {life = 100, action = "ShelterDownReload"})
+assert(e9.ForceAction == nil, "a reload in cover is no End")
+A.sync(e9, "Black", {life = 100, action = "ShelterDownEnd"})
 assert(e9.ForceAction == "ShelterDownEnd", "cover ends")
+e9.ForceAction = nil
+A.sync(e9, "Black", {life = 100, action = "Walk"})
+assert(e9.ForceAction == nil, "once")
 
 -- 9. first-person names with a third-person action; what mirrorArms maps is left to it
 local e10 = body("Black")
@@ -133,5 +146,35 @@ assert(n2 == 1, "unmapped first-person action logged")
 local e13 = body("Delgado"); step(1)
 A.sync(e13, "Delgado", {life = 100, action = "Shot1Init"})
 assert(e13.ForceAction == "Shot1Init", "the arm opens")
+
+-- 11. Cole's grenade: the launch event is dropped on a puppet, kept on the machine's own body
+local launched = {}
+WeaponsCole = {LaunchGrenade = function(name) launched[#launched + 1] = name end}
+local ents = {
+  Cole = {Name = "Cole", IsType = function() return false end},
+  FP_Cole = {Name = "FP_Cole", IsType = function(self, t) return t == "FP" end},
+}
+Game = {GetEntity = function(n) return ents[n] end}
+local puppets = {Cole = true}
+Coop.inSession = function() return true end
+Coop.isPuppet = function(n) return puppets[n] == true end
+A.grenadeInstalled = nil
+A.installGrenade()
+assert(A.grenadeInstalled and WeaponsCole.LaunchGrenade ~= nil)
+WeaponsCole.LaunchGrenade("Cole")
+assert(#launched == 0 and A.grenadesDropped == 1, "no second grenade on a puppet")
+puppets.Cole = false
+WeaponsCole.LaunchGrenade("Cole")
+assert(#launched == 1, "own body throws")
+puppets.Cole = true
+WeaponsCole.LaunchGrenade("FP_Cole")
+assert(#launched == 2, "the first-person arms of the own player always throw")
+A.installGrenade()    -- a second call does not wrap again
+WeaponsCole.LaunchGrenade("Cole")
+assert(#launched == 2 and A.grenadesDropped == 2, "still dropped once per call")
+Coop.cfg.puppetgrenade = true
+WeaponsCole.LaunchGrenade("Cole")
+assert(#launched == 3, "switch: old behaviour")
+Coop.cfg.puppetgrenade = nil
 
 print("anim mock test: OK")
