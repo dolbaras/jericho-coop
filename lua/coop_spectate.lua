@@ -35,6 +35,7 @@ S.HUD_ITEMS = {"Damage", "Ammo", "Selector", "Aim"}   -- hidden while watching
 S.KEY_PREV, S.KEY_NEXT = 0x25, 0x27   -- arrow keys
 S.KEY_FIRE = 0x01                      -- left mouse button read straight too (live: the engine's MainShot reads 0 on a dead body)
 S.KEY_A, S.KEY_D = 0x41, 0x44          -- A / D read straight from the keyboard (live 2026-10-30: the engine's strafe input reads 0 on a dead body)
+S.SWITCH_GAP = 0.3      -- seconds: one switch at most per this long, whichever input asked (a key and the strafe axis may both fire for one press)
 
 S.TEXT = {
   en = {watch = "Watching: %s",
@@ -135,6 +136,8 @@ function S.enter(usr, list)
     if it and it.Visible ~= 0 then it.Visible = 0; S.hidden[#S.hidden + 1] = n end
   end
   S.active, S.keys, S.snapNext = true, {}, true
+  S.prime()   -- (what is held at death - fire, A / D - switches nothing until released)
+  S.switchT = nil
   S.target = nil
   local from = usr.Pos
   local best, bd
@@ -275,8 +278,7 @@ local function pressed(vk)
   return down and not was
 end
 
--- Strafe left/right (A, D, the left stick) and fire switch players, once per press.
-local function switchDir()
+local function strafeAxis()
   local sx = input("StrafeRight") - input("StrafeLeft")
   if math.abs(sx) < 0.05 and Net.CoopKey then
     -- (the left stick read straight from the pad: a downed body's walk actions can read 0)
@@ -284,6 +286,22 @@ local function switchDir()
     local lx = pad[1] and tonumber(pad[5])
     if lx and math.abs(lx) > 7849 then sx = lx / 32767 end
   end
+  return sx
+end
+
+-- The inputs count as "held now": the next switch needs a new press (at entry, and while a menu is open).
+function S.prime()
+  S.keys = S.keys or {}
+  if Net.CoopKey then
+    for _, vk in ipairs({S.KEY_NEXT, S.KEY_PREV, S.KEY_FIRE, S.KEY_A, S.KEY_D}) do S.keys[vk] = Net.CoopKey(vk) == 1 end
+  end
+  S.shotHeld = input("MainShot") > 0.5
+  S.sHeld = math.abs(strafeAxis()) > 0.6
+end
+
+-- Strafe left/right (A, D, the left stick) and fire switch players, once per press.
+local function switchDir()
+  local sx = strafeAxis()
   local dir = 0
   if sx > 0.6 and not S.sHeld then dir = 1 end
   if sx < -0.6 and not S.sHeld then dir = -1 end
@@ -350,9 +368,17 @@ function S.update()
     local dead = S.target
     S.select(best, (dead or "?") .. " died or left")
   end
-  local dir = switchDir()
-  if dir ~= 0 then
-    S.step(list, dir)
+  -- (not while a menu / the ESC screen is open: a click there is no switch; one switch per SWITCH_GAP)
+  local okm, set = pcall(function() return Input.GetActionSet and Input.GetActionSet() end)
+  if okm and set == "Menu" then
+    S.prime()
+  else
+    local dir = switchDir()
+    local t = Net.CoopTime()
+    if dir ~= 0 and t - (S.switchT or -100) >= S.SWITCH_GAP then
+      S.switchT = t
+      S.step(list, dir)
+    end
   end
   S.caption(list)
   S.n = (S.n or 0) + 1
