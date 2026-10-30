@@ -3622,3 +3622,225 @@ if cfg.stompprobe and Coop.level ~= "levels/menu" then
     Coop.log(string.format("stompprobe: %s at the %s body %s: pdmg sent %d -> %d %s", fn, who, body.Name, before, E.stats.pdmgSent, ok and "" or tostring(err)))
   end
 end
+
+-- 'wallprobe' = true (dev, chunk W): counts how often the places a body is drawn at make a step through level geometry.
+-- Every frame, for each remote body (squad puppets on both machines, enemies the client drives) the target is computed
+-- for several path variants from the same states (linear between the states, cubic, cubic + averaged = the default, and
+-- the body's real place after the placement) and each variant's step from the previous frame is tested with
+-- Game.TestLine (two heights, the level's static geometry) against the level. The host's own bodies (AI squad,
+-- enemies) are the control: their step is the real walked path. Per state pair of the sender: the raw polyline of the
+-- received states (what the sender really walked, sampled at 20 Hz). A crossing of a variant is "inherent" when the
+-- raw pair it was drawn between crosses too (door/geometry difference between the machines, a TestLine false positive),
+-- else "introduced" by the path. Log: `wp:` totals every 300 frames, `wp cross` details (first 60).
+if cfg.wallprobe and Coop.level ~= "levels/menu" then
+  local prevWP = Coop.devFrame
+  local WP = {st = {}, prev = {}, rawX = {}, n = 0, scan = {}, scanFrame = -100}
+  Coop.wallProbeState = WP
+  local HEIGHTS = {0, -70}
+  local function crossing(a, b)
+    local dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
+    local d2 = dx * dx + dy * dy + dz * dz
+    if d2 < 1 or d2 > (Coop.TELEPORT or 500) ^ 2 then return nil end
+    for _, h in ipairs(HEIGHTS) do
+      local ok, hit = pcall(Game.TestLine, V3D(a.x, a.y + h, a.z), V3D(b.x, b.y + h, b.z), "")
+      if ok and hit then return true, hit end
+    end
+    return false
+  end
+  local function stat(kind)
+    local s = WP.st[kind]
+    if not s then s = {} WP.st[kind] = s end
+    return s
+  end
+  local function add(kind, key, v) local s = stat(kind) s[key] = (s[key] or 0) + (v or 1) end
+  local function variant(name, now, herm, w)
+    local sh, sp = cfg.hermite, cfg.psmooth
+    if herm == false then cfg.hermite = false end
+    cfg.psmooth = w
+    local ok, tg = pcall(Coop.puppetTarget, name, now)
+    cfg.hermite, cfg.psmooth = sh, sp
+    return ok and tg or nil
+  end
+  -- the raw sender states around sender time rr: crossing of that pair (cached by the first state's time)
+  local function rawPair(name, h, rr)
+    local i = h.n - 1
+    while i > 1 and h[i].rt > rr do i = i - 1 end
+    local a, b = h[i], h[i + 1]
+    if not a or not b or rr < a.rt or rr > b.rt then return nil end
+    local c = WP.rawX[name]
+    if not c then c = {} WP.rawX[name] = c end
+    local v = c[a.rt]
+    if v == nil then
+      local x = crossing(a, b)
+      v = x == nil and "n" or (x and "x" or "o")
+      c[a.rt] = v
+      if v ~= "n" then add(Coop.SQUAD_SET[name] and "squad" or "enemy", v == "x" and "rawX" or "rawO") end
+    end
+    return v, a, b
+  end
+  local function probeBody(kind, name, e, now)
+    local h = Coop.hist[name]
+    if not h or h.n < 3 then return end
+    local pv = WP.prev[name]
+    if not pv then pv = {} WP.prev[name] = pv end
+    local cur = {}
+    cur.lin = variant(name, now, false, 0)
+    cur.cub = variant(name, now, true, 0)
+    cur.def = variant(name, now, true, nil)
+    local rr = h.dbgRR
+    local p = e.Pos
+    cur.drawn = {x = p.x, y = p.y, z = p.z}
+    local raw, ra, rb = rawPair(name, h, rr or 0)
+    for _, v in ipairs({"lin", "cub", "def", "drawn"}) do
+      local c, o = cur[v], pv[v]
+      if c and o then
+        local x, hit = crossing(o, c)
+        if x ~= nil then
+          add(kind, v .. "N")
+          if x then
+            add(kind, v .. "X")
+            if raw == "x" then add(kind, v .. "I") end   -- inherent: the sender's own pair crosses too
+            if v ~= "lin" and raw ~= "x" and WP.n < 60 then
+              WP.n = WP.n + 1
+              Coop.log(string.format("wp cross %s %s %s: %.0f,%.0f,%.0f -> %.0f,%.0f,%.0f hit %.0f,%.0f,%.0f raw=%s pair %s | lin %s",
+                kind, v, name, o.x, o.y, o.z, c.x, c.y, c.z, hit.x, hit.y, hit.z, tostring(raw),
+                ra and string.format("%.0f,%.0f -> %.0f,%.0f", ra.x, ra.z, rb.x, rb.z) or "-",
+                cur.lin and string.format("%.0f,%.0f", cur.lin.x, cur.lin.z) or "-"))
+            end
+          end
+        end
+      end
+    end
+    -- the last variant call left the default's debug values in place (h.under, h.dbgRR); restore them
+    Coop.puppetTarget(name, now)
+    WP.prev[name] = cur
+  end
+  local function hostScan()
+    -- the host's own enemies: a list refreshed every 20 frames
+    if Coop.frame - WP.scanFrame < 20 then return end
+    WP.scanFrame = Coop.frame
+    WP.scan = {}
+    local e = Game.GetFirst()
+    while e ~= nil do
+      if e:IsType("WalkChar") and e.TgType == "red" and e.Life > 0 and e.bActive then WP.scan[#WP.scan + 1] = e.Name end
+      e = Game.GetEntity(e.NextInSlot)
+    end
+  end
+  local function realStep(kind, e, now)
+    local name = e.Name
+    local p = e.Pos
+    local o = WP.prev["real:" .. name]
+    WP.prev["real:" .. name] = {x = p.x, y = p.y, z = p.z}
+    if o then
+      local x, hit = crossing(o, p)
+      if x ~= nil then
+        add(kind, "realN")
+        if x then
+          add(kind, "realX")
+          if WP.n < 60 then
+            WP.n = WP.n + 1
+            Coop.log(string.format("wp cross %s real %s: %.0f,%.0f,%.0f -> %.0f,%.0f,%.0f hit %.0f,%.0f,%.0f act=%s", kind, name,
+              o.x, o.y, o.z, p.x, p.y, p.z, hit.x, hit.y, hit.z, tostring(e.Action)))
+          end
+        end
+      end
+    end
+  end
+  -- cfg.laps = 'Cole' (host): an AI body of the host's is walked by its own inputs (real collision, the AI off) round a loop of
+  -- cfg.lapsn points on a circle of radius cfg.lapsr (default 8 x 350) around where it stood, or (cfg.lapsmode='pingpong') back
+  -- and forth between two points 2 x lapsr apart: direction reversals every second or so. A leg a wall blocks is given up after 2.5 s.
+  local LP = {}
+  local function lapBody(now)
+    if not LP.name then
+      -- the first body of the list that is in the level, alive and nobody's (an AI body of the host)
+      for n in string.gmatch(cfg.laps, "[^,]+") do
+        local b = Coop.squadEnt(n)
+        if b and (b.Life or 0) > 0 and not Coop.isLocalBody(n) and not Coop.isRemoteOwned(n) then LP.name = n break end
+      end
+      if not LP.name then return end
+    end
+    local e = Coop.squadEnt(LP.name)
+    if not e or (e.Life or 0) <= 0 then return end
+    if e.oAI and e.oAI.bEnable then e.oAI.bEnable = false end
+    local p = e.Pos
+    if not LP.pts then
+      local c, r, n = p, cfg.lapsr or 350, cfg.lapsn or 8
+      LP.pts = {}
+      if cfg.lapsmode == "pingpong" then
+        LP.pts[1], LP.pts[2] = V3D(c.x + r, c.y, c.z), V3D(c.x - r, c.y, c.z)
+      else
+        for k = 0, n - 1 do
+          local a = k / n * 2 * math.pi
+          LP.pts[#LP.pts + 1] = V3D(c.x + r * math.cos(a), c.y, c.z + r * math.sin(a))
+        end
+      end
+      LP.i, LP.t0, LP.laps = 1, now, 0
+      Coop.log("wp laps: " .. e.Name .. " round " .. #LP.pts .. " points of radius " .. r .. " at " .. Coop.v3(c))
+    end
+    local w = LP.pts[LP.i]
+    local dx, dz = w.x - p.x, w.z - p.z
+    local d = math.sqrt(dx * dx + dz * dz)
+    if d < 80 or now - LP.t0 > 2.5 then
+      if d >= 80 then LP.skipped = (LP.skipped or 0) + 1 end
+      LP.i = LP.i % #LP.pts + 1
+      if LP.i == 1 then LP.laps = LP.laps + 1 end
+      LP.t0 = now
+      w = LP.pts[LP.i]
+      dx, dz = w.x - p.x, w.z - p.z
+    end
+    e.Ang = V3D(0, math.deg(math.atan2(-dx, -dz)), 0)
+    e.InCtrl_Walk = 1
+    e.InCtrl_Sprint = 1
+    if Coop.frame % 300 == 0 then Coop.log(string.format("wp laps: laps=%d skipped=%d at %s", LP.laps, LP.skipped or 0, Coop.v3(p))) end
+  end
+  local function frameBody(dt)
+    if Coop.frame < 60 or (Scene and Scene.IsPlaying) or not Coop.inSession() then return end
+    local now = Net.CoopTime()
+    local t0 = Net.CoopTime()
+    if cfg.laps and Coop.isHost() then lapBody(now) end
+    for _, name in ipairs(Coop.SQUAD) do
+      local e = Coop.squadEnt(name)
+      if e and e.Life and e.Life > 0 then
+        if Coop.isPuppet(name) and Coop.remote[name] then
+          probeBody("squad", name, e, now)
+        elseif not Coop.isLocalBody(name) then
+          realStep("aisquad", e, now)
+        end
+      end
+    end
+    if Coop.isClient() then
+      if CoopEnemies and CoopEnemies.targets then
+        for name in pairs(CoopEnemies.targets) do
+          local e = Game.GetEntity(name)
+          if e and e.Life > 0 then probeBody("enemy", name, e, now) end
+        end
+      end
+    else
+      hostScan()
+      for _, name in ipairs(WP.scan) do
+        local e = Game.GetEntity(name)
+        if e and e.Life > 0 then realStep("enemy", e, now) end
+      end
+    end
+    WP.cost = (WP.cost or 0) + (Net.CoopTime() - t0)
+    if Coop.frame % 300 == 0 then
+      local parts = {}
+      for kind, s in pairs(WP.st) do
+        local t = {}
+        for k, v in pairs(s) do t[#t + 1] = k .. "=" .. v end
+        table.sort(t)
+        parts[#parts + 1] = kind .. " " .. table.concat(t, " ")
+      end
+      table.sort(parts)
+      Coop.log(string.format("wp: f=%d %s | probe cost %.1f ms/frame", Coop.frame, table.concat(parts, " | "), 1000 * WP.cost / math.max(Coop.frame - 60, 1)))
+    end
+  end
+  Coop.devFrame = function(dt)
+    if prevWP then prevWP(dt) end
+    local ok, err = pcall(frameBody, dt)
+    if not ok and (WP.errs or 0) < 5 then
+      WP.errs = (WP.errs or 0) + 1
+      Coop.log("wp error: " .. tostring(err))
+    end
+  end
+end

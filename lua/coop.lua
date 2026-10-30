@@ -812,6 +812,21 @@ end
 -- unreliable messages). Returns false for a dropped state.
 Coop.hist = Coop.hist or {}
 function Coop.pushState(name, st, interval)
+  -- Dev: a lossy link (cfg.simloss = share of states lost, cfg.simburst = states lost in a row once one is): the paths
+  -- are drawn from fewer states, as over the internet (chunk W).
+  if cfg.simloss then
+    Coop.simDrop = Coop.simDrop or {}
+    local left = Coop.simDrop[name] or 0
+    if left > 0 then
+      Coop.simDrop[name] = left - 1
+      Coop.simLost = (Coop.simLost or 0) + 1
+      return false
+    elseif math.random() < cfg.simloss / (cfg.simburst or 1) then
+      Coop.simDrop[name] = (cfg.simburst or 1) - 1
+      Coop.simLost = (Coop.simLost or 0) + 1
+      return false
+    end
+  end
   local h = Coop.hist[name]
   local now = st.t
   if not st.rt then st.rt = now end   -- a sender without times: its receive time
@@ -896,6 +911,9 @@ local function pathAt(h, rr)
     if not p or b.rt - p.rt <= 0 or ext <= 0 or jumped(p, b) then
       return {x = b.x, y = b.y, z = b.z, yaw = b.yaw, pitch = b.pitch or 0, st = b}, true
     end
+    -- (cfg.extrapdamp: the body slows to a stop over the extrapolation instead of running on at full speed: at a wall, a
+    -- corner or a turn the sender's body does not run on, and the lost states are the ones that tell)
+    if cfg.extrapdamp then ext = ext - ext * ext / (2 * Coop.EXTRAP_MAX) end
     local k = ext / (b.rt - p.rt)
     return {x = b.x + (b.x - p.x) * k, y = b.y, z = b.z + (b.z - p.z) * k,
             yaw = b.yaw, pitch = b.pitch or 0, st = b}, true
