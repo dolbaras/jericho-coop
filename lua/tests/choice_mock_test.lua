@@ -15,6 +15,7 @@ for _, n in ipairs({"Black", "Church", "Delgado", "Jones", "Cole", "Rawlings"}) 
 Game = {GetTime = function() return clock end, GetEntity = function(n) return ents[n] end, UsrEntity = function() return ents.Church end}
 Team = {SwitchSoldier = function(a, b) switched[#switched + 1] = a .. "->" .. b end}
 Scorer = {SetMsgText = function() end}
+Color = function(...) return {...} end
 Input = {}
 dofile("coop_choice.lua")
 local C = CoopChoice
@@ -165,4 +166,67 @@ assert(Coop.owners.Black == 1 and Coop.owners.Jones == 2, "refused player keeps 
 CoopPatrol.chosenTrio()
 assert(Coop.cfg.patrol == "2", "full: only the real trio holder goes to the side instance (old code: want = 1,2): " .. tostring(Coop.cfg.patrol))
 Coop.storyDriven.Cole, Coop.storyDriven.Rawlings = nil, nil
+
+-- 14. G6 (level start, three cards): Cole and Rawlings are switched-off props (def.inactive) a player may
+-- take; a third player for the gate top finds it full and stays; the sacrifice card is Church's
+ents.Cole.bActive, ents.Rawlings.bActive = false, false
+r = setup("G6", {Church = 0, Jones = 1, Black = 2, Delgado = 3},
+          {[1] = {2, true}, [2] = {2, true}, [3] = {2, true}, [0] = {1, true}})
+assert(owner("Cole") == 1 and owner("Rawlings") == 2, "gate top taken by the first two: " .. tostring(owner("Cole")) .. tostring(owner("Rawlings")))
+assert(owner("Delgado") == 3 and r.move[3] == nil, "the third finds the gate top full and keeps Delgado")
+assert(owner("Church") == 0, "the host keeps Church (sacrifice card)")
+local full
+for _, m in ipairs(sent) do if m:find("^%-1>chr") then full = m end end
+assert(full and full:find("3:Delgado:full"), "reason full: " .. tostring(full))
+local evJ
+for _, m in ipairs(sent) do if m:find("^1>evict|Jones|Cole") then evJ = m end end
+assert(evJ == "1>evict|Jones|Cole|a", "the move into a switched-off body asks for its activation: " .. tostring(evJ))
+ents.Cole.bActive, ents.Rawlings.bActive = nil, nil
+
+-- 15. pinned holder (Act 1: Ross): his card is fixed, his own pick is ignored, the others choose freely
+ents.Ross = {Name = "Ross", Life = 100, Active = 1}
+r = setup("G1A", {Ross = 0, Church = 1, Black = 2}, {[0] = {2, true}, [1] = {2, true}})
+assert(owner("Ross") == 0, "Ross's holder stays with Ross")
+assert(owner("Church") == nil and (owner("Jones") == 1 or owner("Cole") == 1 or owner("Delgado") == 1), "Church's holder went to Alpha")
+assert(owner("Black") == 2, "the unconfirmed player keeps his body")
+res = nil
+for _, m in ipairs(sent) do if m:find("^%-1>chr") then res = m end end
+assert(res:find("0:Ross:pinned"), "pinned reason: " .. res)
+assert(C.result.final[0] == "Ross", "pinned keeps Ross")
+-- the pinned player is told in the opening message
+local chs
+C.reset(); switched, sent = {}, {}
+Coop.owners = {Ross = 0, Church = 1}
+C.pending.G1A = {since = clock}; C.start("G1A")
+for _, m in ipairs(sent) do if m:find("^%-1>chs|") then chs = m end end
+assert(chs == "-1>chs|G1A|25|0,1|0", "pinned list in chs: " .. tostring(chs))
+assert(C.cur.pinned[0] and C.cur.picks[0].conf, "pinned player is confirmed from the start")
+
+-- 16. G3: a one-body card (Cole at the console): the first confirmed wins, the others defend
+r = setup("G3", {Ross = 0, Church = 1, Black = 2}, {[1] = {1, true}, [2] = {1, true}})
+assert(owner("Cole") == 1 and owner("Black") == 2 and owner("Church") == nil, "G3: first confirmed hacks")
+
+-- 17. G11, G15, G4: the hero card takes the player out of his body, an exchange when the holder wants out
+r = setup("G11", {Black = 0, Jones = 1}, {[0] = {1, true}, [1] = {1, true}})
+assert(owner("Church") == 0 and owner("Jones") == 1, "G11: host crosses as Church, client keeps Jones")
+r = setup("G15", {Church = 0, Black = 1}, {[0] = {2, true}, [1] = {1, true}})
+assert(owner("Church") == 1 and r.final[0] == "Delgado" or r.final[0] == "Rawlings" or r.final[0] == "Black", "G15 exchange")
+assert(owner("Church") == 1, "G15: Church's holder left, the other took him")
+r = setup("G4", {Church = 0, Cole = 1}, {[0] = {1, true}, [1] = {1, true}})
+assert(owner("Rawlings") == 0 and owner("Cole") == 1, "G4: the host walks Rawlings' soul")
+
+-- 18. split screen: two local players (owner 0 and its player 2 = P2); player 2's pad 2 presses its own pick
+Coop.owners = {Church = 0, Black = 8, Delgado = 1}
+C.reset(); switched, sent = {}, {}
+C.pending.G8 = {since = clock}; C.start("G8")
+assert(#C.scr.locals == 2 and C.scr.locals[1].owner == 0 and C.scr.locals[2].owner == 8 and C.scr.locals[2].pad == 1, "two local players")
+C.localUpdate()
+assert(C.press("d1", 2) == 1, "p2 press registered")
+C.localUpdate()
+assert(C.cur.picks[8].conf and C.cur.picks[8].g == 1 and not C.cur.picks[0].conf, "player 2's digit pick is its own, not player 1's")
+assert(C.scr.locals[2].cursor == 1, "p2 cursor")
+C.press("right", 1); C.localUpdate()
+assert(C.cur.picks[0].g == 2 and not C.cur.picks[0].conf, "player 1 moved to the second card")
+C.press("confirm", 1); C.localUpdate()
+assert(C.cur.picks[0].conf, "player 1 confirmed")
 print("choice mock test: ok")

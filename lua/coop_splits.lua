@@ -494,7 +494,9 @@ function Sp.G11check()
 end
 
 function Sp.installG11(isHost)
-  if not isHost then return end
+  -- The choice screen comes before the crossing (the use callback of TriggerTheAbyss, Church-only):
+  -- on a client the replay of the host's callback waits for the result as well.
+  if not isHost then Sp.gate("MapCallbacks.o249_0", "G11", nil, true) return end
   -- TheAbyss ended for good (a failed QTE replays it: wait until no scene plays).
   Sp.after("Scene.EndOfScene", function()
     if Scene.LastSceneName == "DM_Scene_TheAbyss" and not Sp.G11.started then
@@ -512,6 +514,7 @@ function Sp.installG11(isHost)
       return press(...)
     end
   end
+  Sp.gate("MapCallbacks.o249_0", "G11", nil, true)
   if Coop.frame % 20 == 0 then Sp.G11check() end
 end
 
@@ -683,6 +686,18 @@ function Sp.G6summonCheck()
   Coop.log("split G6: the captive calls " .. n .. " followers")
 end
 
+-- Every machine, after the squad choice moved the players: the bodies held on the gate top stay on,
+-- the sides and the notice are set again (the seat is not taken again: the player chose).
+function Sp.G6afterChoice()
+  if Sp.G6.free then return end
+  Sp.G6keepHumans()
+  if Coop.isHost() and Coop.inSession() then
+    Sp.setSides("G6", Sp.G6.chars, {"Black", "Church", "Delgado", "Jones"})
+  end
+  Sp.showNotice("captive", Sp.G6.chars)
+end
+if CoopChoice and CoopChoice.DEFS.G6 then CoopChoice.DEFS.G6.after = Sp.G6afterChoice end
+
 function Sp.G6afterInit()
   if Sp.G6.initDone then return end
   Sp.G6.initDone = true
@@ -751,6 +766,13 @@ function Sp.installG6(isHost)
   if Coop.frame % 10 == 0 then Sp.G6leash() end
   Sp.G6holdUpdate()
   if isHost and Coop.frame % 40 == 0 then Sp.G6summonCheck() end
+  -- The squad choice at the level's start (a checkpoint reload does not ask again).
+  if isHost and Sp.G6.initDone and not Sp.G6.asked and CoopChoice and Coop.inSession() and not Sp.G6.free then
+    Sp.G6.asked = true
+    local saved = 0
+    pcall(function() saved = Team.GetSavedSpawnPlayerPoint() or 0 end)
+    if saved == 0 then CoopChoice.request("G6") end
+  end
 end
 
 ------------------------------------------------------------------------------
@@ -856,10 +878,9 @@ end
 function Sp.installG15(isHost)
   if not isHost or not EvilFirstBorn or Sp.hooked["G15"] then return end
   Sp.hooked["G15"] = true
-  EvilFirstBorn.SchMakeAllUnavailable = function()
-    if not Coop.inSession() then return Sp.G15schedule() end
-    Sp.G15schedule()
-  end
+  -- The first rune: the choice screen (who plays Church's kill, who is bound), then the binding.
+  local run = function() return Sp.G15schedule() end
+  EvilFirstBorn.SchMakeAllUnavailable = CoopChoice and CoopChoice.gate("G15", run) or run
   -- A new rune binds everyone again.
   Sp.after("EvilFirstBorn.DoBloodRune", function()
     Sp.G15.freed, Sp.G15.told = {}, {}
@@ -1026,6 +1047,9 @@ function Sp.installG3(isHost)
     TeamTalk.InitIncidentalChat(Speech, MapInit.OpenLastDoor, true)
     if isHost then Game.AddScheduledFunc(Game.GetTime() + 40, "CoopSplitG3", "CoopSplits.G3doorFallback") end
   end
+  -- The choice screen comes before Cole walks to the console (the trigger's callback is replayed on
+  -- the clients, whose own call waits for the host's result).
+  Sp.gate("MapInit.GoToRawlings", "G3")
 end
 
 ------------------------------------------------------------------------------
@@ -1131,6 +1155,8 @@ function Sp.installG1C(isHost)
       Game.AddScheduledFunc(Game.GetTime() + 8, "CoopSplitG1C", "CoopSplits.G1Cwave", 1)
     end
   end
+  -- The choice screen comes before the pocket is closed (the start trigger hides Alpha).
+  Sp.gate("MapInit.DisableAlpha", "G1C")
   if not isHost then return end
   Sp.after("MapCallbacks.AreaTrigger_3", function() Sp.G1Cwave(2) end)
   Sp.after("MapCallbacks.AreaTrigger49_0", function() Sp.G1Cwave(3) end)
@@ -1327,6 +1353,12 @@ function Sp.installG4(isHost)
       pcall(Team.HoldPosSide)
     end
   end
+  -- The choice screen comes before the Path of Souls scene (it chains into the shot): whoever picks
+  -- Rawlings is in his body when he is shot. Scene starts of a client are dropped, so the host's
+  -- wrapper (outside the scene sync, which sends the start to the clients) is the only one.
+  if isHost and CoopChoice then
+    Sp.gate("Scene.PlayFPNNI", "G4", function(class) return class == "Pathofsouls" end)
+  end
   -- The shot: a human Rawlings stays in his body (the soul walk starts from it).
   Sp.after("MapScenes.OnInit_DelgadokillsRawlings", function()
     if Coop.inSession() and human("Rawlings") and CoopTeam then CoopTeam.holdDowned.Rawlings = true end
@@ -1459,6 +1491,9 @@ function Sp.installG1A(isHost)
       Sp.G1Agoodbye()
     end
   end
+  -- The choice screen comes before the goodbye (every machine runs it; a client's own call waits for
+  -- the host's result).
+  Sp.gate("MapInit.StartSayGoodbye", "G1A")
   -- Omega reaches the blood door: the recon is over.
   Sp.after("MapCallbacks.Borrame_cinematica_0", function()
     Sp.G1A.done = true

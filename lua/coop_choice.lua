@@ -10,6 +10,7 @@
 --   chst|<split>|owner:group:conf;...   host -> all: who points where (every change, 1/s)
 --   chr|<split>|owner:char:reason;...   host -> all: the result (reason keep, moved, default, full, host)
 --   chd|<split>                         host -> all: the choice is over with no screen (one player...)
+--   chq|<split>                         client -> host: "is it decided?" (a held call asks every 2 s; answer chd)
 -- A client holds the same calls the host holds (C.gate on both): whichever machine runs a split's
 -- trigger, nothing starts until the host's result (chr/chd) has come and been read. `chp` carries the
 -- OWNER id (a split screen's player 2 is another owner on the same machine).
@@ -30,6 +31,22 @@ C.DEFS = {
   G10 = {groups = {{key = "go", chars = {"Delgado"}}, {key = "stay", chars = {"Black", "Church", "Cole", "Jones", "Rawlings"}}}},
   LP = {groups = {{key = "main", chars = {"Delgado", "Church", "Black"}}, {key = "trio", chars = {"Jones", "Cole", "Rawlings"}}},
         hostGroup = function() return C.HOST_PINNED_LP and 1 or nil end},
+  -- 0.2.9 (docs/split-choice.md section 4). `inactive`: bodies the level keeps switched off until a
+  -- player holds them (a card counts them, the move switches them on); `pinned`: bodies whose holder
+  -- cannot leave (the story script needs them); `settle`: seconds of rest before the screen opens;
+  -- `after`: run on every machine when the result is known (set by coop_splits.lua).
+  G6 = {groups = {{key = "sacrifice", chars = {"Church"}}, {key = "top", chars = {"Cole", "Rawlings"}},
+                  {key = "base", chars = {"Jones", "Delgado", "Black"}}},
+        inactive = {Cole = true, Rawlings = true}, settle = 3},
+  G11 = {groups = {{key = "cross", chars = {"Church"}}, {key = "cover", chars = {"Black", "Cole", "Delgado", "Jones", "Rawlings"}}}},
+  G15 = {groups = {{key = "kill", chars = {"Church"}}, {key = "bound", chars = {"Black", "Delgado", "Rawlings"}}}},
+  G4 = {groups = {{key = "soul", chars = {"Rawlings"}}, {key = "defend", chars = {"Church", "Black", "Cole", "Delgado", "Jones"}}}},
+  G1A = {groups = {{key = "omega", chars = {"Ross", "Church", "Black", "Rawlings"}}, {key = "alpha", chars = {"Jones", "Cole", "Delgado"}}},
+         pinned = function() return {Ross = true} end, settle = 2},
+  G1C = {groups = {{key = "omega", chars = {"Ross", "Church", "Black", "Rawlings"}}, {key = "alpha", chars = {"Jones", "Cole", "Delgado"}}},
+         inactive = {Jones = true, Cole = true, Delgado = true}, pinned = function() return {Ross = true} end, settle = 2},
+  G3 = {groups = {{key = "console", chars = {"Cole"}}, {key = "defend", chars = {"Ross", "Church", "Black", "Rawlings", "Jones", "Delgado"}}},
+        pinned = function() return {Ross = true} end},
 }
 
 C.TEXT = {
@@ -59,6 +76,58 @@ C.TEXT = {
     pinned = "You are %s: the story needs him, you go on with him.",
     pinnedhint = "Your character is fixed by the story. The others are choosing...",
     hint2 = "Player 2: pad 2 left / right and A",
+    G6_title = "The Brandenburg Gate: where do you fight?",
+    G6_sacrifice_name = "THE SACRIFICE",
+    G6_sacrifice_blurb = "Church faces the sacrifice at the gate. The last scenes are his.",
+    G6_sacrifice_ex = "You are Church: the sacrifice is yours.",
+    G6_top_name = "THE GATE TOP",
+    G6_top_blurb = "Cole and Rawlings guard the captive Lichthammer high above the fight.",
+    G6_top_ex = "You stay on the gate top with the captive.",
+    G6_base_name = "THE BASE",
+    G6_base_blurb = "Fight through to the gate with the squad below.",
+    G6_base_ex = "You fight on with the squad below.",
+    G11_title = "Church crosses the abyss alone",
+    G11_cross_name = "THE ABYSS",
+    G11_cross_blurb = "Cross the abyss as Church and hold the far side against the legion.",
+    G11_cross_ex = "You cross the abyss as Church.",
+    G11_cover_name = "THE EDGE",
+    G11_cover_blurb = "Cover Church from the edge. Jones can shut the legion door with the crank.",
+    G11_cover_ex = "You cover Church from the edge.",
+    G15_title = "The blood rune binds the squad",
+    G15_kill_name = "THE KILL",
+    G15_kill_blurb = "Church has to strike the First Born down.",
+    G15_kill_ex = "You are Church: the kill is yours.",
+    G15_bound_name = "BOUND BY THE RUNE",
+    G15_bound_blurb = "Black, Delgado and Rawlings are bound. Hold E to break the link.",
+    G15_bound_ex = "You are bound by the rune: hold E to break free.",
+    G4_title = "Rawlings is shot: his soul is torn out",
+    G4_soul_name = "THE PATH OF SOULS",
+    G4_soul_blurb = "Walk Rawlings' soul back through three stations (hold E to pray).",
+    G4_soul_ex = "You walk Rawlings' soul back to his body.",
+    G4_defend_name = "DEFEND HIS BODY",
+    G4_defend_blurb = "Hold the pillbox field against the Nazis until his soul is back.",
+    G4_defend_ex = "You defend Rawlings' body.",
+    G1A_title = "Alpha goes on a recon",
+    G1A_omega_name = "OMEGA",
+    G1A_omega_blurb = "Ross, Church, Black and Rawlings stay with the main team at the tomb.",
+    G1A_omega_ex = "You stay with Omega.",
+    G1A_alpha_name = "ALPHA: THE RECON",
+    G1A_alpha_blurb = "Jones, Cole and Delgado scout the perimeter and hold against the cultists.",
+    G1A_alpha_ex = "You go with Alpha on the recon.",
+    G1C_title = "Alpha is pinned at the dig",
+    G1C_omega_name = "OMEGA",
+    G1C_omega_blurb = "Fight your way through the city toward Alpha.",
+    G1C_omega_ex = "You fight through the city with Omega.",
+    G1C_alpha_name = "ALPHA: PINNED DOWN",
+    G1C_alpha_blurb = "Hold the sealed pocket against the cultists crawling out of the dig.",
+    G1C_alpha_ex = "You hold the pocket with Alpha.",
+    G3_title = "Temporal restoration",
+    G3_console_name = "THE CONSOLE",
+    G3_console_blurb = "Cole hacks the console. Stay beside it while the restoration runs.",
+    G3_console_ex = "You hack the console as Cole.",
+    G3_defend_name = "THE DEFENCE",
+    G3_defend_blurb = "Defend Cole against the ambush while the restoration runs.",
+    G3_defend_ex = "You defend the console.",
   },
   ru = {
     hint = "Влево / Вправо: выбор   A или Enter: подтвердить   1 2 3: быстрый выбор",
@@ -86,6 +155,58 @@ C.TEXT = {
     pinned = "Вы %s: он нужен сюжету, вы идёте с ним.",
     pinnedhint = "Ваш персонаж закреплён сюжетом. Остальные выбирают...",
     hint2 = "Игрок 2: геймпад 2, влево / вправо и A",
+    G6_title = "Бранденбургские ворота: где вы сражаетесь?",
+    G6_sacrifice_name = "ЖЕРТВОПРИНОШЕНИЕ",
+    G6_sacrifice_blurb = "Чёрч идёт на жертву у ворот. Последние сцены его.",
+    G6_sacrifice_ex = "Вы Чёрч: жертва за вами.",
+    G6_top_name = "ВЕРХ ВОРОТ",
+    G6_top_blurb = "Коул и Роулингс стерегут пленную Лихтхаммер высоко над боем.",
+    G6_top_ex = "Вы остаётесь на верху ворот с пленницей.",
+    G6_base_name = "ПОДНОЖИЕ",
+    G6_base_blurb = "Прорывайтесь к воротам вместе с отрядом внизу.",
+    G6_base_ex = "Вы идёте дальше с отрядом внизу.",
+    G11_title = "Чёрч пересекает пропасть один",
+    G11_cross_name = "ПРОПАСТЬ",
+    G11_cross_blurb = "Пересеките пропасть за Чёрча и удержите дальний край против легиона.",
+    G11_cross_ex = "Вы пересекаете пропасть за Чёрча.",
+    G11_cover_name = "КРАЙ",
+    G11_cover_blurb = "Прикрывайте Чёрча с края. Джонс может закрыть дверь легиона рукоятью.",
+    G11_cover_ex = "Вы прикрываете Чёрча с края.",
+    G15_title = "Кровавая руна связывает отряд",
+    G15_kill_name = "УДАР",
+    G15_kill_blurb = "Чёрч должен сразить Перворождённого.",
+    G15_kill_ex = "Вы Чёрч: удар за вами.",
+    G15_bound_name = "СВЯЗАННЫЕ РУНОЙ",
+    G15_bound_blurb = "Блэк, Дельгадо и Роулингс связаны. Удерживайте E, чтобы разорвать связь.",
+    G15_bound_ex = "Вы связаны руной: удерживайте E, чтобы освободиться.",
+    G4_title = "Роулингса застрелили: его душу вырвали",
+    G4_soul_name = "ПУТЬ ДУШ",
+    G4_soul_blurb = "Проведите душу Роулингса назад через три станции (удерживайте E для молитвы).",
+    G4_soul_ex = "Вы ведёте душу Роулингса назад к его телу.",
+    G4_defend_name = "ЗАЩИТА ТЕЛА",
+    G4_defend_blurb = "Держите поле с дотами против нацистов, пока его душа не вернётся.",
+    G4_defend_ex = "Вы защищаете тело Роулингса.",
+    G1A_title = "Альфа уходит в разведку",
+    G1A_omega_name = "ОМЕГА",
+    G1A_omega_blurb = "Росс, Чёрч, Блэк и Роулингс остаются с основной группой у гробницы.",
+    G1A_omega_ex = "Вы остаётесь с Омегой.",
+    G1A_alpha_name = "АЛЬФА: РАЗВЕДКА",
+    G1A_alpha_blurb = "Джонс, Коул и Дельгадо разведывают периметр и держатся против культистов.",
+    G1A_alpha_ex = "Вы идёте с Альфой в разведку.",
+    G1C_title = "Альфа прижата у раскопа",
+    G1C_omega_name = "ОМЕГА",
+    G1C_omega_blurb = "Пробивайтесь через город к Альфе.",
+    G1C_omega_ex = "Вы пробиваетесь через город с Омегой.",
+    G1C_alpha_name = "АЛЬФА: В ЛОВУШКЕ",
+    G1C_alpha_blurb = "Держите запертый карман против культистов, ползущих из раскопа.",
+    G1C_alpha_ex = "Вы держите карман с Альфой.",
+    G3_title = "Временное восстановление",
+    G3_console_name = "КОНСОЛЬ",
+    G3_console_blurb = "Коул взламывает консоль. Оставайтесь рядом, пока идёт восстановление.",
+    G3_console_ex = "Вы взламываете консоль за Коул.",
+    G3_defend_name = "ОБОРОНА",
+    G3_defend_blurb = "Защищайте Коул от засады, пока идёт восстановление.",
+    G3_defend_ex = "Вы защищаете консоль.",
   },
 }
 
@@ -242,9 +363,12 @@ function C.hostUpdate()
     for id, p in pairs(C.pending) do
       local def = C.DEFS[id]
       local rest = not (Scene and Scene.IsPlaying) and not (CoopEnemies and (CoopEnemies.curtain or CoopEnemies.fpBlackT))
+      -- (some seconds at rest first: at a level's start the other machines claim their bodies)
+      if not rest then p.restT = nil elseif not p.restT then p.restT = now() end
+      local settled = p.restT and now() - p.restT >= ((def and def.settle) or 0)
       if not def or cfg.storyline or cfg.choice == "skip" then
         finish(id, nil)
-      elseif rest or now() - p.since > 60 then
+      elseif settled or now() - p.since > 60 then
         C.start(id)
       end
       break
@@ -720,6 +844,12 @@ function C.onMessage(peer, f)
   elseif kind == "chd" and Coop.isClient() then
     C.clientDone(f[2], 0)
     return true
+  elseif kind == "chq" and Coop.isHost() then
+    -- (decided, and the explanation no longer on screen)
+    local queued = false
+    for _, l in ipairs(C.later) do if l.id == f[2] then queued = true end end
+    if C.done[f[2]] and not queued and not (C.cur and C.cur.id == f[2]) then Net.CoopSend(peer, 1, "chd|" .. f[2]) end
+    return true
   elseif kind == "chp" and Coop.isHost() then
     -- (the sender's own players only: the machine's player or its split screen player)
     local owner = tonumber(f[5])
@@ -753,6 +883,10 @@ function C.heldCheck()
     if now() - h.t > C.TIME + 12 then
       Coop.log("choice " .. id .. ": no result from the host, the held call runs")
       C.clientDone(id, 0)
+    elseif now() - (h.q or 0) >= 2 then
+      -- (a client that loaded after the host had decided never saw its chr/chd: asks)
+      h.q = now()
+      Net.CoopSend(0, 1, "chq|" .. id)
     end
   end
 end
