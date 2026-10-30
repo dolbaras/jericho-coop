@@ -18,8 +18,8 @@ More than a co-op mode:
 Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names stay the same,
 so the auto-update keeps working.
 
-Status: **0.2.8**: fixes the problems of the first long Steam sessions of 0.2.7 (bodies sunk into the ground, enemy fire the joining PC could not see or feel, bosses and dialogue missing there, a character walking by itself), adds a squad choice screen at three story splits and a third-person spectator camera; still open: jerky movement of other players' characters and enemies on the joining PC, the flamethrower and some missiles and bosses' attacks (full list in the release notes); the installer updates every earlier version, 0.1.0 included (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). The
-whole campaign was played through in tests for 0.2.7 (every fix of 0.2.8 was checked in the game on two PCs, not the whole campaign again); by people, missions 1-8 so far.
+Status: **0.2.9**: movement of other players' characters and enemies on the joining PC is smoother (a measured path through the host's states instead of 20 Hz steps), enemy fire now reaches a joining player (flames, missiles, melee blows, bosses' attacks), the squad choice screen is at every story split (Act 1, Brandenburg, the pillboxes, the abyss, the final; also on split screen), squad bodies are solid, doors and invisible blockers are the same on every PC, the "puppet flies / stuck / snaps" storm is fixed, more ally animations are shown (cover, dazed, trance, possession, the dragon arm) and the spectator camera keeps clear of walls and reads A / D and the mouse; the last five logs are kept (`coop.1.log` ... `coop.4.log`). Still open: a few attacks and boss fights were not seen in a real fight (full list in the release notes); the installer updates every earlier version, 0.1.0 included (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). Each fix was run in the game, mostly on two PCs, the exceptions are named in the release notes; the
+complete regression (the whole campaign, every split, every older version through the installer) was run on the final code: @@REGRESSION@@; by people, missions 1-8 so far.
 Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
 the game, keeps a copy of every file it replaces, updates an older version in place and can
 uninstall. From 0.2.3 the installer's shortcut ("Jericho Co-op+", desktop and Start menu) checks
@@ -31,8 +31,8 @@ QA level: the whole campaign runs through level by level in tests with two real 
 instances on two PCs (a playthrough bot plays both sides, both branches of the Lost Patrol
 included), every story split is played with a real host and client, every in-engine cutscene
 is compared with the original. Human playthroughs started with 0.2.1 over Steam; please report
-problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` (and an F11
-clip if you can).
+problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` (the four sessions before it are
+`coop.1.log` ... `coop.4.log`; and an F11 clip if you can).
 
 Tested game: retail DVD release, `Jericho.exe` SHA-256
 `7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11; SMOD

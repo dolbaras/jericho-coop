@@ -83,13 +83,35 @@ How it works
 - A downed player moves into a free squad member; during a story split (the squad split up
   by the story) only into one on their own side, else they wait for Rawlings.
 - Only Rawlings revives downed players (human or AI), as in the original.
-- Squad choice at a story split (0.2.8): before the squad splits, every player (the host too) sees one
+- Squad choice at a story split: before the squad splits, every player (the host too) sees one
   screen with the groups, their members and who picks what; choose with the stick/arrows and A/Enter
-  (or keys 1-3) within about 25 s; if you do nothing you stay with your character. Shown at the
-  Escalada split (Cru_Sewers), the fire hall (Rom_Caldarium) and the Lost Patrol; the host cannot
-  join the Lost Patrol (the host's game runs the main group). The other splits still follow the story.
+  (or keys 1-3) within about 25 s; if you do nothing you stay with your character. Shown at every
+  split: Act 1 (the tomb, the city, the bunker; the player who holds Ross stays), Brandenburg, the
+  Escalada split (Cru_Sewers), the fire hall (Rom_Caldarium), the pillboxes, the abyss, the final
+  and the Lost Patrol. On split screen player 2 chooses with gamepad 2. Two players who want each
+  other's characters swap them. The host cannot join the Lost Patrol (the host's game runs the
+  main group).
 - A downed player with nobody to move into watches a living player from behind (third person):
-  stick or arrows switch the player, the right stick or mouse looks around; it ends on revive.
+  stick or arrows (or A / D, the left mouse button) switch the player, the right stick or mouse
+  looks around; the camera keeps clear of walls; it ends on revive.
+- Enemies hurt every player the way they hurt the host: bullets, blows, flames (a flamethrower sets
+  a joining player alight), missiles (pilums, bolts, blades, fireballs, mortar shells) and the
+  bosses' own attacks. Enemy life is the same on both PCs.
+- Everything that moves on the other PC (the other players' and the AI's characters, enemies) is
+  drawn smoothly: the movement follows the host's states along a smoothed path, about 0.2 s behind
+  and without the old stop-and-go; props the host moved glide to their place.
+- Squad members are solid, as in the single-player game: your character no longer walks through
+  another player's or the AI's character.
+- Doors and invisible blockers are kept the same on every PC (a blocker that a PC's own script
+  switched back is set to the host's state again within a second; any other difference heals in
+  about ten seconds): fewer "invisible walls".
+- The "character flies / stuck / snaps back and forth" storm after a Delgado-only door or lever
+  (Rom_Outskirts and others) is fixed.
+- Allies' animations are shown on every PC: cover, dazed, trance, astral and possession states,
+  the dragon arm of Delgado, hurdles and climbs as a run on the spot; Cole's grenade throw
+  no longer makes a second grenade on the other PC.
+- Logs: the last five sessions are kept as coop.log (now) and coop.1.log ... coop.4.log; a start
+  that only reached the menu does not push the older ones out.
 - When the story walks a character a player holds, the player is offered to walk there first (the
   host's too); the squad takes over only after the time is up (or at once / never, per the
   lobby setting).
@@ -192,8 +214,9 @@ character; it works in a hosted game and when you join one (up to 4 players in a
 
 Reports
 https://github.com/dolbaras/jericho-coop/issues — what happened, on which level, host or client.
-Attach the log: Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log (coop.prev.log is the
-previous run).
+Attach the log: Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log (the current run; the
+four runs before it are kept as coop.1.log (the last one) ... coop.4.log, so attach the one of the
+session where it happened; a start that only reached the menu does not push them out).
 Saw it happen? Press F11 right after: the last 30 seconds of the game are saved as a video
 (clip-<date>-<time>.avi in the same Coop folder) - attach it too. The mod keeps only what the
 game draws, in memory, and writes nothing until F11.
@@ -282,13 +305,34 @@ game draws, in memory, and writes nothing until F11.
 - Упавший игрок переселяется в свободного бойца; во время сюжетного разделения (сюжет разводит
   отряд) — только в бойца на своей стороне, иначе ждёт Роулингса.
 - Поднимать упавших может только Роулингс (игрок или ИИ), как в оригинале.
-- Выбор отряда при сюжетном разделении (0.2.8): перед разделением все игроки (и хост) видят один экран с
+- Выбор отряда при сюжетном разделении: перед разделением все игроки (и хост) видят один экран с
   группами, их составом и тем, кто что выбирает; выбор стиком или стрелками и A/Enter (или клавишами 1-3)
-  примерно за 25 с; если ничего не делать, остаётесь со своим персонажем. Экран показывается на Эскаладе
-  (Cru_Sewers), в огненном зале (Rom_Caldarium) и перед «Потерянным патрулём»; хост в «Потерянный патруль»
-  уйти не может (игра хоста ведёт основную группу). Остальные разделения идут по сюжету, как раньше.
+  примерно за 25 с; если ничего не делать, остаётесь со своим персонажем. Экран показывается на каждом
+  разделении: первый акт (гробница, город, бункер; игрок, который держит Росса, остаётся), Бранденбург,
+  Эскалада (Cru_Sewers), огненный зал (Rom_Caldarium), доты, бездна, финал и «Потерянный патруль». В
+  сплитскрине второй игрок выбирает геймпадом 2. Двое игроков, которые хотят персонажей друг друга,
+  меняются ими. Хост в «Потерянный патруль» уйти не может (игра хоста ведёт основную группу).
 - Упавший игрок, которому некуда перейти, смотрит за живым игроком сзади (от третьего лица): стик или
-  стрелки переключают игрока, правый стик или мышь осматриваются; наблюдение кончается при поднятии.
+  стрелки (или A / D, левая кнопка мыши) переключают игрока, правый стик или мышь осматриваются; камера
+  не заходит в стены; наблюдение кончается при поднятии.
+- Враги ранят каждого игрока так же, как хоста: пули, удары, огонь (огнемёт поджигает подключившегося
+  игрока), снаряды (копья, болты, клинки, огненные шары, мины миномёта) и собственные атаки боссов.
+  Здоровье врагов одинаково на обоих ПК.
+- Всё, что движется на другом ПК (персонажи других игроков и ИИ, враги), рисуется плавно: движение идёт
+  по сглаженному пути через состояния хоста, примерно на 0,2 с позади и без прежних «рывков с
+  остановками»; предметы, которые сдвинул хост, плавно доезжают на место.
+- Бойцы отряда твёрдые, как в одиночной игре: ваш персонаж больше не проходит сквозь персонажа другого
+  игрока или ИИ.
+- Двери и невидимые барьеры держатся одинаковыми на всех ПК (барьер, который собственный сценарий ПК
+  вернул назад, снова ставится по состоянию хоста меньше чем за секунду; любое другое расхождение
+  лечится примерно за десять секунд): меньше «невидимых стен».
+- Исправлена «буря»: персонаж улетает / застревает / дёргается туда-сюда после двери или рычага только
+  для Дельгадо (Rom_Outskirts и другие).
+- Анимации союзников показываются на каждом ПК: состояния укрытия, оглушения, транса, астрала и вселения,
+  рука дракона Дельгадо, прыжки через препятствия и подъёмы как бег на месте; бросок гранаты Коула
+  больше не создаёт вторую гранату на другом ПК.
+- Журналы: хранятся последние пять сеансов: coop.log (текущий) и coop.1.log ... coop.4.log; запуск,
+  дошедший только до меню, старые не вытесняет.
 - Когда сюжет ведёт персонажа, которого держит игрок, игроку сначала предлагают дойти самому (в том числе
   хосту); отряд берёт управление только после времени ожидания (или сразу / никогда, по настройке лобби).
 - Замедление времени Коула и Блэка действует на мир для всех, игроки двигаются с обычной скоростью.
@@ -391,7 +435,8 @@ autoexec.lua (FullScreen); окно всё равно можно сделать 
 Сообщить об ошибке
 Пишите в https://github.com/dolbaras/jericho-coop/issues : что делали, на каком уровне,
 хост вы или клиент. Приложите лог: Документы\Codemasters\Clive Barker's Jericho\Coop\coop.log
-(лог прошлого запуска — coop.prev.log).
+(текущий запуск; четыре предыдущих хранятся как coop.1.log (последний) ... coop.4.log — приложите
+лог того сеанса, где это случилось; запуск, дошедший только до меню, их не вытесняет).
 Увидели ошибку? Сразу нажмите F11: последние 30 секунд игры сохранятся как видео
 (clip-<дата>-<время>.avi в той же папке Coop) — приложите и его. Мод хранит только то, что рисует
 игра, в памяти, и ничего не записывает до нажатия F11.

@@ -156,18 +156,58 @@ static char log_early[8192];               /* lines before the path is known */
 static size_t log_early_len;
 static int coop_save_path(const char *name, char *out, size_t size);
 
-/* %JERICHO_COOP_LOG% (tests), else coop.log in the co-op save folder, the previous session's
- * kept as coop.prev.log. The folder is looked up only once the game runs Lua (l_boot), never
- * in DllMain: no shell calls under the loader lock. Called with log_lock held. */
+/* Log rotation: coop.log is the current session, coop.1.log ... coop.4.log the sessions before
+ * it (newest first). Rotated at every start, except that a log under LOG_KEEP_MIN bytes (a start
+ * that only reached the menu) is simply replaced and pushes no older log out. 0.2.8 and older kept
+ * one coop.prev.log: it is adopted as the oldest log. */
+#define LOG_KEEP 4
+#define LOG_KEEP_MIN 4096
+
+static void log_rotate(void)
+{
+    char cur[MAX_PATH], old[LOG_KEEP + 1][MAX_PATH], name[32];
+    if (!coop_save_path("coop:coop.log", cur, sizeof cur))
+        return;
+    for (int i = 1; i <= LOG_KEEP; i++) {
+        snprintf(name, sizeof name, "coop:coop.%d.log", i);
+        if (!coop_save_path(name, old[i], sizeof old[i]))
+            return;
+    }
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (GetFileAttributesExA(cur, GetFileExInfoStandard, &fa)) {
+        if (fa.nFileSizeHigh == 0 && fa.nFileSizeLow < LOG_KEEP_MIN) {
+            DeleteFileA(cur);
+        } else {
+            DeleteFileA(old[LOG_KEEP]);
+            for (int i = LOG_KEEP - 1; i >= 1; i--)
+                MoveFileExA(old[i], old[i + 1], MOVEFILE_REPLACE_EXISTING);
+            MoveFileExA(cur, old[1], MOVEFILE_REPLACE_EXISTING);
+        }
+    }
+    char prev[MAX_PATH];
+    if (coop_save_path("coop:coop.prev.log", prev, sizeof prev) &&
+        GetFileAttributesA(prev) != INVALID_FILE_ATTRIBUTES) {
+        int placed = 0;
+        for (int i = 1; i <= LOG_KEEP && !placed; i++)
+            if (GetFileAttributesA(old[i]) == INVALID_FILE_ATTRIBUTES)
+                placed = MoveFileExA(prev, old[i], 0);
+        if (!placed)
+            DeleteFileA(prev);
+    }
+}
+
+/* %JERICHO_COOP_LOG% (tests), else coop.log in the co-op save folder, rotated as above. The
+ * folder is looked up only once the game runs Lua (l_boot), never in DllMain: no shell calls
+ * under the loader lock. Called with log_lock held. */
 static void log_resolve(void)
 {
     if (log_path[0] || log_resolved || !log_allowed)
         return;
     log_resolved = 1;
-    char p[MAX_PATH], prev[MAX_PATH];
-    if (!coop_save_path("coop:coop.log", p, sizeof p) || !coop_save_path("coop:coop.prev.log", prev, sizeof prev))
+    char p[MAX_PATH];
+    if (!coop_save_path("coop:coop.log", p, sizeof p))
         return;
-    MoveFileExA(p, prev, MOVEFILE_REPLACE_EXISTING);
+    log_rotate();
     strcpy(log_path, p);
 }
 

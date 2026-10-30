@@ -1,4 +1,4 @@
-# Architecture of Jericho Co-op+ (0.2.8)
+# Architecture of Jericho Co-op+ (0.2.9)
 
 A map of the code for a developer who comes back to it: how the mod starts, what runs every
 frame, what goes over the network and who decides what. It describes the code as built; the
@@ -85,7 +85,7 @@ own wrapper.
   Jericho\Coop` (`%JERICHO_COOP_SAVEDIR%` in tests), read and written through `Net.CoopFile`:
   `save.txt`, `checkpoint.txt`, `progress.txt` (`coop_save.lua`), `display.txt` (aspect ratio,
   `coop.lua:Coop.aspectChoice`), `video.txt` (refresh rate, borderless; read by the DLL,
-  `display_hooks.c:display_load`), `coop.log` / `coop.prev.log`, `clip-*.avi`. None of them
+  `display_hooks.c:display_load`), `coop.log` / `coop.1.log` ... `coop.4.log`, `clip-*.avi`. None of them
   feeds `cfg`.
 
 ### 1.4 `COOP_CFG` (`Coop.cfg`, `cfg` in the modules)
@@ -718,9 +718,11 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
 - **`coop_net.c`**: the `Net.Coop*` functions (3.1), registered over `Net` entries
   `GetServerData`, `AddResource`, `ModifyUsrData`, ... (`coop_funcs`); uses the exe's own Lua
   5.1.1 C API at fixed addresses (`lua_pushnil` `0x662770` ... `lua_tointeger` `0x663ff0`,
-  `lua_State` top at +8, base at +0xc). ENet thread, LAN discovery, the log (`coop.log`; the
-  previous one becomes `coop.prev.log` once Lua has called `CoopBoot`: no shell calls in
-  `DllMain`), `coop:` paths.
+  `lua_State` top at +8, base at +0xc). ENet thread, LAN discovery, the log (`coop.log`; once
+  Lua has called `CoopBoot` the last four sessions are kept as `coop.1.log` (newest) ...
+  `coop.4.log`: rotated at every start, except that a log under 4 KB, a start that only reached
+  the menu, is just replaced and pushes no older one out; 0.2.8's `coop.prev.log` is adopted as
+  the oldest; no shell calls in `DllMain`), `coop:` paths.
   Env: `JERICHO_COOP_CFG`, `JERICHO_COOP_LOG`, `JERICHO_COOP_SAVEDIR`, `JERICHO_CONSOLE`.
 - **`steam_net.c`**: Steam transport (3.2) over `coop\steam_api.dll`'s flat API with manual
   callback dispatch. Env: `JERICHO_NOSTEAM=1` (tests: Steam off), `JERICHO_STEAM_DLL` (another
