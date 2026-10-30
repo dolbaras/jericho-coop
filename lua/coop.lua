@@ -1184,6 +1184,18 @@ function Coop.clearPins(e)
   pcall(function() e.OnEndMove = "" end)
   pcall(function() e.OffMul = 0 e.DeltaOffMul = 0 end)
   pcall(function() e:MoveMePosAng(1, 0.05, e.Pos, e.Ang) end)
+  -- What CoolUse set on the user: nobody plays a puppet here, so the control lock goes (not during a scene or a
+  -- story walk, which lock bodies themselves) and invulnerability goes back to what it was before the call.
+  pcall(function()
+    if e.Invulnerable == 1 then
+      local was = e.uData and e.uData.LastInvulnerableState
+      e.Invulnerable = (was == 1) and 1 or 0
+      if e.uData then e.uData.LastInvulnerableState = nil end
+    end
+    if e.IgnoreUsrControl == 1 and not (Scene and Scene.IsPlaying) and not (Coop.storyDriven and Coop.storyDriven[e.Name]) then
+      e.IgnoreUsrControl = 0
+    end
+  end)
 end
 
 function Coop.stormHeld(name, now)
