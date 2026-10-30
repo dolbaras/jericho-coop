@@ -284,6 +284,7 @@ function C.reset(why)
   C.done, C.pending, C.cur, C.result = {}, {}, nil, nil
   C.later = {}     -- queue of resumes {t, id, fn}: a second finish never overwrites the first
   C.held = {}      -- a client's held calls by split id
+  C.running = {}   -- gate -> true from the held call being taken until it has run (see C.gate)
   C.coopRef = Coop
   if why then Coop.log("choice: reset (" .. why .. ")") end
 end
@@ -302,7 +303,11 @@ end
 -- for the host's chr/chd, so the two machines start the split together (`replayOnly`: map callbacks,
 -- where a call by this machine's own player is no replay and goes through to its guard).
 function C.gate(id, fn, when, replayOnly)
+  local tag = {}   -- this gate's key in C.running
   return function(...)
+    -- (the choice is over but the held call has not run yet: it waits out the explanation (RESULT_HOLD). A second
+    -- call of this gate in that window is a no-op: it must not run the split's start twice)
+    if C.running[tag] then return end
     if not Coop.inSession() or C.done[id] then return fn(...) end
     -- (`when`: only a call that would really start the split opens the screen)
     if when and not when(...) then return fn(...) end
@@ -313,6 +318,7 @@ function C.gate(id, fn, when, replayOnly)
     local W = CoopWorld
     local wr, wt, wu = W and W.replaying, W and W.replayTriggered, W and W.forUser
     local call = function()
+      C.running[tag] = nil
       local r0, f0 = Coop.replay, Coop.fromHost
       local w0, t0, u0 = W and W.replaying, W and W.replayTriggered, W and W.forUser
       local origTrig = Game.GetTriggeredEntity
@@ -330,12 +336,14 @@ function C.gate(id, fn, when, replayOnly)
     end
     if Coop.isHost() then
       if C.pending[id] then return end
+      C.running[tag] = true
       C.request(id, call)
     elseif Coop.isClient() and Coop.cfg.myId then
       -- (a map callback the client's own player triggers must reach the guard that tells the host: only
       -- the host's replayed calls are held)
       if replayOnly and not (Coop.replay or Coop.fromHost) then return fn(...) end
       if C.held[id] then return end
+      C.running[tag] = true
       C.held[id] = {fn = call, t = now()}
       Coop.log("choice " .. id .. ": call held until the host's result")
     else
@@ -550,7 +558,7 @@ function C.resolve()
       localMoves[#localMoves + 1] = {h, from[h], target}
     else
       -- (a body the level keeps switched off is switched on for its new player: the 4th field)
-      Net.CoopSend(Coop.peerOf(h), 1, "evict|" .. from[h] .. "|" .. target .. ((def.inactive and def.inactive[target]) and "|a" or ""))
+      Net.CoopSend(Coop.peerOf(h), 1, "evict|" .. from[h] .. "|" .. target .. ((def.inactive and def.inactive[target]) and "|a" or "|c"))
     end
   end
   Coop.broadcastOwners()
@@ -587,7 +595,8 @@ function C.enter(old, to, activate)
   local e = Game.GetEntity(to)
   if activate and e and e.bActive == false then e.bActive = true end
   local ok, res = pcall(Team.SwitchSoldier, old, to)
-  if locks then locks[to] = was end
+  -- (the old lock comes back unless the switch itself set one)
+  if locks and locks[to] == nil then locks[to] = was end
   if not ok then Coop.log("choice: switch " .. tostring(old) .. " -> " .. tostring(to) .. " failed: " .. tostring(res)) end
   return ok and res
 end
@@ -821,7 +830,7 @@ function C.rows(text, width)
   local n = 0
   for part in string.gmatch(text .. "\n", "([^\n]*)\n") do
     local k = 1
-    if Scorer.SplitString and part ~= "" then
+    if Scorer and Scorer.SplitString and part ~= "" then
       local ok, r = pcall(Scorer.SplitString, part, (Menu and Menu.SmallFont) or "ScrapMedium", width)
       if ok and type(r) == "table" and #r > 0 then k = #r end
     end

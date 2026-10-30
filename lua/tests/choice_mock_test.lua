@@ -40,7 +40,7 @@ assert(owner("Black") == nil and (owner("Delgado") == 0), "host went to a free s
 assert(#switched == 1 and switched[1]:match("^Church%->"), "host switched: " .. table.concat(switched, ","))
 local evict
 for _, m in ipairs(sent) do if m:match("evict") then evict = m end end
-assert(evict == "1>evict|Black|Church", "client told: " .. tostring(evict))
+assert(evict == "1>evict|Black|Church|c", "client told: " .. tostring(evict))
 
 -- 2. both want the one-body card: the first confirmed gets it, the other stays
 r = setup("G8", {Delgado = 0, Black = 1}, {[0] = {1, true}, [1] = {1, true}})
@@ -311,4 +311,49 @@ C.onMessage(0, {"chr", "G6", "1:Jones:keep"})
 assert(table.concat(spy, ","):find("showNotice"), "client: the G6 hook ran on chr")
 Coop.role = "host"; Coop.cfg.myId = nil
 Coop.isClient = function() return false end; Coop.isHost = function() return true end
+-- 20. a second call of a gate while the first waits out the explanation (RESULT_HOLD) is a no-op: the split's start
+-- runs exactly once (host and client); another gate of the same split is not blocked by it
+for _, role in ipairs({"host", "client"}) do
+  Coop.role = role; Coop.cfg.myId = role == "client" and 1 or nil
+  Coop.isClient = function() return role == "client" end; Coop.isHost = function() return role == "host" end
+  Coop.owners = {Church = 0, Black = 1}
+  C.reset(); sent = {}
+  local runs, other = 0, 0
+  local gA = C.gate("G8", function() runs = runs + 1 end)
+  local gB = C.gate("G8", function() other = other + 1 end)
+  gA()
+  assert(runs == 0, role .. ": held")
+  if role == "host" then
+    C.start("G8"); C.setPick(0, 1, true); C.setPick(1, 2, true); C.resolve()
+  else
+    C.onMessage(0, {"chr", "G8", "0:Church:keep;1:Black:keep"})
+  end
+  assert(C.done.G8 and runs == 0, role .. ": decided, explanation still up")
+  gA(); gA()
+  assert(runs == 0, role .. ": a second call during the hold is dropped, not run: " .. runs)
+  gB()
+  assert(other == 1, role .. ": another gate of the split passes straight through")
+  clock = clock + C.RESULT_HOLD + 1
+  C.runLater()
+  assert(runs == 1, role .. ": the held call ran once: " .. runs)
+  gA()
+  assert(runs == 2, role .. ": after the hold calls go through")
+end
+Coop.role = "host"; Coop.cfg.myId = nil
+Coop.isClient = function() return false end; Coop.isHost = function() return true end
+-- 21. C.enter lifts the game's lock only for the switch: the old lock comes back, but a lock the switch itself set stays
+Team.UnavaliablePlayers = {Cole = true}
+local seenLock
+Team.SwitchSoldier = function(a, b) seenLock = Team.UnavaliablePlayers[b] end
+C.enter("Church", "Cole")
+assert(seenLock == nil and Team.UnavaliablePlayers.Cole == true, "lock lifted for the switch, restored after")
+Team.SwitchSoldier = function(a, b) Team.UnavaliablePlayers[b] = false; Team.UnavaliablePlayers[a] = true end
+C.enter("Church", "Cole")
+assert(Team.UnavaliablePlayers.Cole == false and Team.UnavaliablePlayers.Church == true, "a lock set by the switch itself is kept")
+Team.UnavaliablePlayers = nil
+Team.SwitchSoldier = function(a, b) switched[#switched + 1] = a .. "->" .. b end
+-- 22. C.rows does not need Scorer
+local sc = Scorer; Scorer = nil
+assert(C.rows("a" .. string.char(10) .. "b", 400) == 2, "rows without Scorer")
+Scorer = sc
 print("choice mock test: ok")

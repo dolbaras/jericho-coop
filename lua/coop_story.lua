@@ -643,8 +643,9 @@ function St.onEvict(f)
   Coop.log("story: the story takes " .. name .. ", moving to " .. (target ~= "" and target or "spirit"))
   if target and target ~= "" and Team and Team.SwitchSoldier then
     Coop.cfg.char = target
-    -- (the squad choice: also into a body the game keeps locked or switched off, f[4] == "a")
-    if CoopChoice and CoopChoice.enter and Coop.inSession() then
+    -- (the squad choice (coop_choice.lua sends a 4th field, "a" or "c"): also into a body the game keeps locked or
+    -- switched off; a story eviction is a plain switch and leaves the game's locks alone)
+    if f[4] and CoopChoice and CoopChoice.enter and Coop.inSession() then
       CoopChoice.enter(name, target, f[4] == "a")
     else
       Team.SwitchSoldier(name, target)

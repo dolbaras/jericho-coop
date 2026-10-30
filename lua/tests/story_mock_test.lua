@@ -70,4 +70,18 @@ MapInit.player = {Name = "Church"}
 assert(St.doneMsg("Church", V3D(10, 0, 20)) == "sdone|Church|p|10|20", St.doneMsg("Church", V3D(10, 0, 20)))
 assert(St.doneMsg("Black", V3D(10, 0, 20)) == "sdone|Black")
 MapInit.player = nil
+-- an eviction by the story (no 4th field) is a plain switch: the locks of the game stay as they are and the
+-- choice's own "enter" (it lifts locks) is not used; a choice move (4th field) goes through it
+local switched, entered = {}, {}
+Team = {UnavaliablePlayers = {Rawlings = true}, SwitchSoldier = function(a, b) switched[#switched + 1] = a .. ">" .. b end}
+CoopChoice = {enter = function(a, b, act) entered[#entered + 1] = a .. ">" .. b .. (act and "+" or "") end}
+Coop.owners = {Black = 0}
+me = ents.Black
+St.onEvict({"evict", "Black", "Rawlings"})
+assert(switched[1] == "Black>Rawlings" and #entered == 0 and Team.UnavaliablePlayers.Rawlings == true, "story eviction: plain switch")
+St.onEvict({"evict", "Black", "Rawlings", "c"})
+assert(entered[1] == "Black>Rawlings" and #switched == 1, "choice move uses CoopChoice.enter")
+St.onEvict({"evict", "Black", "Rawlings", "a"})
+assert(entered[2] == "Black>Rawlings+", "choice move into a switched-off body asks for the activation")
+CoopChoice = nil
 print("story mock test ok")
