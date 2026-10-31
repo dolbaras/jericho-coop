@@ -60,14 +60,39 @@ A.FPMAP = {
   -- on a puppet (A.PUPPET_EVENTS); the other members have no third-person twin of the revive
   {"^Heal$", "ShotH", only = "Rawlings"},
   {"^Hit(%a+)$", "Hit"},
-  -- Gaps with no twin of their own (0.3.0, notes/smod-addons11-analysis.md section 4): the closest third-person action that has no
-  -- event of its own, so that something is seen. cfg.gapgestures = false: nothing (0.2.9).
+  -- Gaps with no third-person twin of their own (0.3.0, notes/smod-addons11-analysis.md section 4, anim-audit-030.md section 6): the
+  -- closest third-person action that has no event of its own, so that something is seen. `want` may be a list (the first the class has).
+  -- Switches: cfg.gapgestures = false turns every row off (0.2.9), and each group has its own (gaporders, gapmodes, gaplevers, gapfall,
+  -- gapqte); the third-person names below come from the action inventory (work/notes/actinv.txt), none carries a game event but the crouch
+  -- bookkeeping a crouching puppet already runs.
   --   * Cole pressing the mines' detonator (02_Activation) and picking a mine mode (ChooseModeInit): his Hack gesture (a device on the wrist)
   {"^Activation$", "Hack", only = "Cole", sw = "gapgestures"},
   {"^ChooseModeInit$", "Hack", only = "Cole", sw = "gapgestures"},
   --   * a reviver other than Rawlings (Team.CurePlayer plays the first-person Heal for every class; the game has no kneeling action): he
-  --     crouches (DuckRelaxInit, whose only event is the crouch bookkeeping a crouching puppet already runs); Coop.syncCrouch stands him up
+  --     crouches (DuckRelaxInit); Coop.syncCrouch stands him up
   {"^Heal$", "DuckRelaxInit", except = "Rawlings", sw = "gapgestures"},
+  --   * squad orders (OrderStop / OrderGo / OrderFollow, every class): one of the three idle gestures each (Relax1, Relax2, Relax0), so that
+  --     the three orders differ; there is no pointing or signalling action in the game
+  {"^OrderStop$", {"Relax1"}, sw = "gaporders"},
+  {"^OrderGo$", {"Relax2"}, sw = "gaporders"},
+  {"^OrderFollow$", {"Relax0"}, sw = "gaporders"},
+  --   * the fire-mode switch (SwitchUp1 / SwitchDown2 ...: Jones, Church, Cole): hands on the weapon, the reload action; Black's trick-shot
+  --     switch (SwitchModeON / OFF): an idle gesture
+  {"^SwitchUp%d$", {"Reload", "Reload0"}, sw = "gapmodes"},
+  {"^SwitchDown%d$", {"Reload", "Reload0"}, sw = "gapmodes"},
+  {"^SwitchMode", {"Relax1"}, only = "Black", sw = "gapmodes"},
+  --   * Cole attacking a pillbox and Delgado's levers and doors (MakeFP.CoolUse): an arm swing, Punch (the object plays its own action)
+  {"^AttackPillbox$", {"Punch"}, only = "Cole", sw = "gaplevers"},
+  {"^OpenPalancaA$", {"Punch"}, sw = "gaplevers"},
+  {"^ClosePalancaA$", {"Punch"}, sw = "gaplevers"},
+  {"^OpenLightDoor$", {"Punch"}, sw = "gaplevers"},
+  --   * landing from a fall (FallEnd): the body absorbs it crouching (the falling pose itself is the engine's)
+  {"^FallEnd$", {"DuckRelaxInit"}, sw = "gapfall"},
+  --   * the QTE strikes (the held body of a QTE): a win is a blow of his own, a loss a hit
+  {"^CultistaAttackWin$", {"Punch"}, sw = "gapqte"},
+  {"^MeleeAttackWin$", {"Punch"}, sw = "gapqte"},
+  {"^CultistaAttackLose$", {"HitStrong"}, sw = "gapqte"},
+  {"^MeleeAttackLose$", {"HitStrong"}, sw = "gapqte"},
 }
 -- first-person actions that are movement, posture or menus: no third-person counterpart needed
 local FP_QUIET = {"^Relax", "^Walk", "^Str", "^Back", "^Hide", "^Show", "^Duck", "^Turn", "^Shot", "^Aim", "^Order", "^Switch",
@@ -287,14 +312,24 @@ function A.syncFP(e, name, st)
   local own = Coop.ARM_BY_CHAR and Coop.ARM_BY_CHAR[name]
   if own then for pat in pairs(own) do if string.find(act, pat) then return end end end
   for _, m in ipairs(A.FPMAP) do
-    if string.find(act, m[1]) and (m.only == nil or m.only == name) and m.except ~= name and not (m.sw and cfg[m.sw] == false) then
+    if string.find(act, m[1]) and (m.only == nil or m.only == name) and m.except ~= name and
+       not (m.sw and (cfg[m.sw] == false or (m.sw ~= "gapgestures" and cfg.gapgestures == false))) then
       local want = m[2]
-      if string.find(tostring(st.action), "^Duck") then
+      if type(want) == "table" then
+        -- (a list: the first action the class has; none: nothing is played)
         local cls = actClass(e, name)
-        if hasAct(cls, "Duck" .. want) then want = "Duck" .. want end
-        if want == "DuckHit" then want = "HitDuck" end
+        local pick
+        for _, cand in ipairs(want) do if hasAct(cls, cand) then pick = cand break end end
+        want = pick
       end
-      A.play(e, name, want)
+      if want then
+        if string.find(tostring(st.action), "^Duck") then
+          local cls = actClass(e, name)
+          if hasAct(cls, "Duck" .. want) then want = "Duck" .. want end
+          if want == "DuckHit" then want = "HitDuck" end
+        end
+        A.play(e, name, want)
+      end
       return
     end
   end
@@ -402,6 +437,17 @@ function A.reportSlot(e, fpa, slot)
   local f = A.fpAct(fpa)
   if f and string.find(f, "^Special_") and f ~= "Special_From" then return 2 end
   return slot
+end
+
+-- A power message names a power whose caster has no first-person action to mirror (coop_powers.lua P.onPower calls this on the machines
+-- that watch): Rawlings' chamanic calm (pw|rm, thread Cole) is cast with the hands weapon and shows nothing but the aura; the hands'
+-- gesture of his heal (ShotH, whose cure event is dropped on puppets) is played. cfg.gapcalm = false or cfg.gapgestures = false: nothing.
+A.POWER_GESTURE = {rm = "ShotH"}
+function A.powerGesture(c, kind)
+  local want = A.POWER_GESTURE[kind]
+  if not want or cfg.gapgestures == false or cfg.gapcalm == false or not c then return end
+  if string.find(tostring(c.Action), "^Duck") and hasAct(actClass(c, c.Name), "Duck" .. want) then want = "Duck" .. want end
+  A.play(c, c.Name, want)
 end
 
 function A.noteFpMove(s, st)

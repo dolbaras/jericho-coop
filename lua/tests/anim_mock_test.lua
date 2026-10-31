@@ -14,8 +14,11 @@ local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, S
               HitStrong = 1, Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
               Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1, ShotH = 1, DuckShotH = 1, Combo1Hit1 = 1, Combo1Hit2 = 1}
 -- (actions only some classes have)
-local EXTRA = {Cole = {Hack = 1, DuckRelaxInit = 1}, Church = {DuckRelaxInit = 1}, Jones = {DuckRelaxInit = 1},
-               Delgado = {DuckShot1Init = 1, DuckShot1End = 1, DuckRelaxInit = 1}}
+local EXTRA = {Cole = {Hack = 1, DuckRelaxInit = 1, Punch = 1, Relax0 = 1, Relax1 = 1, Relax2 = 1},
+               Church = {DuckRelaxInit = 1, Punch = 1, Relax0 = 1, Relax1 = 1, Relax2 = 1},
+               Jones = {DuckRelaxInit = 1, Punch = 1, Relax0 = 1, Relax1 = 1, Relax2 = 1, Reload0 = 1},
+               Black = {DuckRelaxInit = 1, Punch = 1, Relax1 = 1, DuckRelax1 = 1},
+               Delgado = {DuckShot1Init = 1, DuckShot1End = 1, DuckRelaxInit = 1, Punch = 1, Relax1 = 1}}
 Act = {GetClass = function(n) return {GetAct = function(self, a) return (ACTS[a] or (EXTRA[n] and EXTRA[n][a])) and {} or nil end} end}
 
 -- the engine's tables the puppet-event guard wraps, and the entities it asks about
@@ -366,5 +369,69 @@ local ef2 = body("Church"); step(1)
 A.sync(ef2, "Church", {life = 100, action = "Sprint", fpa = "01_SkipWallInit"})
 assert(A.moveOverride("Church") ~= nil, "cfg.gapflourish=false: the old behaviour")
 Coop.cfg.gapflourish = nil
+
+-- 15. the rest of the gaps (orders, mode switches, levers, fall, QTE, calm): the closest event-free action, each group with its switch
+local function fp(name, fpa, action, extra)
+  local b = body(name); step(1)
+  A.state[name] = nil     -- (the same first-person name twice on one body is one action: a fresh body each time)
+  A.sync(b, name, {life = 100, action = action or "Relax", fpa = fpa})
+  return b
+end
+assert(fp("Jones", "01_OrderStop").ForceAction == "Relax1", "order stop")
+assert(fp("Jones", "01_OrderGo").ForceAction == "Relax2", "order go")
+assert(fp("Church", "02_OrderFollow").ForceAction == "Relax0", "order follow")
+assert(fp("Rawlings", "01_OrderStop").ForceAction == nil, "a class without the gesture: nothing")
+assert(fp("Jones", "01_SwitchUp2").ForceAction == "Reload", "fire mode switch (up)")
+assert(fp("Cole", "01_SwitchDown3").ForceAction == "Reload", "fire mode switch (down, Cole)")
+assert(fp("Jones", "01_Switch01_").ForceAction == nil, "a weapon switch is not a mode switch")
+assert(fp("Black", "02_SwitchModeON").ForceAction == "Relax1", "trick shot switch")
+assert(fp("Jones", "02_SwitchModeON").ForceAction == nil, "Black only")
+assert(fp("Cole", "01_AttackPillbox").ForceAction == "Punch", "pillbox")
+assert(fp("Delgado", "01_OpenPalancaA").ForceAction == "Punch", "lever")
+assert(fp("Delgado", "01_ClosePalancaA").ForceAction == "Punch", "lever back")
+assert(fp("Delgado", "01_OpenLightDoor").ForceAction == "Punch", "door")
+assert(fp("Church", "01_OpenPalancaA").ForceAction == "Punch", "(any class that has the first-person action)")
+assert(fp("Jones", "01_FallEnd").ForceAction == "DuckRelaxInit", "landing")
+assert(fp("Jones", "01_Fall").ForceAction == nil, "the falling pose is the engine's")
+assert(fp("Jones", "01_CultistaAttackWin").ForceAction == "Punch", "QTE win")
+assert(fp("Black", "01_MeleeAttackWin").ForceAction == "Punch", "QTE win (melee)")
+assert(fp("Church", "01_CultistaAttackLose").ForceAction == "HitStrong", "QTE loss")
+-- a crouched owner: the Duck variant when the class has it
+do
+  local b = body("Black"); step(1)
+  A.sync(b, "Black", {life = 100, action = "DuckRelax", fpa = "01_SwitchModeOFF"})
+  assert(b.ForceAction == "DuckRelax1", "crouched: " .. tostring(b.ForceAction))
+end
+-- switches: each group alone, then all
+local groups = {gaporders = "01_OrderStop", gapmodes = "01_SwitchUp1", gaplevers = "01_OpenPalancaA", gapfall = "01_FallEnd", gapqte = "01_CultistaAttackWin"}
+local who = {gaporders = "Jones", gapmodes = "Jones", gaplevers = "Delgado", gapfall = "Jones", gapqte = "Jones"}
+for sw, f in pairs(groups) do
+  Coop.cfg[sw] = false
+  assert(fp(who[sw], f).ForceAction == nil, sw .. " = false: nothing")
+  Coop.cfg[sw] = nil
+  assert(fp(who[sw], f).ForceAction ~= nil, sw .. " back on")
+end
+Coop.cfg.gapgestures = false
+for sw, f in pairs(groups) do assert(fp(who[sw], f).ForceAction == nil, "gapgestures = false covers " .. sw) end
+Coop.cfg.gapgestures = nil
+-- the unmapped log stays quiet for what is mapped, and the FP names that remain unmapped are still logged once
+assert(fp("Jones", "01_SomethingNew").ForceAction == nil)
+
+-- Rawlings' chamanic calm (a power message, no first-person action to mirror): his hands' gesture on the watching machine
+local er = body("Rawlings"); er.Action = "Relax"; step(1)
+ACTS.ShotH = 1; ACTS.DuckShotH = 1
+A.powerGesture(er, "rm")
+assert(er.ForceAction == "ShotH", "calm gesture: " .. tostring(er.ForceAction))
+local er2 = body("Rawlings"); er2.Action = "DuckRelax"; step(1)
+A.powerGesture(er2, "rm")
+assert(er2.ForceAction == "DuckShotH", "crouched calm gesture")
+local er3 = body("Rawlings"); step(1)
+A.powerGesture(er3, "rc")
+assert(er3.ForceAction == nil, "other powers: no gesture here")
+Coop.cfg.gapcalm = false
+local er4 = body("Rawlings"); step(1)
+A.powerGesture(er4, "rm")
+assert(er4.ForceAction == nil, "cfg.gapcalm = false")
+Coop.cfg.gapcalm = nil
 
 print("anim mock test: OK")

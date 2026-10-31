@@ -438,6 +438,7 @@ function P.onPower(peer, f, data)
     elseif kind == "rm" then
       local t = Game.GetEntity(f[4] or "")
       if t and P.o_WeaponsRawlingsCalm then P.o_WeaponsRawlingsCalm(c, t) end
+      if CoopAnim and CoopAnim.powerGesture then CoopAnim.powerGesture(c, kind) end   -- his hands' gesture (no first-person action names it)
     elseif kind == "rh" then
       local t = Game.GetEntity(f[4] or "")
       if t then
