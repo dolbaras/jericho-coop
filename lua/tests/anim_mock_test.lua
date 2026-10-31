@@ -15,6 +15,20 @@ local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, S
               Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1}
 Act = {GetClass = function(n) return {GetAct = function(self, a) return ACTS[a] and {} or nil end} end}
 
+-- the engine's tables the puppet-event guard wraps, and the entities it asks about
+local evCalls = {}
+local puppets = {Rawlings = true, Church = true}
+Game = {GetEntity = function(n)
+  if n == "0FP_Church" then return {Name = n, IsType = function(self, t) return t == "FP" end} end
+  return {Name = n, IsType = function() return false end}
+end}
+Coop.inSession = function() return true end
+Coop.isPuppet = function(n) return puppets[n] == true end
+WeaponsRawlings = {OnShotHeal = function(n) evCalls[#evCalls + 1] = "heal " .. tostring(n) end,
+                   OnDoVladsCourse = function() evCalls[#evCalls + 1] = "vlad" end}
+Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end}
+Church = {LoseLifeCutting = function(n) evCalls[#evCalls + 1] = "spell " .. tostring(n) end}
+
 dofile("coop_anim.lua")
 local A = CoopAnim
 
@@ -206,5 +220,33 @@ assert(ed.ForceAction ~= "Shot1EndAlt", "not before ARM_MAX")
 step(A.ARM_MAX)
 A.sync(ed, "Delgado", {life = 100, action = "Relax"})
 assert(ed.ForceAction == "Shot1EndAlt", "closed: " .. tostring(ed.ForceAction))
+
+-- 12. events of a power's twin do not run on a puppet (Rawlings' heal, ghost heal, Vlad's course; Church's spell), do for the rest
+puppets.Rawlings, puppets.Church = true, true
+Game = {GetEntity = function(n)
+  return {Name = n, IsType = function(self, t) return n == "0FP_Church" and t == "FP" end}
+end}
+local ep = body("Rawlings")
+A.sync(ep, "Rawlings", {life = 100, action = "Relax"})     -- (the guard is put on every frame)
+WeaponsRawlings.OnShotHeal("Rawlings", "CureGuy", 40)
+Rawlings.GhostHealShot("Rawlings")
+WeaponsRawlings.OnDoVladsCourse("Rawlings")
+Church.LoseLifeCutting("Church")
+assert(#evCalls == 0, "dropped on puppets: " .. table.concat(evCalls, ","))
+Church.LoseLifeCutting("0FP_Church")                       -- the owner's own first-person arms
+WeaponsRawlings.OnShotHeal("Black")                        -- a body that is not a puppet (the local player's, the host's AI)
+assert(#evCalls == 2 and evCalls[1] == "spell 0FP_Church" and evCalls[2] == "heal Black", "run for the rest: " .. table.concat(evCalls, ","))
+local wrappedHeal = WeaponsRawlings.OnShotHeal
+A.sync(ep, "Rawlings", {life = 100, action = "Relax"})
+assert(WeaponsRawlings.OnShotHeal == wrappedHeal, "wrapped once")
+-- the script table is built again (a player takes the character): wrapped again
+Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end}
+A.sync(ep, "Rawlings", {life = 100, action = "Relax"})
+Rawlings.GhostHealShot("Rawlings")
+assert(#evCalls == 2, "a rebuilt table is guarded again")
+Coop.cfg.puppetevents = true
+Rawlings.GhostHealShot("Rawlings")
+assert(#evCalls == 3, "cfg.puppetevents=true: the old behaviour")
+Coop.cfg.puppetevents = nil
 
 print("anim mock test: OK")

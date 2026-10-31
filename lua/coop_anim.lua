@@ -173,10 +173,50 @@ function A.installGrenade()
   end
 end
 
+-- Animation events whose function changes the game (a heal, a curse, the cost of a spell) run on a puppet's machine too, when the
+-- third-person twin of the owner's power is played there for show: Rawlings' heal hands (ShotH: WeaponsRawlings.OnShotHeal cures
+-- whoever the puppet's view meets and takes life from the puppet), the ghost heal (Rawlings.GhostHealShot calls the body's AI, which is
+-- off on a puppet) and Vlad's course (WeaponsRawlings.OnDoVladsCourse), Church's spell (Church.LoseLifeCutting takes life from the
+-- puppet and mutes the damage effects of this machine's player). The effect itself is the owner's machine's and arrives as a power
+-- message (pw|...); the twin is played, its event is not. cfg.puppetevents = true: the old behaviour.
+-- Black's telekinesis event (Black.UseTelePower) is not in the list: it only pushes this machine's copy of an enemy.
+-- {table, function, the body when the function takes no body name}
+A.PUPPET_EVENTS = {
+  {"WeaponsRawlings", "OnShotHeal"}, {"Rawlings", "GhostHealShot"}, {"WeaponsRawlings", "OnDoVladsCourse", "Rawlings"},
+  {"Church", "LoseLifeCutting"},
+}
+A.wrapped = A.wrapped or {}
+function A.guardEvents()
+  for _, d in ipairs(A.PUPPET_EVENTS) do
+    local tbl, fname, fixed = d[1], d[2], d[3]
+    local t = _G[tbl]
+    local key = tbl .. "." .. fname
+    -- (looked at every frame: a character's script table is built again when a player takes the character, which drops a wrapper)
+    if type(t) == "table" and type(t[fname]) == "function" and t[fname] ~= A.wrapped[key] then
+      local orig = t[fname]
+      local w = function(name, ...)
+        if cfg.puppetevents ~= true and Coop.inSession() and Coop.isPuppet then
+          local who = fixed or name
+          local ok, ent = pcall(Game.GetEntity, who)
+          if ok and ent and not ent:IsType("FP") and Coop.isPuppet(ent.Name) then
+            A.eventsDropped = (A.eventsDropped or 0) + 1
+            if A.eventsDropped <= 8 or cfg.animlog then Coop.log("anim: " .. key .. " dropped (puppet " .. ent.Name .. ", the owner's machine acts)") end
+            return
+          end
+        end
+        return orig(name, ...)
+      end
+      t[fname] = w
+      A.wrapped[key] = w
+    end
+  end
+end
+
 -- Every frame for every puppet that has a state (Coop.drivePuppets).
 function A.sync(e, name, st)
   local s = stOf(name)
   if not A.grenadeInstalled then A.installGrenade() end
+  A.guardEvents()
   if cfg.animtrace and string.find(cfg.animtrace, name, 1, true) then
     -- (dev: every change of the body's own action and of the owner's, with the time, to see what follows an Init/End action)
     local k = tostring(e.Action) .. "|" .. tostring(st.action) .. "|" .. tostring(e.DefLoop)

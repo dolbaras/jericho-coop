@@ -1039,7 +1039,18 @@ Coop.ARM_ACTIONS = {
   {"^Special_0Init$", "Shot1Init"}, {"^Special_0$", "Shot1"}, {"^Special_0End$", "Shot1End"},
   {"^Special", "Special1"},
 }
-Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
+-- (a character's own names are matched before the general ones; "" = shown by nothing: the name is a step of a power whose
+-- twin is played once, at its start)
+-- Rawlings (0.3.0): Special_0* is the ghost heal, Special_1* Vlad's course (rawlings.lua SpecialInit). The general rows took Special_0
+-- for the pistol's Shot1 (a shot of the fragmenting load, with its shot events) and replayed Special1 for each of the three steps.
+Coop.ARM_BY_CHAR = {
+  Black = {["^Special"] = "TKHit"},
+  Rawlings = {
+    ["^Special_0Init$"] = "ShotH_GH", ["^Special_0$"] = "", ["^Special_0End$"] = "", ["^Special_0Fail$"] = "",
+    ["^Special_1Init$"] = "Special1", ["^Special_1$"] = "", ["^Special_1End$"] = "",
+    ["^Special_To$"] = "", ["^Special_From$"] = "",
+  },
+}
 Coop.mirrored = {}
 function Coop.mirrorArms(e, name, st)
   if Coop.cfg.mirrorarms == false then return end
@@ -1053,6 +1064,7 @@ function Coop.mirrorArms(e, name, st)
   local own = Coop.ARM_BY_CHAR[name]
   if own then
     for pat, a in pairs(own) do if string.find(act, pat) then want = a end end
+    if want == "" then return end
   end
   if not want then
     for _, m in ipairs(Coop.ARM_ACTIONS) do
