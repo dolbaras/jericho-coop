@@ -67,7 +67,7 @@ Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
 "packaged $zip"
 if ($Exe) {
-    $mk = if ($Mkinstaller) { $Mkinstaller } else { Join-Path $root "..\..\..\tools\mkinstaller" }
+    $mk = if ($Mkinstaller) { $Mkinstaller } elseif (Test-Path -LiteralPath (Join-Path $root "tools\mkinstaller\mkinstaller.ps1")) { Join-Path $root "tools\mkinstaller" } else { Join-Path $root "..\..\..\tools\mkinstaller" }
     $mkScript = Join-Path $mk "mkinstaller.ps1"
     if (-not (Test-Path $mkScript)) { throw "tools\mkinstaller\mkinstaller.ps1 missing (the workspace's tools folder; -Mkinstaller <folder>)" }
     $exeOut = Join-Path $dist "jericho-coop-setup-$Version.exe"
