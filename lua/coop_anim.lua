@@ -53,9 +53,12 @@ A.FAMILIES = {"Stupid", "Trance", "Astral", "Possessed", "ShelterDown", "Shelter
 -- Coop.mirrorArms (Combo/Punch/Reload/Spell/Hack/Special_0*) does not map: Black's telekinesis
 -- combos, Cole's reequip, the hit reactions of a human body (the AI bodies' own Hit comes with the action).
 A.FPMAP = {
-  {"^TKCombo%d", "TKHit", Black = true},
+  {"^TKCombo%d", "TKHit", only = "Black"},
   {"^Reequip$", "Reequip"},
   {"^HitStrong$", "HitStrong"},
+  -- Rawlings reviving a teammate (Team.CurePlayer plays the first-person Heal): his heal-hands gesture, whose cure event does not run
+  -- on a puppet (A.PUPPET_EVENTS); the other members have no third-person twin of the revive
+  {"^Heal$", "ShotH", only = "Rawlings"},
   {"^Hit(%a+)$", "Hit"},
 }
 -- first-person actions that are movement, posture or menus: no third-person counterpart needed
@@ -271,7 +274,7 @@ function A.syncFP(e, name, st)
   local own = Coop.ARM_BY_CHAR and Coop.ARM_BY_CHAR[name]
   if own then for pat in pairs(own) do if string.find(act, pat) then return end end end
   for _, m in ipairs(A.FPMAP) do
-    if string.find(act, m[1]) and (m.Black == nil or name == "Black") then
+    if string.find(act, m[1]) and (m.only == nil or m.only == name) then
       local want = m[2]
       if string.find(tostring(st.action), "^Duck") then
         local cls = actClass(e, name)

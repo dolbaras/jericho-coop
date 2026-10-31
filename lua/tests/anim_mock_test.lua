@@ -12,7 +12,7 @@ Coop.ARM_ACTIONS = {{"^Combo(%d)Hit(%d)$", "x"}, {"^Punch", "Punch"}, {"^Reload"
 Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
 local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, StupidInit = 1, StupidEnd = 1, Shot1Init = 1,
               HitStrong = 1, Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
-              Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1}
+              Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1, ShotH = 1, DuckShotH = 1}
 Act = {GetClass = function(n) return {GetAct = function(self, a) return ACTS[a] and {} or nil end} end}
 
 -- the engine's tables the puppet-event guard wraps, and the entities it asks about
@@ -164,6 +164,13 @@ A.sync(e12, "Church", {life = 100, action = "Relax", fpa = "01_Mystery"})
 local n2 = 0
 for _, l in ipairs(logs) do if string.find(l, "Church:Mystery") then n2 = n2 + 1 end end
 assert(n2 == 1, "unmapped first-person action logged")
+-- Rawlings reviving: the heal gesture; another member's first-person Heal has no twin (nothing played)
+local e9r = body("Rawlings"); step(1)
+A.sync(e9r, "Rawlings", {life = 100, action = "Relax", fpa = "01_Heal"})
+assert(e9r.ForceAction == "ShotH", "Rawlings' revive gesture: " .. tostring(e9r.ForceAction))
+local e9c = body("Cole"); step(1)
+A.sync(e9c, "Cole", {life = 100, action = "Relax", fpa = "01_Heal"})
+assert(e9c.ForceAction == nil, "no twin for the others")
 -- 10. Delgado's release (AI body: the action arrives in the host's state)
 local e13 = body("Delgado"); step(1)
 A.sync(e13, "Delgado", {life = 100, action = "Shot1Init"})
