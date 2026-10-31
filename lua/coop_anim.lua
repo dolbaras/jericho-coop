@@ -244,7 +244,8 @@ function A.sync(e, name, st)
   local act = st.action
   if type(act) == "string" and act ~= s.last then
     s.last = act
-    if A.ONESHOT[act] then
+    -- (Church's sabre combos: his AI plays Combo1Hit1 / Combo1Hit2 on the body, the event OnFirstCombo chains the next strike by itself)
+    if A.ONESHOT[act] or string.find(act, "^Combo%dHit%d$") then
       A.play(e, name, act)
     elseif cfg.animlog or not A.isLoco(act) then
       A.unmapped = A.unmapped or {}
