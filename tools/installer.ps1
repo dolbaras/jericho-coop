@@ -22,6 +22,11 @@
 param([string] $Game = "", [switch] $Uninstall, [switch] $Quiet, [switch] $IgnoreRunning, [string] $Lang = "",
       [switch] $AutoClose, [switch] $NoShortcut, [string] $ShortcutDir = "")
 $ErrorActionPreference = "Stop"
+# The setup exe (jericho-coop-setup-<version>.exe, tools\mkinstaller) unpacks this installer into a temp folder and says where it
+# lies (COOP_SETUP_DIR: the game is looked for there too) and which file to write as the first act (COOP_SETUP_FLAG: a failed run
+# without it = PowerShell never ran the script, the exe says so).
+if ($env:COOP_SETUP_FLAG -and -not $Quiet) { try { [IO.File]::WriteAllText($env:COOP_SETUP_FLAG, "1") } catch { } }
+$script:setupDir = if ($env:COOP_SETUP_DIR -and (Test-Path -LiteralPath $env:COOP_SETUP_DIR -PathType Container)) { $env:COOP_SETUP_DIR } else { $null }
 $here = $PSScriptRoot
 $payload = Join-Path $here "files"
 # The window's texts by key, per language ({0}, {1}... filled in from L's arguments). Not $S:
@@ -618,7 +623,7 @@ function Test-Game($dir) {
 # Candidate game folders, most likely first.
 function Find-Games {
     $c = New-Object System.Collections.Generic.List[string]
-    foreach ($d in @($here, (Split-Path $here -Parent))) { if ($d) { $c.Add($d) } }
+    foreach ($d in @($here, (Split-Path $here -Parent), $script:setupDir)) { if ($d) { $c.Add($d) } }
     $keys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
               "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
               "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*")

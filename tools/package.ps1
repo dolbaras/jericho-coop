@@ -7,15 +7,20 @@
 # files\coop\steam_api.dll (Steam joining, native/steam_net.c) comes from
 # <workspace>\tools\steam: Steamworks.NET Standalone 2025.164.1, Windows-x86, SHA-256 checked.
 # Run native\build.sh first. The test helpers (dev.lua, probe.lua) are left out.
-# Usage: package.ps1 -Version 0.2
-param([Parameter(Mandatory)] [string] $Version)
+# Usage: package.ps1 -Version 0.2 [-Exe] [-Dist <folder>]
+# -Exe also builds dist\jericho-coop-setup-<version>.exe: a single-file installer that carries this zip (an ADDITIONAL release
+# asset; the zip stays the one the shortcut's launcher updates from). Made by <workspace>\tools\mkinstaller (-Mkinstaller <folder>
+# for a clone placed elsewhere); the exe is unsigned. -Dist: write to that folder instead of dist\ (tests: dist\ holds the published zips).
+param([Parameter(Mandatory)] [string] $Version, [switch] $Exe, [string] $Mkinstaller = "", [string] $Dist = "")
 $root = Split-Path $PSScriptRoot -Parent
 # Players of different versions are kept apart by Coop.VERSION (lobby check): it must be this one.
 $luaVersion = (Select-String -Path (Join-Path $root "lua\coop.lua") -Pattern '^Coop.VERSION = "([^"]+)"').Matches[0].Groups[1].Value
 if ($luaVersion -ne $Version) { throw "lua\coop.lua has Coop.VERSION = $luaVersion, not $Version" }
 $dll = Join-Path $root "native\build\dinput8.dll"
 if (-not (Test-Path $dll)) { throw "build native\build\dinput8.dll first (sh native/build.sh)" }
-$stage = Join-Path $root "dist\jericho-coop-$Version"
+$dist = if ($Dist) { $Dist } else { Join-Path $root "dist" }
+New-Item -ItemType Directory -Force $dist | Out-Null
+$stage = Join-Path $dist "jericho-coop-$Version"
 $files = Join-Path $stage "files"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $files "bin"), (Join-Path $files "coop") | Out-Null
@@ -56,8 +61,17 @@ Copy-Item (Join-Path $root "docs\release-readme.txt") (Join-Path $stage "README-
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $stage "LICENSE.txt")
 Copy-Item (Join-Path $root "docs\enet-license.txt") (Join-Path $stage "ENET-LICENSE.txt")
 Copy-Item (Join-Path $root "docs\steam-notice.txt") (Join-Path $stage "STEAM-NOTICE.txt")
-$zip = Join-Path $root "dist\jericho-coop-$Version.zip"
+$zip = Join-Path $dist "jericho-coop-$Version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
 "packaged $zip"
+if ($Exe) {
+    $mk = if ($Mkinstaller) { $Mkinstaller } else { Join-Path $root "..\..\..\tools\mkinstaller" }
+    $mkScript = Join-Path $mk "mkinstaller.ps1"
+    if (-not (Test-Path $mkScript)) { throw "tools\mkinstaller\mkinstaller.ps1 missing (the workspace's tools folder; -Mkinstaller <folder>)" }
+    $exeOut = Join-Path $dist "jericho-coop-setup-$Version.exe"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mkScript -Zip $zip -Out $exeOut -Product "Jericho Co-op+" -Version $Version `
+        -Description "Jericho Co-op+ installer" -TempPrefix "jericho-coop-setup" -Accent "c42830"
+    if ($LASTEXITCODE -ne 0) { throw "mkinstaller.ps1 failed" }
+}

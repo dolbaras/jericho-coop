@@ -20,8 +20,10 @@ so the auto-update keeps working.
 
 Status: **0.2.9**: movement of other players' characters and enemies on the joining PC is smoother (a measured path through the host's states instead of 20 Hz steps), enemy fire now reaches a joining player (flames, missiles, melee blows, bosses' attacks), the squad choice screen is at every story split (Act 1, Brandenburg with its after-choice effects checked in the game, the pillboxes, the abyss, the final; also on split screen), squad bodies are solid, doors and invisible blockers are the same on every PC, the "puppet flies / stuck / snaps" storm is fixed, more ally animations are shown (cover, dazed, trance, possession, the dragon arm) and the spectator camera keeps clear of walls and reads A / D and the mouse; the last five logs are kept (`coop.1.log` ... `coop.4.log`). Still open: a few attacks and boss fights were not seen in a real fight (full list in the release notes); the installer updates every earlier version, 0.1.0 included (see [Releases](https://github.com/dolbaras/jericho-coop/releases/latest)). Each fix was run in the game, mostly on two PCs, the exceptions are named in the release notes; the
 complete regression (the whole campaign, every split, every older version through the installer) was run on the final code: passed (33 of 33 levels, every split, the Lost Patrol, every older version updated and removed); not run: a real Steam session; by people, missions 1-8 so far.
-Download `jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat`: it finds
-the game, keeps a copy of every file it replaces, updates an older version in place and can
+Download `jericho-coop-setup-<version>.exe` and run it (one file, nothing to extract; it is not
+code-signed, so Windows SmartScreen may warn: "More info" -> "Run anyway"), or download
+`jericho-coop-<version>.zip`, extract it anywhere and run `Install Co-op.bat` (the same installer): it
+finds the game, keeps a copy of every file it replaces, updates an older version in place and can
 uninstall. From 0.2.3 the installer's shortcut ("Jericho Co-op+", desktop and Start menu) checks
 GitHub before each start and installs a newer release by itself (`docs/releasing.md`).
 Details, network ports and how to report a bug are in `README-COOP.txt` inside the zip

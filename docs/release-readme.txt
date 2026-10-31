@@ -24,8 +24,11 @@ Requirements
 - Every player needs the same mod version (the lobby says so when they differ).
 
 Install
-1. Extract the archive anywhere and run "Install Co-op.bat". It finds the game folder (or asks
-   for it), keeps a copy of every file it replaces (in <game>\coop-backup) and installs the mod.
+1. Run "jericho-coop-setup-<version>.exe" (one file, nothing to extract: it unpacks itself into a
+   temporary folder, starts the installer and deletes the folder afterwards), or extract the .zip
+   anywhere and run "Install Co-op.bat" (the same installer). It finds the game folder (or asks
+   for it; the exe also looks in the folder it lies in), keeps a copy of every file it replaces
+   (in <game>\coop-backup) and installs the mod.
    Its window shows each step and a progress bar; building the cutscene animations from your
    game files takes 2-5 minutes (the minutes left are shown). Running it again updates the mod
    or removes it. It updates any earlier version of the mod, from the first test build (0.1.0)
@@ -34,6 +37,15 @@ Install
 2. Start the game with the "Jericho Co-op+" shortcut the installer puts on the desktop and in the
    Start menu (the game's icon with a red co-op badge), or as usual. The main menu has a
    "Co-op" entry.
+The setup exe is NOT digitally signed (the project has no code-signing certificate): Windows
+SmartScreen will probably say "Windows protected your PC" ("More info" -> "Run anyway") and an
+antivirus may complain about a self-unpacking program. It holds exactly the same .zip as the
+release (its SHA-256 is on the release page; nothing is downloaded, no game files are inside) and
+only unpacks it into %TEMP%, starts the PowerShell installer from there and deletes the folder
+afterwards. To look inside first, run it from a command prompt as
+"jericho-coop-setup-<version>.exe --extract <empty folder>": it only unpacks, nothing is started.
+If the exe is blocked, the .zip + "Install Co-op.bat" does the same. A message box appears when it
+cannot unpack, when PowerShell cannot be started or when the installer window did not start.
 Updates: the shortcut first asks GitHub for the newest release of the mod (a second or two;
 offline, the game simply starts). When there is a newer one, it downloads it (checked against
 the release's SHA-256), runs its installer for your game folder and then starts the game. A log
@@ -258,9 +270,11 @@ game draws, in memory, and writes nothing until F11.
   этом скажет).
 
 Установка
-1. Распакуйте архив куда угодно и запустите «Install Co-op.bat». Он сам найдёт папку игры (или
-   спросит её), сохранит копию каждого файла, который заменяет (в <папка игры>\coop-backup), и
-   установит мод. В его окне видны шаги и полоса прогресса; сборка анимаций катсцен из ваших
+1. Запустите «jericho-coop-setup-<версия>.exe» (один файл, ничего распаковывать не нужно: он сам
+   распаковывается во временную папку, запускает установщик и потом удаляет папку) или распакуйте
+   .zip куда угодно и запустите «Install Co-op.bat» (тот же установщик). Он сам найдёт папку игры
+   (или спросит её; exe ищет игру и в той папке, где лежит), сохранит копию каждого файла, который
+   заменяет (в <папка игры>\coop-backup), и установит мод. В его окне видны шаги и полоса прогресса; сборка анимаций катсцен из ваших
    файлов игры занимает 2-5 минут (показано, сколько осталось). Повторный запуск обновляет мод
    или удаляет его. Он обновляет любую прежнюю версию мода, начиная с первой тестовой (0.1.0),
    не оставляя её файлов. Язык окна — как у Windows (английский, русский, немецкий, французский,
@@ -268,6 +282,15 @@ game draws, in memory, and writes nothing until F11.
 2. Запускайте игру ярлыком «Jericho Co-op+», который установщик кладёт на рабочий стол и в меню
    «Пуск» (значок игры с красным знаком коопа), или как обычно. В главном меню появится пункт
    «Совместная игра».
+Установочный exe БЕЗ цифровой подписи (у проекта нет сертификата для подписи кода): SmartScreen
+Windows, скорее всего, напишет «Windows защитила ваш компьютер» («Подробнее» -> «Выполнить в
+любом случае»), а антивирус может ругаться на самораспаковывающуюся программу. В нём ровно тот же
+.zip, что и в выпуске (SHA-256 указан на странице выпуска; ничего не скачивается, файлов игры
+внутри нет); он только распаковывает его в %TEMP%, запускает оттуда PowerShell-установщик и потом
+удаляет папку. Чтобы заглянуть внутрь заранее, запустите его из командной строки:
+«jericho-coop-setup-<версия>.exe --extract <пустая папка>» - он только распакует, ничего не
+запускается. Если exe блокируется, то же делает .zip + «Install Co-op.bat». Окно с сообщением
+появится, если распаковать не удалось, PowerShell не запустился или окно установщика не открылось.
 Обновления: ярлык сначала спрашивает у GitHub, вышла ли новая версия мода (секунда-две; без
 интернета игра просто запускается). Если вышла, он скачивает её (с проверкой по SHA-256
 выпуска), запускает её установщик для вашей папки игры и только потом запускает игру. Журнал —
