@@ -84,4 +84,39 @@ clock = clock + 1
 A.driveFire(pc, "Cole", {shot = 1, modes = "2320"})
 assert(slots[0].ShotReloadPrefix == "" and slots[1].ShotReloadPrefix == "2", "pistol load is Rawlings' only")
 
+-- 7. a firing puppet keeps its magazines loaded (a pistol of 6 rounds, a launcher of 1), a silent one is left alone
+local function slotsOf(a, b) return {[0] = a, [1] = b} end
+local function mag(load, max, loaded, supply) return {oType = {AmmoLoad = load, MaxAmmoSupply = max}, AmmoLoaded = loaded, AmmoSupply = supply} end
+local sl = slotsOf(mag(25, 1000, 0, 800), mag(6, 50, 0, 3))
+local pd = {Name = "Delgado", owc = {Shot = 0}, oWeapCtrl = {Slot = function(self, i) return sl[i] end}}
+clock = clock + 1
+A.driveFire(pd, "Delgado", {shot = 0, sec = false})
+assert(sl[0].AmmoLoaded == 0 and sl[1].AmmoLoaded == 0, "a puppet that does not fire is not touched")
+A.driveFire(pd, "Delgado", {shot = 0, sec = true})
+assert(sl[0].AmmoLoaded == 25 and sl[1].AmmoLoaded == 6, "loaded while the second trigger is held")
+assert(sl[0].AmmoSupply == 800 and sl[1].AmmoSupply == 50, "a low supply is refilled, a high one left: " .. sl[1].AmmoSupply)
+sl[1].AmmoLoaded = 0
+A.driveFire(pd, "Delgado", {shot = 1})
+assert(sl[1].AmmoLoaded == 0, "looked at again only after 0.2 s")
+clock = clock + 0.25
+A.driveFire(pd, "Delgado", {shot = 1})
+assert(sl[1].AmmoLoaded == 6, "refilled again")
+-- a single-round launcher is refilled when empty, a magazine with rounds left is not
+local sg = slotsOf(mag(5, 50, 3, 50), mag(1, 10, 0, 10))
+local pb = {Name = "Black", owc = {Shot = 0}, oWeapCtrl = {Slot = function(self, i) return sg[i] end}}
+clock = clock + 1
+A.driveFire(pb, "Black", {sec = true})
+assert(sg[0].AmmoLoaded == 3 and sg[1].AmmoLoaded == 1, "grenade launcher reloaded, the sniper's 3 rounds kept")
+-- a blade (no magazine) and the switch
+local sw = slotsOf(mag(45, 500, 45, 500), mag(0, 0, 0, 0))
+local pch = {Name = "Church", owc = {Shot = 0}, oWeapCtrl = {Slot = function(self, i) return sw[i] end}}
+clock = clock + 1
+A.driveFire(pch, "Church", {shot = 1})
+assert(sw[1].AmmoLoaded == 0 and sw[1].AmmoSupply == 0, "the sabre has no magazine")
+Coop.cfg.puppetammo = false
+sl[1].AmmoLoaded = 0; clock = clock + 1
+A.driveFire(pd, "Delgado", {shot = 1})
+assert(sl[1].AmmoLoaded == 0, "cfg.puppetammo=false")
+Coop.cfg.puppetammo = nil
+
 print("fire mock test ok")

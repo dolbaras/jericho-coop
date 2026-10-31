@@ -410,6 +410,38 @@ function A.driveFire(e, name, sst)
     end)
   end
   A.applyModes(e, name, sst.modes)
+  if (sst.shot or 0) > 0.5 or sst.sec then A.keepAmmo(e, name) end
+end
+
+-- A puppet fires on its own ammo: the engine takes a round from the magazine for every shot it plays, and nothing refilled it (the
+-- owner's reloads are shown as an animation, they do not reload the copy). A pistol magazine (Delgado's six rounds, Black's single
+-- grenade, Rawlings' 15) ran dry within seconds of firing and the puppet then stood with its weapon up and no shot, which is what a
+-- watcher sees as "no animation at all". Its rounds do not matter (its damage is dropped), so the two slots are kept loaded
+-- while it fires. cfg.puppetammo = false: the old behaviour.
+A.AMMO_EVERY = 0.2   -- s between two looks at a firing puppet's magazines
+function A.keepAmmo(e, name)
+  if cfg.puppetammo == false then return end
+  local s = stOf(name)
+  local t = now()
+  if s.ammoT and t - s.ammoT < A.AMMO_EVERY then return end
+  s.ammoT = t
+  local wc = e.oWeapCtrl
+  if not wc then return end
+  for i = 0, 1 do
+    pcall(function()
+      local slt = wc:Slot(i)
+      local typ = slt.oType
+      local load = tonumber(typ.AmmoLoad) or 0
+      if load <= 0 then return end   -- (a blade: nothing to load)
+      if (tonumber(slt.AmmoLoaded) or load) < math.min(2, load) then
+        slt.AmmoLoaded = load
+        A.ammoFills = (A.ammoFills or 0) + 1
+        if A.ammoFills <= 10 or cfg.animlog then Coop.log("anim: " .. name .. "'s slot " .. i .. " magazine refilled (puppet)") end
+      end
+      local max = tonumber(typ.MaxAmmoSupply) or 0
+      if max > 0 and (tonumber(slt.AmmoSupply) or max) < load then slt.AmmoSupply = max end
+    end)
+  end
 end
 
 -- Weapon modes (0.3.0). What a shot looks like depends on settings of the weapon slot that live on the body and were never
