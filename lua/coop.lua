@@ -1033,9 +1033,13 @@ end
 -- their first-person arms play ("<weapon set>_<action>", e.g. "01_Combo1Hit1", "02_Reload");
 -- the body plays the matching third-person action once, when the class has it (owner's Steam
 -- test, 0.2.1: the host saw nothing of a client's melee or powers; shots already showed).
+-- The third-person reload of a body is Reload for the first weapon and Reload0 for the second one whose weapon type has the suffix "0"
+-- (ReloadShotSufix: Delgado's Raging Bull, Black's grenade launcher, the shotguns of Jones and Ross; Delgado has no plain Reload
+-- at all, so his pistol reload showed nothing), ReloadE for Rawlings' fragmenting and explosive loads (FP Reload2 / Reload3).
+-- (CoopAnim.reloadAction: coop_anim.lua)
 Coop.ARM_ACTIONS = {
   {"^Combo(%d)Hit(%d)$", function(c, cls, a, b) return cls:GetAct("Combo" .. a .. "Hit" .. b) and ("Combo" .. a .. "Hit" .. b) or "Punch" end},
-  {"^Punch", "Punch"}, {"^Reload", "Reload"}, {"^Spell", "Spell"}, {"^Hack", "Hack"},
+  {"^Punch", "Punch"}, {"^Reload(%d?)", function(...) return CoopAnim.reloadAction(...) end}, {"^Spell", "Spell"}, {"^Hack", "Hack"},
   {"^Special_0Init$", "Shot1Init"}, {"^Special_0$", "Shot1"}, {"^Special_0End$", "Shot1End"},
   {"^Special", "Special1"},
 }
@@ -1070,7 +1074,7 @@ function Coop.mirrorArms(e, name, st)
     for _, m in ipairs(Coop.ARM_ACTIONS) do
       local caps = {string.match(act, m[1])}
       if caps[1] then
-        want = type(m[2]) == "function" and m[2](name, cls, caps[1], caps[2]) or m[2]
+        want = type(m[2]) == "function" and m[2](name, cls, caps[1], caps[2], string.match(fpa, "^(%d+)_")) or m[2]
         break
       end
     end

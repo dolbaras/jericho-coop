@@ -119,4 +119,19 @@ A.driveFire(pd, "Delgado", {shot = 1})
 assert(sl[1].AmmoLoaded == 0, "cfg.puppetammo=false")
 Coop.cfg.puppetammo = nil
 
+-- 8. which third-person reload a first-person reload is (Delgado has Reload0 only; Rawlings' fragmenting loads are ReloadE)
+local function cls(...)
+  local have = {}
+  for _, n in ipairs({...}) do have[n] = true end
+  return {GetAct = function(self, n) return have[n] and {} or nil end}
+end
+assert(A.reloadAction("Delgado", cls("Reload0", "DuckReload0"), "", nil, "02") == "Reload0", "Delgado's pistol")
+assert(A.reloadAction("Black", cls("Reload", "Reload0"), "", nil, "02") == "Reload0", "Black's grenade launcher")
+assert(A.reloadAction("Black", cls("Reload", "Reload0"), "", nil, "01") == "Reload", "Black's sniper")
+assert(A.reloadAction("Jones", cls("Reload", "Reload0"), "", nil, "02") == "Reload0", "Jones' shotgun")
+assert(A.reloadAction("Cole", cls("Reload"), "", nil, "02") == "Reload", "Cole has one reload")
+assert(A.reloadAction("Rawlings", cls("Reload", "Reload0", "ReloadE"), "", nil, "02") == "Reload", "Rawlings' left pistol is a plain reload")
+assert(A.reloadAction("Rawlings", cls("Reload", "Reload0", "ReloadE"), "2", nil, "01") == "ReloadE", "fragmenting load")
+assert(A.reloadAction("Church", cls("Reload"), "", nil, "02") == "Reload", "Church")
+
 print("fire mock test ok")

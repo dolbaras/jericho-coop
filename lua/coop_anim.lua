@@ -545,3 +545,11 @@ function A.applyModes(e, name, modes)
     if pf ~= "-" and name == "Rawlings" then A.setPistolLoad(e, i, pf) end
   end
 end
+
+-- Reload action of a first-person reload (Coop.mirrorArms: the Reload row of Coop.ARM_ACTIONS), see the note there.
+A.RELOAD0_SET2 = {Delgado = true, Black = true, Jones = true, Ross = true}
+function A.reloadAction(name, cls, load, _, set)
+  if load ~= "" and cls:GetAct("ReloadE") then return "ReloadE" end
+  if set == "02" and A.RELOAD0_SET2[name] and cls:GetAct("Reload0") then return "Reload0" end
+  return "Reload"
+end
