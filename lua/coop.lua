@@ -470,6 +470,9 @@ function Coop.stateOf(e)
     e.Name, p.x, p.y, p.z, a.y, va.x, e.InCtrl_Walk or 0, e.InCtrl_Str or 0,
     e.InCtrl_Sprint or 0, e.Life or 0, tostring(e.Action), shot > 0.5 and 1 or 0, flash and 1 or 0,
     Coop.stateSeq, Net.CoopTime(), slot, (string.gsub(fpa, "|", "")), on, okfd and fd or 0, okym and ymd or 0)
+    -- (the 22nd: the second weapon's trigger, 0.3.0. The weapons that fire on a switch (Black's grenade launcher, Delgado's
+    -- Raging Bull, Rawlings' pistols) are fired with it, not with the main trigger the 13th field carries)
+    .. "|" .. ((CoopAnim and CoopAnim.stateFire) and CoopAnim.stateFire(e) or "0")
 end
 
 -- A puppet of a body the host runs is switched on or off as there: host-only story code
@@ -591,7 +594,10 @@ function Coop.releasePuppet(e)
   e.InCtrl_Str = 0
   e.InCtrl_Sprint = 0
   e.InCtrl_Crouch = 0
-  if e.owc then e.owc.Shot = 0 end
+  if e.owc then
+    e.owc.Shot = 0
+    pcall(function() e.owc.SecondWeaponTrigger = 0 end)
+  end
   if e.oAI then e.oAI.bEnable = true end
   -- Back to the engine: collision on, and actions move bodies again.
   if Coop.puppetNoCollide and Coop.puppetNoCollide[e.Name] ~= nil then
@@ -1464,7 +1470,8 @@ function Coop.drivePuppets(dt)
         -- from the newest one they ran ahead of the body by the interpolation delay (0.1-0.2 s: the flash and
         -- the tracer left a body that had not turned yet). cfg.shotnewest: the old way.
         local sst = cfg.shotnewest and st or tg.st
-        if e.owc then e.owc.Shot = sst.shot or 0 end
+        if CoopAnim and CoopAnim.driveFire then CoopAnim.driveFire(e, name, sst)
+        elseif e.owc then e.owc.Shot = sst.shot or 0 end
         Coop.syncSlot(e, sst.slot)
         Coop.mirrorArms(e, name, sst)
         -- (coop_anim.lua may override the inputs: a body held in a state (dazed, trance, astral, possessed) does not walk, the
@@ -1694,6 +1701,7 @@ function Coop.onMessage(peer, data)
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
       raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
       fpa = f[18],
+      sec = f[22] == "1",
     }
     if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
     local fd = tonumber(f[20])

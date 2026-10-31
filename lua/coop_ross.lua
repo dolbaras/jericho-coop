@@ -165,12 +165,18 @@ function R.update(view, p2)
     end
     -- His shots and weapon, for show: the stand-in's hits are dropped (coop_enemies.lua).
     if st then
-      if e.owc then e.owc.Shot = st.shot or 0 end
+      if CoopAnim and CoopAnim.driveFire then CoopAnim.driveFire(e, "Ross", st)
+      elseif e.owc then e.owc.Shot = st.shot or 0 end
       Coop.syncSlot(e, st.slot)
       -- (his strikes, reloads: his body's action stays Relax for them, as any player's)
       Coop.mirrorArms(e, "Ross", st)
     elseif ai then
-      if e.owc and r.owc then e.owc.Shot = r.owc.Shot or 0 end
+      if e.owc and r.owc then
+        e.owc.Shot = r.owc.Shot or 0
+        if CoopAnim and CoopAnim.driveFire then
+          CoopAnim.driveFire(e, "Ross", {shot = r.owc.Shot or 0, sec = CoopAnim.stateFire(r) == "1"})
+        end
+      end
       local wc = r.oWeapCtrl
       if wc and wc.iSlot then Coop.syncSlot(e, tonumber(wc.iSlot)) end
     end

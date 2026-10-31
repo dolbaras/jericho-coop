@@ -381,3 +381,32 @@ function A.play(e, name, act, force)
   A.plays = (A.plays or 0) + 1
   if A.plays <= 60 or cfg.animlog then Coop.log("anim: " .. name .. " plays " .. act) end
 end
+
+------------------------------------------------------------------------------
+-- Fire controls of a body (0.3.0, owner: "pistol shots show no animation", "Black's shots are synced in one mode only").
+-- The state carries the main trigger (owc.Shot, 13th field) and, from 0.3.0, the second weapon's trigger
+-- (owc.SecondWeaponTrigger, 22nd field). The weapons that fire on a switch (bFPShotOnSwitch: Black's grenade launcher,
+-- all three of Delgado's, Rawlings' pistols and hands) are fired with the second trigger: the body changes to the
+-- second weapon (the slot field) and shoots while it is held, and the main trigger stays 0. A puppet only had the
+-- main trigger, so it took the weapon in hand and never fired it.
+------------------------------------------------------------------------------
+
+-- The 22nd state field of a body (a string): "1" while the second trigger is held.
+function A.stateFire(e)
+  local ok, v = pcall(function() return e.owc and tonumber(e.owc.SecondWeaponTrigger) end)
+  return (ok and v and v > 0.5) and "1" or "0"
+end
+
+-- What a puppet's triggers are, every frame (Coop.drivePuppets): the drawn state's main and second trigger.
+-- cfg.puppetsecond = false: the main trigger only (0.2.9).
+function A.driveFire(e, name, sst)
+  local owc = e.owc
+  if not owc then return end
+  owc.Shot = sst.shot or 0
+  if cfg.puppetsecond ~= false then
+    local want = sst.sec and 1 or 0
+    pcall(function()
+      if tonumber(owc.SecondWeaponTrigger) ~= want then owc.SecondWeaponTrigger = want end
+    end)
+  end
+end
