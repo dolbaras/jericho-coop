@@ -60,6 +60,14 @@ A.FPMAP = {
   -- on a puppet (A.PUPPET_EVENTS); the other members have no third-person twin of the revive
   {"^Heal$", "ShotH", only = "Rawlings"},
   {"^Hit(%a+)$", "Hit"},
+  -- Gaps with no twin of their own (0.3.0, notes/smod-addons11-analysis.md section 4): the closest third-person action that has no
+  -- event of its own, so that something is seen. cfg.gapgestures = false: nothing (0.2.9).
+  --   * Cole pressing the mines' detonator (02_Activation) and picking a mine mode (ChooseModeInit): his Hack gesture (a device on the wrist)
+  {"^Activation$", "Hack", only = "Cole", sw = "gapgestures"},
+  {"^ChooseModeInit$", "Hack", only = "Cole", sw = "gapgestures"},
+  --   * a reviver other than Rawlings (Team.CurePlayer plays the first-person Heal for every class; the game has no kneeling action): he
+  --     crouches (DuckRelaxInit, whose only event is the crouch bookkeeping a crouching puppet already runs); Coop.syncCrouch stands him up
+  {"^Heal$", "DuckRelaxInit", except = "Rawlings", sw = "gapgestures"},
 }
 -- first-person actions that are movement, posture or menus: no third-person counterpart needed
 local FP_QUIET = {"^Relax", "^Walk", "^Str", "^Back", "^Hide", "^Show", "^Duck", "^Turn", "^Shot", "^Aim", "^Order", "^Switch",
@@ -187,6 +195,9 @@ end
 A.PUPPET_EVENTS = {
   {"WeaponsRawlings", "OnShotHeal"}, {"Rawlings", "GhostHealShot"}, {"WeaponsRawlings", "OnDoVladsCourse", "Rawlings"},
   {"Church", "LoseLifeCutting"},
+  -- SMOD Add-ons (coop_addon.lua) point the events of Rawlings' Special1 / DuckSpecial1 at their own function (the curse of a
+  -- player in third person); it exists only with the add-ons, the guard skips what is not there
+  {"Rawlings", "TPVladsCourse", "Rawlings"},
 }
 A.wrapped = A.wrapped or {}
 function A.guardEvents()
@@ -236,6 +247,7 @@ function A.sync(e, name, st)
   elseif life and life > 0 and (tonumber(e.Life) or 1) > 0 then
     s.downT, s.reviveT, s.seenDown = nil, nil, nil
   end
+  A.gapArm(e, name, st, s)
   A.dragonArm(e, name, st, s)
   A.syncFP(e, name, st)
   A.noteFpMove(s, st)
@@ -275,7 +287,7 @@ function A.syncFP(e, name, st)
   local own = Coop.ARM_BY_CHAR and Coop.ARM_BY_CHAR[name]
   if own then for pat in pairs(own) do if string.find(act, pat) then return end end end
   for _, m in ipairs(A.FPMAP) do
-    if string.find(act, m[1]) and (m.only == nil or m.only == name) then
+    if string.find(act, m[1]) and (m.only == nil or m.only == name) and m.except ~= name and not (m.sw and cfg[m.sw] == false) then
       local want = m[2]
       if string.find(tostring(st.action), "^Duck") then
         local cls = actClass(e, name)
@@ -300,22 +312,96 @@ end
 -- Shot1EndAlt). If that never comes (a lost abby message, a spirit that cannot reach its target here) the arm would stay open:
 -- when the owner's body has been out of Shot1* for ARM_MAX s and the puppet still holds it, it is closed.
 A.ARM_MAX = 6
+A.ARM_FAST = 0.5   -- s: the owner's arm is closing and no spirit is out (the fire barrier of a player; SMOD Add-ons' third-person Delgado)
+
+-- The name of a first-person action without its weapon set ("01_Special_Relax" -> "Special_Relax"), nil for "-" or none.
+function A.fpAct(fpa)
+  if type(fpa) ~= "string" or fpa == "-" or fpa == "" then return nil end
+  return string.match(fpa, "^%d+_(.+)$") or fpa
+end
+
+-- Is Delgado's spirit out (the Ababanili entity of this body flies)?
+local function spiritOut(e)
+  local ok, out = pcall(function()
+    local ab = Game.GetEntity(e.uData.ababaniliName)
+    return ab and ab.uData and ab.uData.IsOut == true
+  end)
+  return ok and out == true
+end
+
+-- The owner's Delgado keeps his arm open: his body is in Shot1* (the AI, or a player in third person) or his first-person arms are in a
+-- Special_* step other than the closing Special_From (a player in first person: the dragon's steps and the barrier's Special_Relax).
+local function ownerArmOpen(st)
+  local owner = tostring(st.action)
+  if string.find(owner, "Shot1") and not string.find(owner, "^Shot1End") and not string.find(owner, "^DuckShot1End") then return true end
+  local f = A.fpAct(st.fpa)
+  return f ~= nil and string.find(f, "^Special_") ~= nil and f ~= "Special_From"
+end
+
 function A.dragonArm(e, name, st, s)
   local mine = tostring(e.Action)
   local open = string.find(mine, "^Shot1") or string.find(mine, "^DuckShot1")
-  local owner = tostring(st.action)
-  if not open or string.find(owner, "Shot1") then s.armSince = nil return end
+  -- (a closing action is playing: left to finish)
+  if open and (string.find(mine, "^Shot1End") or string.find(mine, "^DuckShot1End")) then s.armSince = nil return end
+  if not open or (cfg.gaparm ~= false and ownerArmOpen(st)) or (cfg.gaparm == false and string.find(tostring(st.action), "Shot1")) then
+    s.armSince = nil
+    return
+  end
   local t = now()
   s.armSince = s.armSince or t
-  if t - s.armSince < A.ARM_MAX then return end
+  local limit = A.ARM_MAX
+  local owner = tostring(st.action)
+  if cfg.gaparm ~= false and (string.find(owner, "^Shot1End") or string.find(owner, "^DuckShot1End") or A.fpAct(st.fpa) == "Special_From")
+     and not spiritOut(e) then
+    limit = A.ARM_FAST
+  end
+  if t - s.armSince < limit then return end
   s.armSince = nil
   local cls = actClass(e, name)
   local end_ = string.find(mine, "^Duck") and "DuckShot1End" or "Shot1EndAlt"
   if hasAct(cls, end_) and (tonumber(e.Life) or 1) > 0 then
     e.ForceAction = end_
     A.armCloses = (A.armCloses or 0) + 1
-    if A.armCloses <= 10 or cfg.animlog then Coop.log("anim: " .. name .. "'s open arm closed after " .. A.ARM_MAX .. " s (no spirit arrival)") end
+    if A.armCloses <= 10 or cfg.animlog then Coop.log("anim: " .. name .. "'s open arm closed after " .. string.format("%.1f", limit) .. " s (no spirit arrival)") end
   end
+end
+
+-- Delgado's fire barrier (0.3.0). A player in first person holds the barrier with his arms open (FP Special_To -> Special_Relax, the
+-- body keeps its own action) and the game has no third-person visual for it: its only third-person twin is the arm that opens for
+-- the dragon (Shot1Init, held in Shot1), which is what SMOD Add-ons' third-person Delgado plays for the barrier too
+-- (Delgado.PressSpecialPlus there: slot 2, ForceAction Shot1Init, back with Shot1EndAlt). The arm opens on Special_Relax (the
+-- dragon's own step, Special_0Init, is mapped by Coop.mirrorArms) and closes when the arms leave Special_* (Special_From), the
+-- spirit's return having closed it otherwise (Ababanili.OnAbabaniliArrived). cfg.gaparm = false: the 0.2.9 behaviour.
+function A.gapArm(e, name, st, s)
+  if name ~= "Delgado" or cfg.gaparm == false then return end
+  local f = A.fpAct(st.fpa)
+  if f == s.lastArmFp then return end
+  s.lastArmFp = f
+  local mine = tostring(e.Action)
+  local isOpen = string.find(mine, "^Shot1") or string.find(mine, "^DuckShot1")
+  if f == "Special_Relax" and not isOpen then
+    A.play(e, name, string.find(tostring(st.action), "^Duck") and "DuckShot1Init" or "Shot1Init", true)
+  elseif f == "Special_From" and isOpen and not string.find(mine, "End") and not spiritOut(e) then
+    local want = string.find(mine, "^Duck") and "DuckShot1End" or "Shot1EndAlt"
+    if hasAct(actClass(e, name), want) and (tonumber(e.Life) or 1) > 0 then
+      e.ForceAction = want
+      Coop.mirrorT = Coop.mirrorT or {}
+      Coop.mirrorT[name] = now()
+      A.armCloses = (A.armCloses or 0) + 1
+      if A.armCloses <= 10 or cfg.animlog then Coop.log("anim: " .. name .. "'s arm closed (the owner's arms left the barrier)") end
+    end
+  end
+end
+
+-- The weapon slot a body reports (the 17th state field): a Delgado whose first-person arms are in a Special_* step holds the Ababanili
+-- as a weapon there, slot 2, as the AI Delgado does for the same third-person action and SMOD Add-ons' third-person one (iDesiredSlot = 2
+-- before Shot1Init). The watcher's puppet takes the slot the state names (Coop.syncSlot), so the arm it plays is the one the engine shows
+-- for that weapon. cfg.gapslot = false: the real slot.
+function A.reportSlot(e, fpa, slot)
+  if cfg.gapslot == false or e.Name ~= "Delgado" or (tonumber(slot) or -1) >= 2 then return slot end
+  local f = A.fpAct(fpa)
+  if f and string.find(f, "^Special_") and f ~= "Special_From" then return 2 end
+  return slot
 end
 
 function A.noteFpMove(s, st)
@@ -324,6 +410,14 @@ function A.noteFpMove(s, st)
   local act = string.match(fpa, "^%d+_(.+)$") or fpa
   for _, p in ipairs(A.FP_MOVES) do
     if string.find(act, p) then
+      -- SMOD Add-ons play a SkipWallInit flourish of the arms at every sprint start (GaitToggle.SprintStartFlourish): the body is running
+      -- then, and a run on the spot over its real stride (forward, no strafe) would cut the stride for 0.35 s. A real climb leaves the
+      -- body's own action at Relax (above).
+      local body = tostring(st.action)
+      if cfg.gapflourish ~= false and (string.find(body, "^Sprint") or string.find(body, "^Run") or string.find(body, "^Walk") or
+                                       string.find(body, "^Str") or string.find(body, "^Back")) then
+        return
+      end
       if not (s.moveUntil and now() < s.moveUntil) then
         A.fpMoves = (A.fpMoves or 0) + 1
         if A.fpMoves <= 20 or cfg.animlog then Coop.log("anim: first-person " .. act .. " shown as a run on the spot") end

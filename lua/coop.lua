@@ -454,6 +454,8 @@ function Coop.stateOf(e)
   local fp = e.FPSEntity and e.FPSEntity ~= "" and Game.GetEntity(e.FPSEntity)
   local fpa = fp and fp.Action
   if type(fpa) ~= "string" or fpa == "" then fpa = "-" end
+  -- (a Delgado whose arms hold the barrier or release the dragon reports the Ababanili's slot, CoopAnim.reportSlot)
+  if CoopAnim and CoopAnim.reportSlot then slot = CoopAnim.reportSlot(e, fpa, slot) end
   -- Switched on or off by the story ("-": not said): the host's word for the bodies it runs.
   local on = "-"
   -- (not while a scene plays here: scenes hide the squad for themselves)
@@ -2717,6 +2719,7 @@ function Coop.update()
   pcall(Coop.displayNotice)
   pcall(Coop.watchControl)
   if CoopSmod and CoopSmod.update then CoopSmod.update() end
+  if CoopAddon and CoopAddon.update then CoopAddon.update() end
   if Coop.inSession() then
     local ok, err = pcall(Coop.reclaimBody)
     if not ok and (Coop.reclaimErrors or 0) < 3 then
@@ -2985,6 +2988,9 @@ end
 do
   local ok, err = pcall(dofile, COOP_DIR .. "coop_smod.lua")
   if not ok then Coop.log("smod load error: " .. tostring(err)) end
+  -- SMOD Add-ons (PHM2D) on top of SMOD: the third-person view and the rest, found by their own globals.
+  ok, err = pcall(dofile, COOP_DIR .. "coop_addon.lua")
+  if not ok then Coop.log("addon load error: " .. tostring(err)) end
   -- Split screen in one game: off at every load, on again in a level with a player 2.
   ok, err = pcall(dofile, COOP_DIR .. "coop_split.lua")
   if not ok then Coop.log("split load error: " .. tostring(err)) end

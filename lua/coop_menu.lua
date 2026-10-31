@@ -32,6 +32,7 @@ CoopMenu.LEVELS = {
 CoopMenu.levelIndex = CoopMenu.levelIndex or 1
 CoopMenu.seats = {}        -- list of {peer=, char=, ready=}
 CoopMenu.smodPeers = {}    -- peers that have SMOD (coop_smod.lua), the host's view
+CoopMenu.addonPeers = {}   -- of those, the ones that have SMOD Add-ons too (coop_addon.lua)
 CoopMenu.screen = nil      -- "root", "host", "join", "lobby"
 
 ------------------------------------------------------------------------------
@@ -512,6 +513,7 @@ function CoopMenu.ConnectSteam(lobby, name)
   cfg.myId = nil
   CoopMenu.seats = {}
   CoopMenu.smodPeers = {}
+  CoopMenu.addonPeers = {}
   CoopMenu.Lobby()
 end
 
@@ -595,6 +597,7 @@ function CoopMenu.Connect()
   cfg.myId = nil
   CoopMenu.seats = {}
   CoopMenu.smodPeers = {}
+  CoopMenu.addonPeers = {}
   CoopMenu.Lobby()
 end
 
@@ -755,6 +758,8 @@ function CoopMenu.refreshLobby()
         local ross = s.peer == 0 and string.find(string.lower(level or ""), "^alk_") and CoopMenu.charName("Ross") .. " -> " or ""
         local pp = Coop.peerOf(s.peer)
         local smod = (pp == 0 and Coop.isHost() and CoopMenu.hostSmod() or CoopMenu.smodPeers[pp]) and " [SMOD]" or ""
+        -- (the add-ons' balance and controls are their own: SMOD+ tells who plays with them)
+        if smod ~= "" and (pp == 0 and Coop.isHost() and CoopAddon and CoopAddon.present() or CoopMenu.addonPeers[pp]) then smod = " [SMOD+]" end
         local tail = smod .. (s.ready and "  - " .. T("is_ready") or "")
         -- A long nickname: drop "(you)", then Ross, then shorten the name, until it fits.
         CoopMenu.setLine(i, CoopMenu.fit({
@@ -1064,6 +1069,7 @@ function CoopMenu.Leave()
   cfg.myId = nil
   CoopMenu.seats = {}
   CoopMenu.smodPeers = {}
+  CoopMenu.addonPeers = {}
   CoopMenu.Root()
 end
 
@@ -1071,7 +1077,10 @@ function CoopMenu.broadcastLobby()
   if not Coop.isHost() or CoopMenu.screen ~= "lobby" and CoopMenu.screen ~= "host" then return end
   local smod = {}
   for _, s in ipairs(CoopMenu.seats) do
-    if s.peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer] then smod[#smod + 1] = s.peer end
+    if s.peer == 0 and CoopMenu.hostSmod() or CoopMenu.smodPeers[s.peer] then
+      local plus = (s.peer == 0 and CoopAddon and CoopAddon.present() or CoopMenu.addonPeers[s.peer]) and "+" or ""
+      smod[#smod + 1] = s.peer .. plus
+    end
   end
   Net.CoopSend(-1, 1, "lobby|" .. CoopMenu.LEVELS[CoopMenu.levelIndex] .. "|" .. CoopMenu.seatsString() ..
                "|" .. (CoopMenu.continueRec and 1 or 0) .. "|" .. table.concat(smod, ","))
@@ -1177,6 +1186,7 @@ function CoopMenu.onLeave(peer)
       if s.peer == peer + Coop.P2 then table.remove(CoopMenu.seats, i) break end
     end
     CoopMenu.smodPeers[peer] = nil
+    CoopMenu.addonPeers[peer] = nil
     CoopMenu.broadcastLobby()
   elseif peer == 0 and not CoopMenu.wasFull then
     CoopMenu.Root()
@@ -1232,8 +1242,11 @@ function CoopMenu.onMessage(peer, f)
     end
     CoopMenu.seats = CoopMenu.parseSeats(f[3])
     cfg.continuing = f[4] == "1" or nil
-    CoopMenu.smodPeers = {}
-    for id in string.gmatch(f[5] or "", "%d+") do CoopMenu.smodPeers[tonumber(id)] = true end
+    CoopMenu.smodPeers, CoopMenu.addonPeers = {}, {}
+    for id, plus in string.gmatch(f[5] or "", "(%d+)(%+?)") do
+      CoopMenu.smodPeers[tonumber(id)] = true
+      if plus == "+" then CoopMenu.addonPeers[tonumber(id)] = true end
+    end
     return true
   elseif kind == "start" and Coop.isClient() then
     Coop.log("lobby: host started " .. f[2] .. " (" .. table.concat(f, " ", 4) .. ")")
@@ -1255,10 +1268,11 @@ function CoopMenu.onMessage(peer, f)
     cfg.myId = tonumber(f[2])
     Net.CoopSend(0, 1, "ver|" .. Coop.VERSION)
     Net.CoopSend(0, 1, "nick|" .. CoopMenu.myNick())
-    if CoopMenu.hostSmod() then Net.CoopSend(0, 1, "smod|1") end
+    if CoopMenu.hostSmod() then Net.CoopSend(0, 1, "smod|1" .. (CoopAddon and CoopAddon.present() and "|a" or "")) end
     return true
   elseif kind == "smod" and Coop.isHost() then
     CoopMenu.smodPeers[peer] = f[2] == "1" or nil
+    CoopMenu.addonPeers[peer] = (f[2] == "1" and f[3] == "a") or nil
     Coop.log("lobby: peer " .. peer .. " has SMOD")
     CoopMenu.broadcastLobby()
     CoopMenu.refreshLobby()

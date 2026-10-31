@@ -41,6 +41,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows did not allow writing to the game folder without administrator rights."
         "installed_now_co_op" = "Installed now: co-op "
         "smod_found" = "SMOD found."
+        "smod_addons_found" = "SMOD Add-ons found: they stay as they are."
         "original_kept" = "Original kept: "
         "copied_file_s" = "Copied {0} file(s)."
         "already_large_address_aware" = "Already large address aware: "
@@ -118,6 +119,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows не разрешила запись в папку игры без прав администратора."
         "installed_now_co_op" = "Сейчас установлен кооп "
         "smod_found" = "Найден SMOD."
+        "smod_addons_found" = "Найдены SMOD Add-ons: они остаются как есть."
         "original_kept" = "Оригинал сохранён: "
         "copied_file_s" = "Скопировано файлов: {0}."
         "already_large_address_aware" = "Флаг уже стоит: "
@@ -195,6 +197,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows hat das Schreiben in den Spielordner ohne Administratorrechte nicht erlaubt."
         "installed_now_co_op" = "Derzeit installiert: Koop "
         "smod_found" = "SMOD gefunden."
+        "smod_addons_found" = "SMOD Add-ons gefunden: sie bleiben unverändert."
         "original_kept" = "Original gesichert: "
         "copied_file_s" = "{0} Datei(en) kopiert."
         "already_large_address_aware" = "Bereits Large Address Aware: "
@@ -272,6 +275,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows n'a pas autorisé l'écriture dans le dossier du jeu sans droits d'administrateur."
         "installed_now_co_op" = "Installé actuellement: coop "
         "smod_found" = "SMOD détecté."
+        "smod_addons_found" = "SMOD Add-ons détectés: ils restent tels quels."
         "original_kept" = "Original conservé: "
         "copied_file_s" = "{0} fichier(s) copié(s)."
         "already_large_address_aware" = "Déjà large address aware: "
@@ -349,6 +353,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows no permitió escribir en la carpeta del juego sin permisos de administrador."
         "installed_now_co_op" = "Instalado ahora: cooperativo "
         "smod_found" = "SMOD encontrado."
+        "smod_addons_found" = "SMOD Add-ons encontrados: se quedan como están."
         "original_kept" = "Original conservado: "
         "copied_file_s" = "Archivos copiados: {0}."
         "already_large_address_aware" = "Ya es large address aware: "
@@ -426,6 +431,7 @@ $script:TEXTS = @{
         "no_admin" = "Windows non ha consentito di scrivere nella cartella del gioco senza diritti di amministratore."
         "installed_now_co_op" = "Installato ora: co-op "
         "smod_found" = "SMOD rilevato."
+        "smod_addons_found" = "SMOD Add-ons rilevati: restano come sono."
         "original_kept" = "Originale conservato: "
         "copied_file_s" = "Copiati {0} file."
         "already_large_address_aware" = "Già large address aware: "
@@ -1109,6 +1115,10 @@ function Do-Install($g) {
     $bad = Join-Path $g "coop-backup\bin\dinput8.dll"
     if (Is-CoopDll $bad) { Remove-Item -LiteralPath $bad -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")) { Ui-Log (L "smod_found") }
+    # SMOD Add-ons (PHM2D, on top of SMOD): their loose scripts and autoexec.lua are the player's own and are never touched or
+    # copied; the mod finds them at run time (coop_addon.lua). Told here so that the log shows what the install found.
+    $addonTeam = Join-Path $g "scripts\chars\team.lc"
+    if ((Test-Path -LiteralPath $addonTeam) -and (Select-String -LiteralPath $addonTeam -Pattern "ReviveCooldownTime" -SimpleMatch -Quiet)) { Ui-Log (L "smod_addons_found") }
     Ui-Step "check" "done"
 
     Ui-Step "copy" "run"

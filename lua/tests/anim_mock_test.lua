@@ -13,7 +13,10 @@ Coop.ARM_BY_CHAR = {Black = {["^Special"] = "TKHit"}}
 local ACTS = {TKHit = 1, Reequip = 1, ShelterDownInit = 1, ShelterDownEnd = 1, StupidInit = 1, StupidEnd = 1, Shot1Init = 1,
               HitStrong = 1, Agony = 1, AgonyInit = 1, AgonyEnd = 1, Agony2 = 1, Agony2Init = 1, Agony2End = 1, HitStrong = 1, Hit = 1,
               Reload = 1, Relax = 1, Run = 1, Shot1EndAlt = 1, ShotH = 1, DuckShotH = 1, Combo1Hit1 = 1, Combo1Hit2 = 1}
-Act = {GetClass = function(n) return {GetAct = function(self, a) return ACTS[a] and {} or nil end} end}
+-- (actions only some classes have)
+local EXTRA = {Cole = {Hack = 1, DuckRelaxInit = 1}, Church = {DuckRelaxInit = 1}, Jones = {DuckRelaxInit = 1},
+               Delgado = {DuckShot1Init = 1, DuckShot1End = 1, DuckRelaxInit = 1}}
+Act = {GetClass = function(n) return {GetAct = function(self, a) return (ACTS[a] or (EXTRA[n] and EXTRA[n][a])) and {} or nil end} end}
 
 -- the engine's tables the puppet-event guard wraps, and the entities it asks about
 local evCalls = {}
@@ -26,7 +29,8 @@ Coop.inSession = function() return true end
 Coop.isPuppet = function(n) return puppets[n] == true end
 WeaponsRawlings = {OnShotHeal = function(n) evCalls[#evCalls + 1] = "heal " .. tostring(n) end,
                    OnDoVladsCourse = function() evCalls[#evCalls + 1] = "vlad" end}
-Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end}
+Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end,
+            TPVladsCourse = function(n) evCalls[#evCalls + 1] = "tpvlad " .. tostring(n) end}
 Church = {LoseLifeCutting = function(n) evCalls[#evCalls + 1] = "spell " .. tostring(n) end}
 
 dofile("coop_anim.lua")
@@ -170,7 +174,12 @@ A.sync(e9r, "Rawlings", {life = 100, action = "Relax", fpa = "01_Heal"})
 assert(e9r.ForceAction == "ShotH", "Rawlings' revive gesture: " .. tostring(e9r.ForceAction))
 local e9c = body("Cole"); step(1)
 A.sync(e9c, "Cole", {life = 100, action = "Relax", fpa = "01_Heal"})
-assert(e9c.ForceAction == nil, "no twin for the others")
+assert(e9c.ForceAction == "DuckRelaxInit", "the others kneel (no twin of the revive): " .. tostring(e9c.ForceAction))
+Coop.cfg.gapgestures = false
+local e9d = body("Church"); step(1)
+A.sync(e9d, "Church", {life = 100, action = "Relax", fpa = "01_Heal"})
+assert(e9d.ForceAction == nil, "cfg.gapgestures=false: nothing")
+Coop.cfg.gapgestures = nil
 -- the AI Church's sabre strikes (third-person combo actions) are played once each
 local e9s = body("Church"); step(1)
 A.sync(e9s, "Church", {life = 100, action = "Combo1Hit1"})
@@ -254,13 +263,108 @@ local wrappedHeal = WeaponsRawlings.OnShotHeal
 A.sync(ep, "Rawlings", {life = 100, action = "Relax"})
 assert(WeaponsRawlings.OnShotHeal == wrappedHeal, "wrapped once")
 -- the script table is built again (a player takes the character): wrapped again
-Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end}
+Rawlings = {GhostHealShot = function(n) evCalls[#evCalls + 1] = "ghost " .. tostring(n) end,
+            TPVladsCourse = function(n) evCalls[#evCalls + 1] = "tpvlad " .. tostring(n) end}
 A.sync(ep, "Rawlings", {life = 100, action = "Relax"})
 Rawlings.GhostHealShot("Rawlings")
-assert(#evCalls == 2, "a rebuilt table is guarded again")
+-- SMOD Add-ons point the events of Special1 at Rawlings.TPVladsCourse: dropped on a puppet as well
+Rawlings.TPVladsCourse("Rawlings")
+assert(#evCalls == 2, "a rebuilt table is guarded again, the add-ons' curse too: " .. table.concat(evCalls, ","))
+puppets.Rawlings = false
+Rawlings.TPVladsCourse("Rawlings")
+assert(#evCalls == 3 and evCalls[3] == "tpvlad Rawlings", "the own player's curse runs")
+puppets.Rawlings = true
+table.remove(evCalls)
 Coop.cfg.puppetevents = true
 Rawlings.GhostHealShot("Rawlings")
 assert(#evCalls == 3, "cfg.puppetevents=true: the old behaviour")
 Coop.cfg.puppetevents = nil
+
+-- 14. gaps with no twin of their own (0.3.0)
+-- Cole's mine detonator and mode pick: his Hack gesture (once per burst)
+Game = {GetEntity = function(n) return {Name = n, IsType = function() return false end} end}
+local ec = body("Cole"); step(1)
+A.sync(ec, "Cole", {life = 100, action = "Relax", fpa = "02_Activation"})
+assert(ec.ForceAction == "Hack", "detonation: " .. tostring(ec.ForceAction))
+local ec2 = body("Cole"); step(1)
+A.sync(ec2, "Cole", {life = 100, action = "Relax", fpa = "01_ChooseModeInit"})
+assert(ec2.ForceAction == "Hack", "mine mode pick")
+local ec3 = body("Church"); step(1)
+A.sync(ec3, "Church", {life = 100, action = "Relax", fpa = "02_Activation"})
+assert(ec3.ForceAction == nil, "only Cole")
+Coop.cfg.gapgestures = false
+local ec4 = body("Cole"); step(1)
+A.sync(ec4, "Cole", {life = 100, action = "Relax", fpa = "02_Activation"})
+assert(ec4.ForceAction == nil, "switch off")
+Coop.cfg.gapgestures = nil
+
+-- Delgado's fire barrier: the arm opens on Special_Relax, stays open while the arms hold it, closes on Special_From
+local eb = body("Delgado"); step(1)
+A.sync(eb, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_To"})
+assert(eb.ForceAction == nil, "Special_To alone opens nothing (the dragon's own step is Special_0Init)")
+A.sync(eb, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_Relax"})
+assert(eb.ForceAction == "Shot1Init", "the barrier opens the arm: " .. tostring(eb.ForceAction))
+eb.ForceAction = nil; eb.Action = "Shot1"
+A.sync(eb, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_Relax"})
+assert(eb.ForceAction == nil, "once")
+step(A.ARM_MAX + 3)
+A.sync(eb, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_Relax"})
+assert(eb.ForceAction == nil, "held: not closed by the timeout while the arms hold the barrier")
+A.sync(eb, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_From"})
+assert(eb.ForceAction == "Shot1EndAlt", "released: the arm closes at once: " .. tostring(eb.ForceAction))
+-- crouched owner: the Duck pair
+local ebd = body("Delgado"); step(1)
+A.sync(ebd, "Delgado", {life = 100, action = "DuckRelax", fpa = "01_Special_Relax"})
+assert(ebd.ForceAction == "DuckShot1Init", "crouched: " .. tostring(ebd.ForceAction))
+-- the dragon's flight (spirit out): Special_From does not close the arm, the spirit's return does
+local es = body("Delgado"); es.Action = "Shot1"; es.uData = {ababaniliName = "Abby"}; step(1)
+local savedGet = Game.GetEntity
+Game = {GetEntity = function(n) if n == "Abby" then return {Name = n, uData = {IsOut = true}} end return savedGet(n) end}
+A.sync(es, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_0"})
+A.sync(es, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_From"})
+assert(es.ForceAction == nil, "spirit out: left to its arrival")
+Game = {GetEntity = savedGet}
+-- a player in third person (SMOD Add-ons) plays Shot1Init ... Shot1EndAlt on his own body: the puppet's arm closes soon after
+local et = body("Delgado"); et.Action = "Shot1"; step(1)
+A.sync(et, "Delgado", {life = 100, action = "Shot1"}); step(A.ARM_FAST + 0.2)
+A.sync(et, "Delgado", {life = 100, action = "Shot1"})
+assert(et.ForceAction ~= "Shot1EndAlt", "still held")
+A.sync(et, "Delgado", {life = 100, action = "Shot1EndAlt"})
+step(A.ARM_FAST + 0.2)
+A.sync(et, "Delgado", {life = 100, action = "Shot1EndAlt"})
+assert(et.ForceAction == "Shot1EndAlt", "closes within ARM_FAST: " .. tostring(et.ForceAction))
+-- its closing action playing: not forced again
+local ep2 = body("Delgado"); ep2.Action = "Shot1EndAlt"; step(1)
+A.sync(ep2, "Delgado", {life = 100, action = "Relax"}); step(A.ARM_MAX + 1)
+A.sync(ep2, "Delgado", {life = 100, action = "Relax"})
+assert(ep2.ForceAction == nil, "no second close over a closing arm")
+Coop.cfg.gaparm = false
+local eo = body("Delgado"); step(1)
+A.sync(eo, "Delgado", {life = 100, action = "Relax", fpa = "01_Special_Relax"})
+assert(eo.ForceAction == nil, "cfg.gaparm=false: the 0.2.9 behaviour")
+Coop.cfg.gaparm = nil
+
+-- the slot an owner reports: the Ababanili's (2) while his arms are in a Special_* step
+assert(A.reportSlot({Name = "Delgado"}, "01_Special_Relax", 0) == 2)
+assert(A.reportSlot({Name = "Delgado"}, "02_Special_0Init", 1) == 2)
+assert(A.reportSlot({Name = "Delgado"}, "01_Special_From", 2) == 2, "(a slot already 2 stays)")
+assert(A.reportSlot({Name = "Delgado"}, "01_Special_From", 0) == 0, "the closing step is not a hold")
+assert(A.reportSlot({Name = "Delgado"}, "01_Relax", 0) == 0 and A.reportSlot({Name = "Delgado"}, "-", 1) == 1)
+assert(A.reportSlot({Name = "Cole"}, "01_Special_Relax", 0) == 0, "Delgado only")
+Coop.cfg.gapslot = false
+assert(A.reportSlot({Name = "Delgado"}, "01_Special_Relax", 0) == 0, "switch off")
+Coop.cfg.gapslot = nil
+
+-- SMOD Add-ons' sprint flourish (SkipWallInit while running) is no climb; a real climb (body in Relax) still is
+local ef = body("Jones"); step(1)
+A.sync(ef, "Jones", {life = 100, action = "Sprint", fpa = "01_SkipWallInit"})
+assert(A.moveOverride("Jones") == nil, "a flourish while sprinting is not a move")
+A.sync(ef, "Jones", {life = 100, action = "Relax", fpa = "01_SkipWallInit"})
+assert(A.moveOverride("Jones") ~= nil, "a real climb is")
+Coop.cfg.gapflourish = false
+local ef2 = body("Church"); step(1)
+A.sync(ef2, "Church", {life = 100, action = "Sprint", fpa = "01_SkipWallInit"})
+assert(A.moveOverride("Church") ~= nil, "cfg.gapflourish=false: the old behaviour")
+Coop.cfg.gapflourish = nil
 
 print("anim mock test: OK")
