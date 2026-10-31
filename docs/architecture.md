@@ -119,7 +119,7 @@ Test and development keys (set only through `JERICHO_COOP_CFG`): `auto`, `steamj
 experimental scene body). Feature switches, on unless set to `false`: `aspect`, `framecap`,
 `syncactive`, `mirrorarms`, `puppetlights`, `hazardlocal`, `retarget`, `rejoin`,
 `syncblockers`, `syncprops`, `squadlead`, `souls`, `storyturn`, `fpbodyfix`, `menulabel`,
-`rossbody`, `smodcam`, `gapgestures`, `gaparm`, `gapslot`, `gapflourish`; off unless `true`: `puppetai`, `puppetcollide`,
+`rossbody`, `smodcam`, `gapgestures` (master of the puppet gesture fillers), `gaporders`, `gapmodes`, `gaplevers`, `gapfall`, `gapqte`, `gapcalm`, `gaparm`, `gapslot`, `gapflourish`; off unless `true`: `puppetai`, `puppetcollide`,
 `addonslowmo`, `addonqte` (SMOD Add-ons, `coop_addon.lua`; `addontp = false` forbids their third-person view in a session). `dev.lua` reads about
 150 more (`cfg.trigger`, `cfg.campaignstep`, ...), all its own.
 

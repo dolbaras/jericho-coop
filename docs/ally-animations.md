@@ -258,7 +258,10 @@ gaps of `anim-audit-030.md` section 2:
   reviver other than Rawlings (`Heal`) kneels (`DuckRelaxInit`): `A.FPMAP` rows, switch `cfg.gapgestures`;
 - no twin exists, even in the add-ons' third-person view: orders, the fire-mode switch gesture, Cole's mine mode LEDs, the pillbox, Delgado's
   levers and doors, Black's trick-shot switch, falling, Rawlings' shaman calm, the QTE strikes. The add-ons' third-person revive
-  (`Team.CurePlayerTP`) is explicitly "no animation".
+  (`Team.CurePlayerTP`) is explicitly "no animation". Each of these now shows the closest event-free action on the watcher's puppet (0.3.0, `A.FPMAP`, on by default):
+  orders `Relax1`/`Relax2`/`Relax0`, fire-mode switch `Reload`, trick-shot switch `Relax1`, levers / doors / pillbox `Punch`, landing `DuckRelaxInit`, QTE win `Punch` / loss `HitStrong`,
+  Rawlings' calm `ShotH` (from the `pw|rm` message, `A.powerGesture`). Switches `gapgestures` (all), `gaporders`, `gapmodes`, `gaplevers`, `gapfall`, `gapqte`, `gapcalm`.
+  Credit: the third-person recipes (dragon / barrier / ghost heal / curse) were read from PHM2D's SMOD Add-ons.
 - the events of Rawlings' Special1 are pointed at `Rawlings.TPVladsCourse` by the add-ons: guarded on puppets (`A.PUPPET_EVENTS`);
   their SkipWallInit flourish at every sprint start is no climb (`A.noteFpMove`).
 All of it is mock-tested only; live checks are in the analysis (tests G1-G6, A5).
