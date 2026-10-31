@@ -409,4 +409,67 @@ function A.driveFire(e, name, sst)
       if tonumber(owc.SecondWeaponTrigger) ~= want then owc.SecondWeaponTrigger = want end
     end)
   end
+  A.applyModes(e, name, sst.modes)
+end
+
+-- Weapon modes (0.3.0). What a shot looks like depends on settings of the weapon slot that live on the body and were never
+-- sent: the fire mode of the machine guns (Jones, Church, Cole: semi / burst / auto, "Weap_Slot0<i>ShootMode", set from the
+-- reload menu) and Rawlings' pistol load (standard / fragmenting / explosive: the slot's ShotReloadPrefix "" / "2" / "3",
+-- which picks the third-person action Shot / Shot2 (ShotE) / Shot3 and the rate). A puppet stayed on the defaults, so a held
+-- trigger showed one shot in semi mode, or the plain pistol shot for a load the owner had switched.
+-- The 23rd state field: four characters, per slot 0 and 1 the fire mode ("0".."2", "-" unreadable) and Rawlings' load ("0" standard,
+-- "2", "3"; "-" for every other body).
+function A.stateModes(e)
+  local out = {}
+  for i = 0, 1 do
+    local sm, pf = "-", "-"
+    pcall(function()
+      local v = tonumber(e["Weap_Slot0" .. i .. "ShootMode"])
+      if v and v >= 0 and v <= 2 then sm = tostring(math.floor(v)) end
+      if e.Name == "Rawlings" then
+        local p = e.oWeapCtrl:Slot(i).ShotReloadPrefix
+        pf = (p == "2" or p == "3") and p or "0"
+      end
+    end)
+    out[#out + 1] = sm .. pf
+  end
+  return table.concat(out)
+end
+
+A.MODE_EVERY = 0.25   -- s between two looks at a puppet's modes
+
+function A.setPistolLoad(e, i, pf)
+  local ok, slt = pcall(function() return e.oWeapCtrl:Slot(i) end)
+  if not ok or not slt or not Rawlings then return end
+  local want = (pf == "2" or pf == "3") and pf or ""
+  local okc, cur = pcall(function() return slt.ShotReloadPrefix end)
+  if not okc or cur == want then return end
+  local fn = pf == "2" and Rawlings.SetFragment or pf == "3" and Rawlings.SetExplosive or Rawlings.SetStandard
+  if type(fn) ~= "function" then return end
+  if pcall(fn, slt) then
+    A.modeSets = (A.modeSets or 0) + 1
+    if A.modeSets <= 30 or cfg.animlog then Coop.log("anim: Rawlings' slot " .. i .. " pistol load " .. tostring(cur) .. " -> " .. want) end
+  end
+end
+
+-- The owner's modes on a puppet (from driveFire). cfg.puppetmodes = false: the defaults (0.2.9).
+function A.applyModes(e, name, modes)
+  if cfg.puppetmodes == false or type(modes) ~= "string" or #modes < 4 then return end
+  local s = stOf(name)
+  local t = now()
+  if s.modesT and t - s.modesT < A.MODE_EVERY then return end
+  s.modesT = t
+  for i = 0, 1 do
+    local sm = tonumber(string.sub(modes, 2 * i + 1, 2 * i + 1))
+    local pf = string.sub(modes, 2 * i + 2, 2 * i + 2)
+    if sm then
+      local key = "Weap_Slot0" .. i .. "ShootMode"
+      local ok, cur = pcall(function() return tonumber(e[key]) end)
+      if ok and cur and cur ~= sm and pcall(function() e[key] = sm end) then
+        A.modeSets = (A.modeSets or 0) + 1
+        if A.modeSets <= 30 or cfg.animlog then Coop.log("anim: " .. name .. "'s slot " .. i .. " fire mode " .. cur .. " -> " .. sm) end
+      end
+    end
+    if pf ~= "-" and name == "Rawlings" then A.setPistolLoad(e, i, pf) end
+  end
 end

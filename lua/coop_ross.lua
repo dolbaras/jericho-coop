@@ -174,7 +174,7 @@ function R.update(view, p2)
       if e.owc and r.owc then
         e.owc.Shot = r.owc.Shot or 0
         if CoopAnim and CoopAnim.driveFire then
-          CoopAnim.driveFire(e, "Ross", {shot = r.owc.Shot or 0, sec = CoopAnim.stateFire(r) == "1"})
+          CoopAnim.driveFire(e, "Ross", {shot = r.owc.Shot or 0, sec = CoopAnim.stateFire(r) == "1", modes = CoopAnim.stateModes(r)})
         end
       end
       local wc = r.oWeapCtrl

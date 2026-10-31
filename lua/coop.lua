@@ -473,6 +473,8 @@ function Coop.stateOf(e)
     -- (the 22nd: the second weapon's trigger, 0.3.0. The weapons that fire on a switch (Black's grenade launcher, Delgado's
     -- Raging Bull, Rawlings' pistols) are fired with it, not with the main trigger the 13th field carries)
     .. "|" .. ((CoopAnim and CoopAnim.stateFire) and CoopAnim.stateFire(e) or "0")
+    -- (the 23rd: the fire modes of the two weapon slots and Rawlings' pistol load, four characters: CoopAnim.stateModes)
+    .. "|" .. ((CoopAnim and CoopAnim.stateModes) and CoopAnim.stateModes(e) or "----")
 end
 
 -- A puppet of a body the host runs is switched on or off as there: host-only story code
@@ -1701,7 +1703,7 @@ function Coop.onMessage(peer, data)
       life = tonumber(f[11]), action = f[12], shot = tonumber(f[13]) or 0, flash = f[14] == "1",
       raw = data, t = Net.CoopTime(), seq = tonumber(f[15]), rt = tonumber(f[16]), slot = tonumber(f[17]),
       fpa = f[18],
-      sec = f[22] == "1",
+      sec = f[22] == "1", modes = f[23],
     }
     if f[19] == "1" then st.on = true elseif f[19] == "0" then st.on = false end
     local fd = tonumber(f[20])
