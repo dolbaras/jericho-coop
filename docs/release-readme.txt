@@ -172,6 +172,18 @@ the players who have it with [SMOD].
   without SMOD).
 SMOD's own texts follow the game language.
 
+SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, on top of SMOD)
+The co-op mod finds them by itself; the lobby marks the players who have them with [SMOD+]. Their files
+are yours: the installer never touches or copies them.
+- Their third-person view (keys P and O) works for you alone. It is refused in split screen, in a
+  cutscene and while you are down, and a player in it is put back into first person when one of
+  these begins.
+- Always off in a session: Jones' near-death slow motion, the astral slow motion and the F8 "easy
+  QTE" switch (they would act on one machine only; the lobby's QTE setting rules).
+- What a player does in third person (the dragon, the fire barrier, ghost heal, Vlad's curse,
+  telekinesis, Church's spell) is shown to the others like any other body's action.
+- Their balance numbers (health, damage, ammo, speed) are each player's own, like SMOD's looks.
+
 Upscaled textures (Clive Upscaler's Jericho)
 "Clive Upscaler's Jericho" (nexusmods.com/clivebarkersjericho/mods/8, 2x textures) works with
 the co-op mod. It needs SMOD and DXVK: put x32\d3d9.dll of DXVK (the Windows build; 3.1.1
@@ -392,6 +404,18 @@ SMOD
 - Фонарь каждого игрока виден на экранах остальных как луч от его оружия (со SMOD и без).
 Надписи SMOD показываются на языке игры.
 
+SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMOD)
+Мод находит их сам; в лобби у игроков с ними стоит пометка [SMOD+]. Их файлы ваши: установщик их не
+трогает и не копирует.
+- Их вид от третьего лица (клавиши P и O) работает только для вас. В разделённом экране, в
+  ролике и пока вы повержены он запрещён, а игрока, который в нём, возвращает в вид от первого
+  лица, когда что-то из этого начинается.
+- В сессии всегда выключены: замедление Джонса при малом здоровье, замедление астрала и
+  переключатель «лёгкого QTE» на F8 (они действовали бы на одной машине; QTE решает лобби).
+- То, что игрок делает от третьего лица (дракона, огненный барьер, призрачное лечение, проклятие
+  Влада, телекинез, заклинание Чёрча), остальные видят как действие любого другого тела.
+- Их числа баланса (здоровье, урон, патроны, скорость) у каждого свои, как внешний вид SMOD.
+
 Увеличенные текстуры (Clive Upscaler's Jericho)
 «Clive Upscaler's Jericho» (nexusmods.com/clivebarkersjericho/mods/8, текстуры x2) работает с
 кооперативом. Ему нужны SMOD и DXVK: положите x32\d3d9.dll из DXVK (сборка для Windows;
@@ -448,3 +472,7 @@ are included.
 Credits: the Steam option, shared QTEs, smoother movement, door/object and power sync come
 from MAK-PIVO's fork (MAK-PIVO/jericho-coop, MIT; no longer public since 2026-10-22), adapted and
 tested here.
+SMOD is SkacikPL's, SMOD Add-ons are PHM2D's; their authors allowed this mod to be made compatible with
+theirs. No file of either is included here.
+Благодарности: SMOD - SkacikPL, SMOD Add-ons - PHM2D; их авторы разрешили сделать этот мод совместимым
+с их работами. Файлов ни того, ни другого здесь нет.

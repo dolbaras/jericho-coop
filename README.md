@@ -36,7 +36,7 @@ problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.
 
 Tested game: retail DVD release, `Jericho.exe` SHA-256
 `7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11; SMOD
-(SkacikPL's pack) and "Clive Upscaler's Jericho" (2x textures) on top of it.
+(SkacikPL's pack), "SMOD Add-ons" (PHM2D, on top of SMOD) and "Clive Upscaler's Jericho" (2x textures) on top of it.
 
 ### What works (each checked in a test run)
 
@@ -196,4 +196,5 @@ own copy of the game. Its copy protection is not touched.
 MIT (see `LICENSE`). The DLL is built against ENet 1.3.18 (MIT), downloaded separately; the
 Steam path loads `steam_api.dll` from Steamworks.NET (`docs/steam-notice.txt`). Credit: parts
 of 0.2.1 (Steam networking, shared QTEs and more) came from MAK-PIVO's fork (MIT), no longer
-public.
+public. Compatibility with SMOD (SkacikPL) and SMOD Add-ons (PHM2D): their authors allowed it
+(relayed 2026-10-31); this repository contains no file of theirs.

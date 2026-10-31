@@ -241,3 +241,24 @@ Counts: Ross 112, Cole 117, Delgado 128, Church 118, Black 126, Jones 128, Rawli
 
 
 **Rawlings only/partial** (68): `Hit` `HitDuck` `FriendlyFire` `DuckFriendlyFire` `RelaxViewLeft` `RelaxViewRight` `DuckSprint` `DuckWalk` `DuckBack` `DuckStrLeft` `DuckStrRight` `DuckRun` `StupidInit` `Stupid` `StupidEnd` `DuckRelax1` `DuckRelax2` `Reload` `Reload0` `DuckReload` `DuckReload0` `ReloadE` `DuckReloadE` `ShotInit` `ShotEnd` `Shot1` `Shot2` `Shot3` `ShotEInit` `ShotE` `ShotEEnd` `DuckShotEInit` `DuckShotE` `DuckShotEEnd` `DuckShotInit` `DuckShotEnd` `DuckShot1` `DuckShot2` `DuckShot3` `ShotH` `DuckShotH` `Special1` `DuckSpecial1` `ShotH_GH` `DuckShotH_GH` `Punch` `DuckPunch` `ShelterDownReload` `ShelterDownReload0` `ShelterDownReloadE` `ShelterLeftReload` `ShelterLeftReload0` `ShelterLeftReloadE` `ShelterRightReload` `ShelterRightReload0` `ShelterRightReloadE` `WalkShelterLeft` `WalkShelterRight` `Facial_Relax` `Facial_Relax1` `Facial_Talk` `Facial_Talk1` `Facial_Talk2` `Facial_01_Relax` `Facial_01_Relax1` `Facial_01_Talk` `Facial_01_Talk1` `Facial_01_Talk2`
+
+## 8. Fourth slice (0.3.0): gaps filled with third-person twins, SMOD Add-ons
+
+Study of SMOD Add-ons (PHM2D, on top of SkacikPL's SMOD): `notes/smod-addons11-analysis.md`. Its third-person view (owc.UseFPS = 0) plays the
+character's own third-person actions for the player; the add-ons' scripts are the only place where the game's third-person twins of
+first-person powers are driven by a player (`Delgado.PressSpecial`: slot 2 + `Shot1Init`, `Shot1EndAlt`; `Rawlings`: `ShotH_GH`,
+`Special1`; `Black.PressSpecial`: `TKHit`; `Church.PressSpecial`: `Spell`). A player in that view sends the body's action as the
+AI's does, so the one-shot list (`A.ONESHOT`) and the states already show it on the other machines. What the add-ons showed for the
+gaps of `anim-audit-030.md` section 2:
+- the fire barrier of Delgado has a third-person twin: the open arm (`Shot1Init`, held in `Shot1`, closed by `Shot1EndAlt`), with the
+  Ababanili as the weapon in hand (slot 2). A first-person player's puppet now opens the arm on `Special_Relax`, closes it on
+  `Special_From` (`A.gapArm`), keeps it open while his arms hold the barrier (`A.dragonArm`), and his state reports slot 2 while his arms
+  are in a `Special_*` step (`A.reportSlot`, called from `Coop.stateOf`; the AI's own path sets the same slot);
+- Cole's mine detonator (`02_Activation`) and mine mode pick (`ChooseModeInit`) show his `Hack` (a device on the wrist, no event), a
+  reviver other than Rawlings (`Heal`) kneels (`DuckRelaxInit`): `A.FPMAP` rows, switch `cfg.gapgestures`;
+- no twin exists, even in the add-ons' third-person view: orders, the fire-mode switch gesture, Cole's mine mode LEDs, the pillbox, Delgado's
+  levers and doors, Black's trick-shot switch, falling, Rawlings' shaman calm, the QTE strikes. The add-ons' third-person revive
+  (`Team.CurePlayerTP`) is explicitly "no animation".
+- the events of Rawlings' Special1 are pointed at `Rawlings.TPVladsCourse` by the add-ons: guarded on puppets (`A.PUPPET_EVENTS`);
+  their SkipWallInit flourish at every sprint start is no climb (`A.noteFpMove`).
+All of it is mock-tested only; live checks are in the analysis (tests G1-G6, A5).

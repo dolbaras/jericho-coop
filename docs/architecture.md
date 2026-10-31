@@ -60,7 +60,7 @@ rebuilt on every level load (`boot.lua:1-4`). The chain:
 | 5 | `Coop.installFP` | levels, in a session |
 | 6 | `coop_enemies.lua`, `coop_hud.lua`, `coop_team.lua`, `coop_scenes.lua`, `coop_spirit.lua`, `coop_powers.lua`, `coop_world.lua`, `coop_claim.lua`, `coop_squad.lua`, `coop_souls.lua`, `coop_session.lua`, `coop_story.lua`, `coop_splits.lua`, `coop_patrol.lua`, `coop_talk.lua` | every level but the menu |
 | 7 | `coop_storysolo.lua` | levels, `cfg.storyline` set |
-| 8 | `coop_smod.lua`, `coop_split.lua`, `coop_ross.lua` | menu and levels |
+| 8 | `coop_smod.lua`, `coop_addon.lua`, `coop_split.lua`, `coop_ross.lua` | menu and levels |
 | 9 | `dev.lua` | `cfg.dev` (not shipped: `tools/package.ps1` leaves out `dev.lua` and `probe.lua`) |
 | 10 | `CoopSave.beginSession` | test sessions that skip the lobby |
 | 11 | `Coop.menuLoad` scheduled | menu level with `cfg.auto` and `cfg.level` (host or `role='solo'`); clients wait for the host's `welcome` |
@@ -119,7 +119,8 @@ Test and development keys (set only through `JERICHO_COOP_CFG`): `auto`, `steamj
 experimental scene body). Feature switches, on unless set to `false`: `aspect`, `framecap`,
 `syncactive`, `mirrorarms`, `puppetlights`, `hazardlocal`, `retarget`, `rejoin`,
 `syncblockers`, `syncprops`, `squadlead`, `souls`, `storyturn`, `fpbodyfix`, `menulabel`,
-`rossbody`, `smodcam`; off unless `true`: `puppetai`, `puppetcollide`. `dev.lua` reads about
+`rossbody`, `smodcam`, `gapgestures`, `gaparm`, `gapslot`, `gapflourish`; off unless `true`: `puppetai`, `puppetcollide`,
+`addonslowmo`, `addonqte` (SMOD Add-ons, `coop_addon.lua`; `addontp = false` forbids their third-person view in a session). `dev.lua` reads about
 150 more (`cfg.trigger`, `cfg.campaignstep`, ...), all its own.
 
 ## 2. Frame loop
@@ -300,11 +301,11 @@ Payload fields follow the kind, `|`-separated, in the order given.
 | `full` | host → refused client | R | max players | `CoopMenu.onMessage`: back to the co-op screen |
 | `ver` | client → host | R | version | `CoopMenu.onMessage`: another version is refused (`CoopMenu.refuse`) |
 | `nick` | client → host | R | nickname | `CoopMenu.onMessage`; a `nick` before `ver` means a client older than 0.2: refused |
-| `smod` | client → host | R | `1` | `CoopMenu.onMessage`: `smodPeers` |
+| `smod` | client → host | R | `1`, and `a` when the client has SMOD Add-ons too (0.3.0) | `CoopMenu.onMessage`: `smodPeers`, `addonPeers` |
 | `pick` | client → host | R | char | `CoopMenu.onMessage`: taken unless another seat has it |
 | `p2` | client → host | R | char or `-` | `CoopMenu.setP2`: the client's split screen seat |
 | `ready` | client → host | R | 0/1 | `CoopMenu.onMessage` |
-| `lobby` | host → all | R | level, seats, continuing 0/1, SMOD peers (`0,2`) | `CoopMenu.onMessage` (client) |
+| `lobby` | host → all | R | level, seats, continuing 0/1, SMOD peers (`0,2+`: `+` = with SMOD Add-ons, 0.3.0) | `CoopMenu.onMessage` (client) |
 | `sv` | host → all | R | escaped save record | `coop_save.lua:CS.onMessage` (client): kept in `CS.pending` until the load. Also before every host level change |
 | `start` | host → all | R | level, seats, skill, scaling, qte, aisquad, `own`/`orig` (cutscene view), SMOD values or `-` | `CoopMenu.onMessage` → `CoopMenu.launch` |
 
@@ -692,6 +693,11 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   rule set per session (`Sm.applyRules`, `Sm.headshot`, `Sm.checkpointHeal`), its jump
   (`_G.Jump`), its pause/time scale off. Wraps the global `dofile` to re-apply its rules after
   SMOD's `autoexec.lua`.
+- **`coop_addon.lua`** (`CoopAddon`, `Ad`): SMOD Add-ons (PHM2D, on top of SMOD) found by their globals (`Ad.markers`); their
+  third-person toggles (`_G.ToggleFPSView`, `_G.SwitchViewOTS`, keys P / O) wrapped: refused in split screen, scenes, when downed
+  and with a foreign camera, a player in third person when one of these begins is put back by the add-ons' own toggle; Jones'
+  near-death and the astral slow motions and the F8 easy-QTE toggle off in a session. Analysis and test plan:
+  `notes\smod-addons11-analysis.md`. Test: `lua/tests/addon_mock_test.lua`.
 - **`coop_split.lua`** (`CoopSplit`, `Sp`): split screen. User 1 (`UsrControl = 1`), its camera
   `CoopCam1`, HUD in scorer 1, FP model `1FP_<char>`; per frame camera slot alternation with
   `Net.CoopSplit`, visibility per view (`showFor`), hold to full screen for scenes and menus,
