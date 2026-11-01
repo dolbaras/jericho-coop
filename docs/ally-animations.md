@@ -264,4 +264,18 @@ gaps of `anim-audit-030.md` section 2:
   Credit: the third-person recipes (dragon / barrier / ghost heal / curse) were read from PHM2D's SMOD Add-ons.
 - the events of Rawlings' Special1 are pointed at `Rawlings.TPVladsCourse` by the add-ons: guarded on puppets (`A.PUPPET_EVENTS`);
   their SkipWallInit flourish at every sprint start is no climb (`A.noteFpMove`).
-All of it is mock-tested only; live checks are in the analysis (tests G1-G6, A5).
+All of it was mock-tested first; the live results are in section 9.
+
+## 9. Fifth slice (0.3.0): live results and the trigger hold
+
+Everything of sections 7 and 8 was run live on 2026-11-01 (one game per PC, a real gamepad on the owner's PC, the watcher's screen recorded, both logs read; the per-member table is in the workspace notes `anim-audit-030.md` section 7).
+What the live runs changed in the code:
+- **The cause of "pistol shots show no animation" was the third-person wind-up, not a missing trigger.** A real LT sets `owc.SecondWeaponTrigger = 1` and `owc.Shot = 1` together, slot 1, so the puppet already had a trigger; Delgado's Bull in third person starts with `Shot0Init` (1.4-1.7 s) and
+  `Delgado.EndOfBullShot` continues into `Shot0` (the bullet, event `!ConfirmAnmShot` at frame 5) only while `owc.Shot > 0.5`; the owner's pull is 0.1-0.5 s, so the puppet raised the pistol and lowered it without a bullet (owner 1 round, puppet 0).
+  `A.holdTrigger` (called from `A.driveFire`): after a trigger goes up, the main (and second) trigger of the puppet stays down while the Init action plays (`^Shot0?Init$`, `^DuckShot0?Init$`) and `A.HOLD_GRACE` (0.3 s) into the looped `Shot` / `Shot0`, at least `A.HOLD_MIN` (0.35 s), at most `A.HOLD_MAX` (3 s);
+  `A.SKIP_INIT_AFTER` (0.3 s): a puppet's `Shot0Init` / `DuckShot0Init` is forced to `Shot0` / `DuckShot0` (what the Init's own end event does) so the bullet comes with the owner's. Switches `cfg.puppetholdshot=false`, `cfg.puppetskipinit=false`. It also applies to AI-held bodies seen on the other PC.
+  Result: short pull 1 of 1, held pull 4 of 4 (before: 0 of 1 and 3 of 5). One extra shot at most per pull (the trigger is held past the owner's release); bullets on a puppet do no damage.
+- The state's `sec` field is redundant on the stock game (the puppet's `owc.SecondWeaponTrigger` reads back 0 after the write: the engine clears it; the weapon fires from `Shot` + the slot); kept, harmless.
+- Seen live and unchanged: the dragon (RB held + RT: `Shot1Init -> Shot1 -> Shot1EndAlt`, slot 2, the spirit, also with the 0.2.9 switches), the fire barrier arm, reloads (`Reload`, `Reload0`, `ReloadE`), fire modes and Rawlings' loads, the sabre strikes, TK, spell, heal / ghost heal / curse twins and their guards, every gesture of `A.FPMAP`
+  (orders `Relax1/2/0`, mode switch `Reload`, trick-shot switch `Relax1`, lever / door / pillbox `Punch`, landing and the reviver `DuckRelaxInit`, QTE `Punch` / `HitStrong`; started through the arms' own actions by console, not by real objects), the AI-held squad in a fight.
+- Developer tool: `fieldlog='Name ...'` in the cfg (`dev.lua`, not shipped) logs the fire controls, slot, magazines and action of a body on every change (`fl:` lines).
