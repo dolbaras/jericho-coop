@@ -3847,3 +3847,34 @@ if cfg.wallprobe and Coop.level ~= "levels/menu" then
     end
   end
 end
+
+-- 'fieldlog' (0.3.0 animation audit, T1/T2/T3): on every machine, a line whenever the fire controls, weapon slot, ammo or action of the
+-- named bodies change: fieldlog='Delgado Black'. Owner's body: also the first-person arms' action; puppet: the drawn state.
+--   fl: f=<frame> <Name> [own|puppet] act=<Action> shot=<owc.Shot> sec=<owc.SecondWeaponTrigger> slot=<iSlot> want=<iDesiredSlot> ammo=<a0>/<a1> sup=<s0>/<s1> mode=<m0><m1> fp=<FP action>
+if cfg.fieldlog and Coop.level ~= "levels/menu" then
+  local prevFL = Coop.dev
+  local last = {}
+  function Coop.dev()
+    if prevFL then prevFL() end
+    for name in string.gmatch(cfg.fieldlog, "%S+") do
+      local e = Game.GetEntity(name)
+      if e then
+        local function g(f) local ok, v = pcall(f) if ok then return tostring(v) end return "?" end
+        local fp = "-"
+        local own = g(function() return Game.UsrEntity(0).Name == name end) == "true"
+        if own then fp = g(function() return Game.GetEntity(e.FPSEntity).Action end) end
+        local line = string.format("%s [%s] act=%s shot=%s sec=%s slot=%s want=%s ammo=%s/%s sup=%s/%s mode=%s%s fp=%s net=%s", name, own and "own" or "puppet",
+          g(function() return e.Action end), g(function() return e.owc.Shot end), g(function() return e.owc.SecondWeaponTrigger end),
+          g(function() return e.oWeapCtrl.iSlot end), g(function() return e.oWeapCtrl.iDesiredSlot end),
+          g(function() return e.oWeapCtrl:Slot(0).AmmoLoaded end), g(function() return e.oWeapCtrl:Slot(1).AmmoLoaded end),
+          g(function() return e.oWeapCtrl:Slot(0).AmmoSupply end), g(function() return e.oWeapCtrl:Slot(1).AmmoSupply end),
+          g(function() return e.Weap_Slot00ShootMode end), g(function() return e.Weap_Slot01ShootMode end), fp,
+          g(function() local r = Coop.remote[name] return r and (tostring(r.shot) .. "/" .. tostring(r.sec) .. "/" .. tostring(r.slot) .. "/" .. tostring(r.modes)) or "-" end))
+        if line ~= last[name] then
+          last[name] = line
+          Coop.log("fl: f=" .. Coop.frame .. " " .. line)
+        end
+      end
+    end
+  end
+end

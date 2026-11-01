@@ -26,11 +26,13 @@ A.driveFire(p, "Black", {shot = 0, sec = true})
 assert(p.owc.Shot == 0 and p.owc.SecondWeaponTrigger == 1, "grenade launcher fired with the second trigger")
 A.driveFire(p, "Black", {shot = 1, sec = false})
 assert(p.owc.Shot == 1 and p.owc.SecondWeaponTrigger == 0, "main trigger only")
+clock = clock + 1
 A.driveFire(p, "Black", {})
 assert(p.owc.Shot == 0 and p.owc.SecondWeaponTrigger == 0, "nothing held")
 
 -- 3. the old behaviour is a switch
 Coop.cfg.puppetsecond = false
+clock = clock + 5
 local q = body("Delgado")
 A.driveFire(q, "Delgado", {shot = 1, sec = true})
 assert(q.owc.Shot == 1 and q.owc.SecondWeaponTrigger == 0, "cfg.puppetsecond=false leaves the second trigger alone")
@@ -135,3 +137,50 @@ assert(A.reloadAction("Rawlings", cls("Reload", "Reload0", "ReloadE"), "2", nil,
 assert(A.reloadAction("Church", cls("Reload"), "", nil, "02") == "Reload", "Church")
 
 print("fire mock test ok")
+
+-- 5. a short pull is played to its end: the trigger stays down through the Init action and a moment of the loop (live: Delgado's Bull)
+clock = clock + 10
+A.driveFire(body("Delgado"), "Delgado", {})   -- (the earlier tests left this body's trigger down)
+local d = body("Delgado")
+d.Action = "Relax0"
+A.driveFire(d, "Delgado", {shot = 1, sec = true})
+assert(d.owc.Shot == 1 and d.owc.SecondWeaponTrigger == 1)
+clock = clock + 0.1; d.Action = "Shot0Init"
+A.driveFire(d, "Delgado", {shot = 0, sec = false})   -- the owner let go after 0.1 s
+assert(d.owc.Shot == 1 and d.owc.SecondWeaponTrigger == 1, "the pull is kept down while the Init plays")
+clock = clock + 0.3; d.Action = "Shot0Init"
+A.driveFire(d, "Delgado", {shot = 0, sec = false})
+assert(d.owc.Shot == 1 and d.ForceAction == "Shot0", "the pistol's wind-up is cut short after 0.3 s")
+d.ForceAction = nil; clock = clock + 1.1
+clock = clock + 0.1; d.Action = "Shot0"
+A.driveFire(d, "Delgado", {shot = 0, sec = false})
+assert(d.owc.Shot == 1, "first frames of the loop: the shot is confirmed")
+clock = clock + 0.4; d.Action = "Shot0"
+A.driveFire(d, "Delgado", {shot = 0, sec = false})
+assert(d.owc.Shot == 0 and d.owc.SecondWeaponTrigger == 0, "let go after the grace")
+-- a body that never enters the Init is not held for ever
+clock = clock + 10
+A.driveFire(body("Black"), "Black", {}); clock = clock + 5; A.driveFire(body("Black"), "Black", {})   -- (earlier tests)
+local f = body("Black")
+f.Action = "Relax"
+A.driveFire(f, "Black", {shot = 1})
+clock = clock + 0.2; A.driveFire(f, "Black", {})
+assert(f.owc.Shot == 1, "held for the first 0.35 s")
+clock = clock + 0.3; A.driveFire(f, "Black", {})
+assert(f.owc.Shot == 0, "released when no Init follows")
+-- a stuck Init lets go after 3 s
+clock = clock + 10
+A.driveFire(body("Delgado"), "Delgado", {})
+local g = body("Delgado")
+g.Action = "Shot0Init"
+A.driveFire(g, "Delgado", {shot = 1})
+clock = clock + 3.2; A.driveFire(g, "Delgado", {})
+assert(g.owc.Shot == 0, "3 s at most")
+-- the switch
+Coop.cfg.puppetholdshot = false
+clock = clock + 10
+A.driveFire(body("Delgado"), "Delgado", {})
+local h = body("Delgado"); h.Action = "Shot0Init"
+A.driveFire(h, "Delgado", {shot = 1}); clock = clock + 0.1; A.driveFire(h, "Delgado", {})
+assert(h.owc.Shot == 0, "cfg.puppetholdshot=false: the owner's trigger only")
+print("fire mock test ok (hold)")

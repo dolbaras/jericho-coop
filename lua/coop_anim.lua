@@ -583,18 +583,80 @@ end
 
 -- What a puppet's triggers are, every frame (Coop.drivePuppets): the drawn state's main and second trigger.
 -- cfg.puppetsecond = false: the main trigger only (0.2.9).
+-- A pull of the trigger is played to its end on a puppet (0.3.0, live 2026-11-01: Delgado's Raging Bull). The third-person shot of a
+-- pistol or of a spun-up gun starts with an Init action (Delgado's Shot0Init lasts 1.4-1.7 s) and the first bullet leaves only
+-- when the Init has ended into the looped Shot, and only if the trigger is still held then (Delgado.EndOfBullShot reads owc.Shot).
+-- The owner's pull of the trigger is short (0.1-0.5 s: the first-person gun fires on the pull), so the puppet raised its arm and
+-- put it down again without a shot ("pistol shots show no animation"). The trigger is now kept down until the Init has ended and
+-- the first shot is confirmed (a short grace after the loop starts), 3 s at most. cfg.puppetholdshot = false: the owner's trigger only.
+A.HOLD_MIN, A.HOLD_MAX, A.HOLD_GRACE, A.SKIP_INIT_AFTER = 0.35, 3.0, 0.3, 0.3
+local function isInit(act)
+  act = tostring(act)
+  return act:find("^Shot0?Init$") ~= nil or act:find("^DuckShot0?Init$") ~= nil
+end
+local function isLoop(act)
+  act = tostring(act)
+  return act:find("^Shot0?$") ~= nil or act:find("^DuckShot0?$") ~= nil
+end
+
+-- (returns the main trigger value and whether the second trigger is wanted down, after the hold)
+function A.holdTrigger(e, name, shot, sec)
+  if cfg.puppetholdshot == false then return shot, sec end
+  local s = stOf(name)
+  local t = now()
+  local down = shot > 0.5 or sec
+  if down then
+    if not s.holdDown then s.holdFrom, s.holdSec, s.holdLoop = t, sec, nil end   -- (a new pull)
+    s.holdDown = true
+    if sec then s.holdSec = true end
+    return shot, sec
+  end
+  s.holdDown = false
+  if not s.holdFrom then return shot, sec end
+  local act = e.Action
+  local keep = false
+  if t - s.holdFrom < A.HOLD_MAX then
+    if t - s.holdFrom < A.HOLD_MIN or isInit(act) then
+      keep = true
+    elseif isLoop(act) then
+      s.holdLoop = s.holdLoop or t
+      keep = t - s.holdLoop < A.HOLD_GRACE
+    end
+  end
+  if keep then
+    A.holds = (A.holds or 0) + 1
+    if A.holds == 1 or cfg.animlog and A.holds % 20 == 1 then Coop.log("anim: " .. name .. " trigger kept down until the shot is played (" .. tostring(act) .. ")") end
+    return 1, s.holdSec
+  end
+  s.holdFrom, s.holdSec, s.holdLoop = nil, nil, nil
+  return shot, sec
+end
+
 function A.driveFire(e, name, sst)
   local owc = e.owc
   if not owc then return end
-  owc.Shot = sst.shot or 0
+  local shot, sec = A.holdTrigger(e, name, sst.shot or 0, sst.sec and true or false)
+  owc.Shot = shot
+  -- The pistol's wind-up (Shot0Init, 1.4-1.7 s) is skipped after a moment: the owner's first-person pistol fires on the pull, and the
+  -- puppet's bullet came two seconds late. The Init's own end event does the same (Delgado.EndOfBullShot sets ForceAction "Shot0").
+  -- cfg.puppetskipinit = false: the whole Init is played.
+  if cfg.puppetskipinit ~= false and (shot > 0.5 or sec) then
+    local act = tostring(e.Action)
+    local s = A.state[name]
+    if (act == "Shot0Init" or act == "DuckShot0Init") and s and s.holdFrom and now() - s.holdFrom > A.SKIP_INIT_AFTER then
+      pcall(function() e.ForceAction = string.sub(act, 1, -5) end)
+      A.initSkips = (A.initSkips or 0) + 1
+      if A.initSkips <= 6 or cfg.animlog then Coop.log("anim: " .. name .. " " .. act .. " cut short to " .. string.sub(act, 1, -5)) end
+    end
+  end
   if cfg.puppetsecond ~= false then
-    local want = sst.sec and 1 or 0
+    local want = sec and 1 or 0
     pcall(function()
       if tonumber(owc.SecondWeaponTrigger) ~= want then owc.SecondWeaponTrigger = want end
     end)
   end
   A.applyModes(e, name, sst.modes)
-  if (sst.shot or 0) > 0.5 or sst.sec then A.keepAmmo(e, name) end
+  if shot > 0.5 or sec then A.keepAmmo(e, name) end
 end
 
 -- A puppet fires on its own ammo: the engine takes a round from the magazine for every shot it plays, and nothing refilled it (the
