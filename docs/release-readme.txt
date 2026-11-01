@@ -119,9 +119,17 @@ How it works
   about ten seconds): fewer "invisible walls".
 - The "character flies / stuck / snaps back and forth" storm after a Delgado-only door or lever
   (Rom_Outskirts and others) is fixed.
-- Allies' animations are shown on every PC: cover, dazed, trance, astral and possession states,
-  the dragon arm of Delgado, hurdles and climbs as a run on the spot; Cole's grenade throw
-  no longer makes a second grenade on the other PC.
+- Allies' animations are shown on every PC, for players' and for the AI's characters: shots of every
+  weapon (the second weapon too: Delgado's Raging Bull, Black's grenade launcher, Cole's mines,
+  Jones' shotgun, Rawlings' pistols, Church's sabre strikes), reloads, fire modes and Rawlings'
+  pistol loads, melee, Black's telekinesis, Church's spell, Rawlings' healing and Vlad's curse,
+  cover, dazed, trance, astral and possession states, the dragon of Delgado (the case opens,
+  the spirit flies out) and his fire barrier, hurdles and climbs as a run on the spot; Cole's
+  grenade throw no longer makes a second grenade on the other PC. Where the game has no
+  third-person action for a first-person one (orders, switching the fire mode, levers, doors,
+  Cole's detonator, landing, quick-time strikes) the character plays the nearest existing
+  gesture instead, so the other players see that something happened (the switches that turn
+  each group off are in the repository: docs/ally-animations.md).
 - Logs: the last five sessions are kept as coop.log (now) and coop.1.log ... coop.4.log; a start
   that only reached the menu does not push the older ones out.
 - When the story walks a character a player holds, the player is offered to walk there first (the
@@ -194,6 +202,9 @@ are yours: the installer never touches or copies them.
   QTE" switch (they would act on one machine only; the lobby's QTE setting rules).
 - What a player does in third person (the dragon, the fire barrier, ghost heal, Vlad's curse,
   telekinesis, Church's spell) is shown to the others like any other body's action.
+- Checked in the game: version 1.1 (SMOD 1.0.5) next to this mod, the add-on's third-person Delgado
+  (pistol, dragon, fire barrier) as the other player sees it. Not checked: the add-ons on both PCs
+  at once, split screen with them, cutscenes in third person.
 - Their balance numbers (health, damage, ammo, speed) are each player's own, like SMOD's looks.
 
 Upscaled textures (Clive Upscaler's Jericho)
@@ -363,9 +374,16 @@ Windows, скорее всего, напишет «Windows защитила ва
   лечится примерно за десять секунд): меньше «невидимых стен».
 - Исправлена «буря»: персонаж улетает / застревает / дёргается туда-сюда после двери или рычага только
   для Дельгадо (Rom_Outskirts и другие).
-- Анимации союзников показываются на каждом ПК: состояния укрытия, оглушения, транса, астрала и вселения,
-  рука дракона Дельгадо, прыжки через препятствия и подъёмы как бег на месте; бросок гранаты Коула
-  больше не создаёт вторую гранату на другом ПК.
+- Анимации союзников показываются на каждом ПК, для персонажей игроков и ИИ: выстрелы из любого оружия
+  (и из второго: «Бешеный бык» Дельгадо, гранатомёт Блэка, мины Коула, дробовик Джонса, пистолеты
+  Роулингса, удары сабли Чёрча), перезарядка, режимы огня и заряды пистолетов Роулингса, ближний бой,
+  телекинез Блэка, заклинание Чёрча, лечение Роулингса и проклятие Влада, укрытие, оглушение, транс,
+  астрал и вселение, дракон Дельгадо (футляр раскрывается, дух вылетает) и его огненный барьер,
+  прыжки через препятствия и подъёмы как бег на месте; бросок гранаты Коула больше не создаёт вторую
+  гранату на другом ПК. Там, где у игры нет действия от третьего лица для действия от первого (приказы,
+  смена режима огня, рычаги, двери, подрывник Коула, приземление, удары в QTE), персонаж показывает
+  ближайший существующий жест, чтобы остальные видели, что что-то произошло (переключатели групп - в
+  репозитории: docs/ally-animations.md).
 - Журналы: хранятся последние пять сеансов: coop.log (текущий) и coop.1.log ... coop.4.log; запуск,
   дошедший только до меню, старые не вытесняет.
 - Когда сюжет ведёт персонажа, которого держит игрок, игроку сначала предлагают дойти самому (в том числе
@@ -437,6 +455,9 @@ SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMO
   переключатель «лёгкого QTE» на F8 (они действовали бы на одной машине; QTE решает лобби).
 - То, что игрок делает от третьего лица (дракона, огненный барьер, призрачное лечение, проклятие
   Влада, телекинез, заклинание Чёрча), остальные видят как действие любого другого тела.
+- Проверено в игре: версия 1.1 (SMOD 1.0.5) рядом с этим модом, Дельгадо от третьего лица с
+  дополнениями (пистолет, дракон, огненный барьер) глазами другого игрока. Не проверено: дополнения
+  на обоих ПК сразу, сплитскрин с ними, ролики от третьего лица.
 - Их числа баланса (здоровье, урон, патроны, скорость) у каждого свои, как внешний вид SMOD.
 
 Увеличенные текстуры (Clive Upscaler's Jericho)
