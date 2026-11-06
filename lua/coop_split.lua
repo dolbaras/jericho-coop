@@ -48,9 +48,19 @@ function Sp.body()
   return Sp.char and Game.GetEntity(Sp.char)
 end
 
+-- The game's switches for parts of the HUD (scripts/menu/menu.lua Menu.ShowScorer). The desert's
+-- tutorial starts with crosshair, ammo and squad off and turns them on with Menu.ShowScorer(0),
+-- user 0's HUD only (alk_desert MapInit.TestTap; alk_tomb the squad): player 2 kept a HUD
+-- without them for the whole chapter (tester report 2026-11-06). Sp.checkHud builds it again.
+function Sp.hudFlags()
+  if not Menu then return "" end
+  return tostring(Menu.bShowAim ~= false) .. tostring(Menu.bShowAmmo ~= false) .. tostring(Menu.bShowTeamStatus ~= false)
+end
+
 -- The engine's own HUD widgets in scorer 1: Menu.ShowScorer run for user 1 (all of user 0's
 -- widgets, the Astral one Jones's projection needs included), else the main ones.
 function Sp.buildHud()
+  Sp.hudFlagsBuilt = Sp.hudFlags()
   Scorer.Clear(1)
   if cfg.splithud then   -- tests: only these widgets
     for _, w in ipairs(cfg.splithud) do Scorer.NewItem(1, w, w) end
@@ -372,15 +382,19 @@ end
 -- its own player's half since 0.2.1; it was moved down while player 1's text came out over
 -- the whole screen.)
 function Sp.checkHud()
-  if Scorer.GetItem(1, "Selector") then return end
+  local stale = Sp.hudFlagsBuilt ~= nil and Sp.hudFlagsBuilt ~= Sp.hudFlags()
+  if Scorer.GetItem(1, "Selector") and not stale then return end
   local b = not Sp.waiting and Sp.body()
   local c = Game.GetEntity(Sp.CAM)
   if not b or b.UsrControl ~= 1 or b.IgnoreUsrControl == 1 or b.Life <= 0 or Game.GetCam(1) ~= Sp.CAM or
      not c or c.MainTarget ~= Sp.char then
     return
   end
+  local had = Scorer.GetItem(1, "Selector") ~= nil
   Sp.buildHud()
-  Coop.log("split: player 2's HUD back")
+  Sp.msgShown = false   -- (a new "Msg" widget: Sp.showMsg sets its visibility again)
+  Coop.log(had and ("split: player 2's HUD built again for the game's HUD switches " .. Sp.hudFlagsBuilt) or
+    "split: player 2's HUD back")
 end
 
 -- A player's astral projection takes the one action set ("Astral") for its camera, and the
@@ -983,11 +997,27 @@ function Sp.sendHiddenUser()
   end
 end
 
+-- Inside player 2's code (Sp.asUser1) Game.UsrEntity(0) is player 2's body and a "0FP_" name is
+-- player 2's model: with those, player 2's own model was taken for player 1's and given id 0 for
+-- the call (every other frame: when it had 1), and player 1's kept the 3 of a hidden model. The
+-- engine's own functions are used here (tester report 2026-11-06; cfg.splitidfix = false: as before).
+function Sp.engineLookups()
+  local usr, get = Game.UsrEntity, Game.GetEntity
+  if cfg.splitidfix ~= false then
+    for _, e in ipairs(Sp.remap or {}) do
+      if e[1] == Game and e[2] == "UsrEntity" then usr = e[3] end
+      if e[1] == Game and e[2] == "GetEntity" then get = e[3] end
+    end
+  end
+  return usr, get
+end
+
 function Sp.realIds()
   if Sp.shownFor == nil then return nil end
-  local b0 = Game.UsrEntity(0)
-  local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
-  local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
+  local usr, get = Sp.engineLookups()
+  local b0 = usr(0)
+  local f0 = b0 and get("0FP_" .. b0.Name)
+  local f1 = Sp.char and get("1FP_" .. Sp.char)
   local w0, w1 = f0 and f0.id, f1 and f1.id
   if f0 and w0 ~= 0 then f0.id = 0 end
   if f1 and w1 ~= 1 then f1.id = 1 end

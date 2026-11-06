@@ -1606,6 +1606,62 @@ if cfg.padlog and Coop.level ~= "levels/menu" then
   end
 end
 
+-- 'p2firelog' (split screen, tester report 2026-11-06 J-S2 "player 2 cannot attack as Church"):
+-- every hop from player 2's pad to a hit, every 2 ticks while an attack input of pad 2 is down
+-- and 1 s after (else every 60 ticks): the pad as read (dll), the engine's input of user 1, the
+-- body's control and weapon state, its first-person model, the split state, and Weapons.DoDamage
+-- calls from the body (tried; CoopEnemies' dropped count beside it). With 'split: player 2 <fn>'
+-- (cfg.dev) the game's own callbacks of the attack show in between.
+if cfg.p2firelog and Coop.level ~= "levels/menu" then
+  local prevFire = Coop.dev
+  local fire = {n = 0, last = "-", tail = 0}
+  function Coop.dev()
+    if prevFire then prevFire() end
+    local Sp = CoopSplit
+    if not (Sp and Sp.on) then return end
+    if not fire.wrapped and Weapons and Weapons.DoDamage then
+      fire.wrapped = true
+      local orig = Weapons.DoDamage
+      Weapons.DoDamage = function(From, To, ...)
+        if From and Sp.char and From.Name == Sp.char then
+          fire.n = fire.n + 1
+          fire.last = To and To.Name or "-"
+        end
+        return orig(From, To, ...)
+      end
+    end
+    local pad = {pcall(Net.CoopKey, -1, 1)}
+    local b, lt, rt = tonumber(pad[2]) or 0, tonumber(pad[3]) or 0, tonumber(pad[4]) or 0
+    local attack = lt > 30 or rt > 30 or math.floor(b / 0x2000) % 2 == 1   -- (B: melee)
+    if attack then fire.tail = Coop.frame + 20 end
+    local every = Coop.frame <= fire.tail and 2 or 60
+    if Coop.frame % every ~= 0 then return end
+    local function f(t, k) local ok, v = pcall(function() return t[k] end) return ok and tostring(v) or "?" end
+    local function inp(a, u) local ok, v = pcall(Input.GetInputState, "Walk", a, u) return ok and tostring(v) or "err" end
+    local e = Sp.body()
+    local fp = e and Game.GetEntity(e.FPSEntity or "")
+    local wc = e and e.oWeapCtrl
+    local slot0 = wc and {pcall(function() return wc:Slot(0).AmmoLoaded end)}
+    local raw = {pcall(Net.CoopKey, -3)}
+    local dropped = CoopEnemies and CoopEnemies.stats and CoopEnemies.stats.dropped
+    Coop.log(string.format("p2fire: pad%s b=%d lt=%d rt=%d raw %s,%s,%s,%s | in u1 shot %s sec %s hit %s (u0 %s/%s/%s)" ..
+      " | %s usr %s lock %s ai %s act %s shot %s sec %s block %s slot %s->%s ammo0 %s fc %s move %s fps %s" ..
+      " | fp act %s id %s active %s vis %s | set %s held %s merged %s shown %s id3 %s | dmg %d last %s dropped %s",
+      pad[1] and pad[2] ~= nil and "" or " (none)", b, lt, rt,
+      tostring(raw[2]), tostring(raw[3]), tostring(raw[4]), tostring(raw[5]),
+      inp("MainShot", 1), inp("Secondaryshot", 1), inp("Hit", 1), inp("MainShot", 0), inp("Secondaryshot", 0), inp("Hit", 0),
+      tostring(e and e.Name), e and f(e, "UsrControl") or "-", e and f(e, "IgnoreUsrControl") or "-",
+      e and e.oAI and f(e.oAI, "bEnable") or "-", e and f(e, "Action") or "-",
+      e and e.owc and f(e.owc, "Shot") or "-", e and e.owc and f(e.owc, "SecondWeaponTrigger") or "-",
+      e and e.owc and f(e.owc, "BlockShot") or "-", wc and f(wc, "iSlot") or "-", wc and f(wc, "iDesiredSlot") or "-",
+      slot0 and slot0[1] and tostring(slot0[2]) or "-", wc and f(wc, "FireCounter") or "-", e and f(e, "bMoveActive") or "-",
+      e and f(e, "FPSEntity") or "-",
+      fp and f(fp, "Action") or "-", fp and f(fp, "id") or "-", fp and f(fp, "Active") or "-", fp and f(fp, "bObjectVisible") or "-",
+      tostring(Sp.realGetActionSet and Sp.realGetActionSet()), tostring(Sp.held), tostring(Sp.padsMerged), tostring(Sp.shownFor),
+      tostring(Sp.id3User), fire.n, fire.last, tostring(dropped)))
+  end
+end
+
 -- 'bindprobe': the input bindings of users 0 and 1 for the actions Jones's astral projection
 -- reads (logged once the split screen is on).
 if cfg.bindprobe and Coop.level ~= "levels/menu" then
