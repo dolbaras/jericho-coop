@@ -249,9 +249,15 @@ character; it works in a hosted game and when you join one (up to 4 players in a
 
 Reports
 https://github.com/dolbaras/jericho-coop/issues — what happened, on which level, host or client.
-Attach the log: Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log (the current run; the
-four runs before it are kept as coop.1.log (the last one) ... coop.4.log, so attach the one of the
-session where it happened; a start that only reached the menu does not push them out).
+Attach the logs: double-click coop\Collect logs.bat in the game folder. It puts one zip on your
+desktop with the mod's logs (Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log, the current
+run, and coop.1.log (the last one) ... coop.4.log, the four runs before it; a start that only
+reached the menu does not push them out), the game's log.html, the install record and logs, the
+mod's version, hashes of the game's exe and of the mod's DLL, Windows, graphics card and driver, and
+the names (not the contents) of the files in the mod's folders. It removes your Windows user name,
+computer name, folder paths, player names, Steam names and IDs, e-mail and MAC addresses and public
+IP addresses, and uploads nothing; open the zip to check it before you attach it. A zip from the
+host AND from a client of the same session helps most.
 Saw it happen? Press F11 right after: the last 30 seconds of the game are saved as a video
 (clip-<date>-<time>.avi in the same Coop folder) - attach it too. The mod keeps only what the
 game draws, in memory, and writes nothing until F11.
@@ -502,9 +508,14 @@ autoexec.lua (FullScreen); окно всё равно можно сделать 
 
 Сообщить об ошибке
 Пишите в https://github.com/dolbaras/jericho-coop/issues : что делали, на каком уровне,
-хост вы или клиент. Приложите лог: Документы\Codemasters\Clive Barker's Jericho\Coop\coop.log
-(текущий запуск; четыре предыдущих хранятся как coop.1.log (последний) ... coop.4.log — приложите
-лог того сеанса, где это случилось; запуск, дошедший только до меню, их не вытесняет).
+хост вы или клиент. Приложите журналы: дважды щёлкните coop\Collect logs.bat в папке игры. Он
+положит на рабочий стол один zip: журналы мода (Документы\Codemasters\Clive Barker's Jericho\Coop\
+coop.log — текущий запуск, и coop.1.log (последний) ... coop.4.log — четыре предыдущих; запуск,
+дошедший только до меню, их не вытесняет), журнал игры log.html, запись и журналы установки, версию
+мода, хеши exe игры и DLL мода, Windows, видеокарту и драйвер и имена (не содержимое) файлов в
+папках мода. Он убирает имя пользователя Windows, имя компьютера, пути к папкам, имена игроков,
+имена и ID в Steam, адреса e-mail и MAC и публичные IP-адреса и ничего никуда не отправляет;
+откройте zip и проверьте его перед отправкой. Больше всего помогают zip хоста И клиента одного сеанса.
 Увидели ошибку? Сразу нажмите F11: последние 30 секунд игры сохранятся как видео
 (clip-<дата>-<время>.avi в той же папке Coop) — приложите и его. Мод хранит только то, что рисует
 игра, в памяти, и ничего не записывает до нажатия F11.
