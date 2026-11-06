@@ -107,6 +107,7 @@ end
 function Sp.takeBody(char, from)
   local t = Game.GetEntity(char)
   if not t then return false end
+  local before = Sp.char
   Sp.ensureFP(char)
   if from then
     local f = Game.GetEntity(from)
@@ -127,6 +128,15 @@ function Sp.takeBody(char, from)
   -- What the game does for a body user 0 switches into (power icons, the FP model's state).
   local sw = Team and Team.OnSwitchChar and Team.OnSwitchChar[t.ActCtrl or char]
   if sw then Sp.asUser1(sw, t) end
+  -- The game's switch also puts the body it gives user 0 into its rest action (team.lua
+  -- SwitchSoldier -> Team.ResetUsrAnim: Relax, standing, no zoom, a scripted move cut short);
+  -- player 2's did not, and the body went on with what its AI was doing (a cover, a sabre
+  -- strike, a spell's move; tester report 2026-11-06). Not for the same body again (a revive:
+  -- its getting up). cfg.p2resetanim = false: as before.
+  if before ~= char and cfg.p2resetanim ~= false and Team and Team.ResetUsrAnim then
+    local ok, err = pcall(Team.ResetUsrAnim, t)
+    if not ok then Coop.log("split: rest action of " .. char .. ": " .. tostring(err)) end
+  end
   -- Scripts of a character loaded since (wrapFn skips what is wrapped already).
   if Sp.on then pcall(Sp.installPowers) end
   Coop.log("split: " .. char .. " FPSEntity=" .. tostring(t.FPSEntity))

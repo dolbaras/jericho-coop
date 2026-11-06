@@ -103,4 +103,23 @@ Scorer.Clear(1)
 Sp.checkHud()
 assert(Scorer.GetItem(1, "Selector") and string.find(logs[#logs], "HUD back", 1, true), "HUD back: " .. tostring(logs[#logs]))
 
+-- 3. A switch puts the new body into its rest action, as the game's own switch does for user 0
+-- (team.lua SwitchSoldier -> Team.ResetUsrAnim); not a revive in the same body; off with the switch.
+local resets = {}
+Team = {ResetUsrAnim = function(t) resets[#resets + 1] = t.Name t.ForceAction = "Relax" end}
+ent("Rawlings", {UsrControl = -1, Life = 100, Action = "ShelterDown", oAI = {bEnable = true}})
+ent("Cole", {UsrControl = -1, Life = 100, Action = "Combo1Hit1", oAI = {bEnable = true}})
+ents.Church.oAI = {bEnable = false}
+assert(Sp.takeBody("Rawlings", "Church"), "switch")
+assert(ents.Rawlings.ForceAction == "Relax" and resets[1] == "Rawlings", "rest action: " .. tostring(ents.Rawlings.ForceAction))
+assert(ents.Rawlings.UsrControl == 1 and ents.Rawlings.oAI.bEnable == false, "taken")
+assert(ents.Church.UsrControl == -1 and ents.Church.oAI.bEnable == true, "left")
+resets = {}
+assert(Sp.takeBody("Rawlings"), "same body")
+assert(#resets == 0, "a revive in the same body keeps its getting up")
+Coop.cfg.p2resetanim = false
+assert(Sp.takeBody("Cole", "Rawlings"), "switch, reset off")
+assert(#resets == 0 and ents.Cole.ForceAction == nil, "cfg.p2resetanim = false: as before")
+Coop.cfg.p2resetanim = nil
+
 print("split_mock_test: all passed")
