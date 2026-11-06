@@ -44,7 +44,7 @@ modes), `logs\coop*.log` (from `Documents\Codemasters\Clive Barker's Jericho\Coo
 `coop\install.txt`, `install-log.txt`, `version.txt`, `launcher-log.txt`, `settings\display.txt`, `video.txt`,
 `temp\jericho-coop-install.log`, and `files.txt` (names and sizes of `coop\` without Python, `bin\`, the game folder and the
 Documents folder: the saves and F11 clips by name only). Cleaned out: user, computer and domain names, the profile, Documents
-and game paths, `C:\Users\<x>`, the Steam persona name the log quotes (`name [..]`), Steam's account names, Steam IDs, public
+and game paths, any `<drive>:\Users\<x>`, the Steam persona name the log quotes (`name [..]`), Steam's account names, Steam IDs, public
 IPv4 / IPv6 addresses (LAN kept), e-mails, MACs; nothing is uploaded. The uninstaller removes it with `coop\`. Tests: the
 shared `tools\log-collector\tests\test-collect.ps1` (powershell.exe); before a release, once on a real install: double-click
 `coop\Collect logs.bat`, open the zip.
