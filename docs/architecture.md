@@ -703,7 +703,11 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   `CoopCam1`, HUD in scorer 1, FP model `1FP_<char>`; per frame camera slot alternation with
   `Net.CoopSplit`, the view of each half (`view`, `scales`, `wide`: the player's Video screen
   choice, Fill by default, test overrides `splitview`/`splitsx`/`splitsy` first), visibility per
-  view (`showFor`), hold to full screen for scenes and menus,
+  view (`showFor`), hold to full screen for scenes and menus, and for `FP_WAKE` (1.2 s,
+  `cfg.p2fpwake`, pads apart) after player 2 enters a body whose first-person set the mod built in
+  this level (`Coop.fpBuilt`, `Coop.buildFP`: all but Ross's in Act 1): such a model of user 1
+  played no shot, reload or melee action until the split screen had once gone full screen
+  (live N100 2026-11-07, `notes\tester-1106-analysis.md` section 5),
   player 2's powers run as user 1 (`asUser1`, `buildRemap`; wraps the class callbacks in
   `Sp.CALLBACKS` and the `Weapons` table), body checks, `claim2`. Extends `Game.UsrEntity` for
   id 3 (the hidden FP model's user).

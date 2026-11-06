@@ -122,4 +122,29 @@ assert(Sp.takeBody("Cole", "Rawlings"), "switch, reset off")
 assert(#resets == 0 and ents.Cole.ForceAction == nil, "cfg.p2resetanim = false: as before")
 Coop.cfg.p2resetanim = nil
 
+-- 4. A body whose first-person set the mod built in this level (Act 1): a moment of full screen,
+-- each pad its player's (live N100 2026-11-07: the model played nothing for player 2 until the split
+-- screen had once gone full screen). Not for the game's own sets, not for the same body, off with 0.
+local t = 100
+Game.GetTime = function() return t end
+Coop.fpBuilt = {Jones = true, Cole = true}
+ent("Jones", {UsrControl = -1, Life = 100, Action = "Relax", oAI = {bEnable = true}})
+Sp.fpWakeUntil = nil
+assert(Sp.takeBody("Jones", "Cole"), "into a built set")
+assert(Sp.fpWakeUntil and math.abs(Sp.fpWakeUntil - (100 + Sp.FP_WAKE)) < 1e-6, "wake set: " .. tostring(Sp.fpWakeUntil))
+local hold, apart = Sp.shouldHold()
+assert(hold == true and apart == true, "full screen, pads apart: " .. tostring(hold) .. " " .. tostring(apart))
+assert(string.find(logs[#logs - 2] or "", "built here", 1, true) or string.find(table.concat(logs, "\n"), "Jones's first-person set was built here", 1, true), "logged")
+t = 100 + Sp.FP_WAKE + 0.01
+hold = Sp.shouldHold()
+assert(hold == false and Sp.fpWakeUntil == nil, "split again after the wake")
+assert(Sp.takeBody("Jones"), "same body again")
+assert(Sp.fpWakeUntil == nil, "no wake for the same body (a revive)")
+assert(Sp.takeBody("Rawlings", "Jones"), "into a set of the game's")
+assert(Sp.fpWakeUntil == nil, "no wake for the game's own set")
+Coop.cfg.p2fpwake = 0
+assert(Sp.takeBody("Cole", "Rawlings"), "built set, wake off")
+assert(Sp.fpWakeUntil == nil, "cfg.p2fpwake = 0: as before")
+Coop.cfg.p2fpwake = nil
+
 print("split_mock_test: all passed")

@@ -1646,7 +1646,8 @@ if cfg.p2firelog and Coop.level ~= "levels/menu" then
     local dropped = CoopEnemies and CoopEnemies.stats and CoopEnemies.stats.dropped
     Coop.log(string.format("p2fire: pad%s b=%d lt=%d rt=%d raw %s,%s,%s,%s | in u1 shot %s sec %s hit %s (u0 %s/%s/%s)" ..
       " | %s usr %s lock %s ai %s act %s shot %s sec %s block %s slot %s->%s ammo0 %s fc %s move %s fps %s" ..
-      " | fp act %s id %s active %s vis %s | set %s held %s merged %s shown %s id3 %s | dmg %d last %s dropped %s",
+      " | fp act %s id %s active %s vis %s | set %s held %s merged %s shown %s id3 %s | dmg %d last %s dropped %s" ..
+      " | stopchat %s",
       pad[1] and pad[2] ~= nil and "" or " (none)", b, lt, rt,
       tostring(raw[2]), tostring(raw[3]), tostring(raw[4]), tostring(raw[5]),
       inp("MainShot", 1), inp("Secondaryshot", 1), inp("Hit", 1), inp("MainShot", 0), inp("Secondaryshot", 0), inp("Hit", 0),
@@ -1658,7 +1659,9 @@ if cfg.p2firelog and Coop.level ~= "levels/menu" then
       e and f(e, "FPSEntity") or "-",
       fp and f(fp, "Action") or "-", fp and f(fp, "id") or "-", fp and f(fp, "Active") or "-", fp and f(fp, "bObjectVisible") or "-",
       tostring(Sp.realGetActionSet and Sp.realGetActionSet()), tostring(Sp.held), tostring(Sp.padsMerged), tostring(Sp.shownFor),
-      tostring(Sp.id3User), fire.n, fire.last, tostring(dropped)))
+      tostring(Sp.id3User), fire.n, fire.last, tostring(dropped),
+      -- (the game's "stop chats" and the desert's tutorial hold everybody's fire: MainShot reads 0)
+      tostring(Game.Get and Game.Get("DoingStopChat"))))
   end
 end
 

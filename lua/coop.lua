@@ -1979,6 +1979,9 @@ function Coop.buildFP(name)
   if Act.GetClass("FP_" .. name) ~= nil then return end
   Game.PreloadLibrary("Scripts/FP/FP_" .. name .. ".lua", "FP_" .. name)
   _G["FP_" .. name].CreateFP()
+  -- (a set built here: player 2's model of it needs a moment of full screen, coop_split.lua Sp.FP_WAKE)
+  Coop.fpBuilt = Coop.fpBuilt or {}
+  Coop.fpBuilt[name] = true
   Game.PreloadLibrary("Scripts/Sound/FP_" .. name .. "Sound.lua", "FP_" .. name .. "Sound")
   Coop.loadFPSounds(name)
 end

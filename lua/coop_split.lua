@@ -158,6 +158,17 @@ function Sp.takeBody(char, from)
     local ok, err = pcall(Team.ResetUsrAnim, t)
     if not ok then Coop.log("split: rest action of " .. char .. ": " .. tostring(err)) end
   end
+  -- A first-person model of a set the mod built in this level (Coop.buildFP: Act 1, where only
+  -- Ross's is the game's) played none of its actions for player 2 - no shot, reload or sabre
+  -- animation, so the first magazine was the last (Rawlings did not fire at all) - until the
+  -- split screen had once gone full screen after the model existed (a menu, a scene, a squad
+  -- switch): tester report 2026-11-06, live N100 2026-11-07. So it goes full screen for a moment
+  -- here, each pad its player's. cfg.p2fpwake = seconds (0: off, as before).
+  local wake = tonumber(cfg.p2fpwake) or Sp.FP_WAKE
+  if before ~= char and wake > 0 and Coop.fpBuilt and Coop.fpBuilt[char] then
+    Sp.fpWakeUntil = Game.GetTime() + wake
+    Coop.log(string.format("split: %s's first-person set was built here: full screen for %.1f s", char, wake))
+  end
   -- Scripts of a character loaded since (wrapFn skips what is wrapped already).
   if Sp.on then pcall(Sp.installPowers) end
   Coop.log("split: " .. char .. " FPSEntity=" .. tostring(t.FPSEntity))
@@ -283,6 +294,9 @@ end
 -- flight camera (Team.EndTravelCam deletes "Cameraman" and gives "Walk" back in one call: split
 -- screen came back while it was still there; coop_team.lua T.installTravel).
 Sp.SCENE_CAM_WAIT = 3
+-- Seconds of full screen after player 2 enters a body whose first-person set the mod built
+-- (Sp.takeBody; 1.2 s woke the model in every live test, 2026-11-07).
+Sp.FP_WAKE = 1.2
 Sp.SCENE_CAMS = {"InterpolusCamera", "Cameraman"}
 function Sp.sceneCamUp()
   local up = false
@@ -308,6 +322,11 @@ function Sp.shouldHold()
   local set = Input.GetActionSet and Input.GetActionSet()
   if set == "Menu" or set == "Inactive" then return true end
   if Sp.waiting then return true, true end
+  -- (player 2's first-person model waking, Sp.FP_WAKE: each pad stays its player's)
+  if Sp.fpWakeUntil then
+    if Game.GetTime() < Sp.fpWakeUntil then return true, true end
+    Sp.fpWakeUntil = nil
+  end
   return false
 end
 
@@ -324,7 +343,9 @@ function Sp.frame()
   if hold ~= Sp.held or pads ~= Sp.heldPads then
     Sp.held, Sp.heldPads = hold, pads
     Sp.applyEngine(not hold, pads)
-    Coop.log("split: " .. (not hold and "split again" or apart and "full screen (player 2 waits), pads apart"
+    Coop.log("split: " .. (not hold and "split again" or
+      apart and (Sp.fpWakeUntil and "full screen (player 2's first-person model waking), pads apart" or
+                 "full screen (player 2 waits), pads apart")
       or "full screen (scene or menu)"))
   end
   -- Player 2's astral projection: its camera takes user 0's input only, so both pads act as
