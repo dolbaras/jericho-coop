@@ -23,19 +23,40 @@ Sp.CAM = "CoopCam1"
 -- Effects that blend the previous frame into this one: with the cameras taking turns they
 -- smear one view into the other (pixel motion blur) or flicker (HDR adaptation).
 Sp.FX = {RT_PixelMotionBlurPower = 0, RT_PixelMotionBlur = 0, RT_HDRExposureTime = 0.01}
--- How each half shows its view (cfg.splitview; players get "full"):
---   "full" (default): the whole normal frame, shape kept, in the middle of the half (black
---     sides): everything the game shows, the first-person weapon included.
---   "wide": the half filled, the view drawn wider than high (view scales below) and squeezed
---     into it; a low first-person weapon (Delgado's minigun) can fall off its bottom.
--- On a screen wider than 16:9 (21:9: each half about 4.7:1) "full" left each player a quarter of
--- the screen between black sides: "wide" is the default there (recorded on 21:9, 0.2.2).
-Sp.WIDE_SCALE_X, Sp.WIDE_SCALE_Y = 0.6, 1.2
+-- How each half shows its view: the player's choice in the game's Video screen (coop.lua
+-- Coop.SPLIT_VIEWS, kept in coop:display.txt beside the aspect ratio):
+--   "fill" (default) and "closer": the half filled, the view drawn wider than high
+--     (CameraViewScaleX/Y; Y = 2 X: no distortion on any screen) and squeezed into it (split.c
+--     mode 1); objects at 0.6x / 0.75x their full-screen size. A low first-person weapon
+--     (Delgado's minigun) can fall off its bottom, more so "closer".
+--   "whole": the whole normal frame, shape kept, in the middle of the half (black sides, split.c
+--     mode 2): everything the game shows, the first-person weapon included, at half size.
+-- Up to 0.3.0 nobody chose: "whole" below 1.85:1 (on 16:9 half the screen stayed black, tester
+-- report 2026-11-06), "fill" above (21:9: "whole" left each player a quarter of the screen, 0.2.2).
+-- Tests: cfg.splitview ("fill", "closer", "whole"; the old "wide" = "fill", "full" and any other
+-- = "whole") over the player's choice; cfg.splitsx / cfg.splitsy over a filled view's scales.
+Sp.TEST_VIEWS = {wide = "fill", full = "whole"}
 
+function Sp.view()
+  local i
+  if cfg.splitview then
+    i = Coop.splitViewIndex(Sp.TEST_VIEWS[cfg.splitview] or cfg.splitview) or Coop.splitViewIndex("whole")
+  else
+    i = Coop.splitChoice()
+  end
+  return Coop.SPLIT_VIEWS[i]
+end
+
+-- CameraViewScaleX, CameraViewScaleY of a filled half; nil: the whole picture.
+function Sp.scales()
+  local v = Sp.view()
+  if not v or not v.sx then return nil end
+  return cfg.splitsx or v.sx, cfg.splitsy or v.sy
+end
+
+-- The half filled (split.c mode 1), else the whole picture in it (mode 2).
 function Sp.wide()
-  if cfg.splitview then return cfg.splitview == "wide" end
-  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
-  return w ~= nil and h ~= nil and h > 0 and w / h >= (Coop.WIDE_ASPECT or 1.85)
+  return Sp.scales() ~= nil
 end
 
 -- The camera a player sees (their slot's, but swapped during player 2's astral projection).
@@ -157,10 +178,19 @@ function Sp.applyEngine(on, pads)
   Game.Set("SplitScreen", on and 1 or 0)
   Game.Set("R_SplitScreen", on and 1 or 0)
   Game.Set("R_SplitScreenCamera", 0)
-  local wide = on and Sp.wide()
-  Game.Set("CameraViewScaleY", wide and (cfg.splitsy or Sp.WIDE_SCALE_Y) or 1)
-  Game.Set("CameraViewScaleX", wide and (cfg.splitsx or Sp.WIDE_SCALE_X) or 1)
-  Net.CoopSplit(on and (wide and 1 or 2) or 0, pads or (on and 0 or -1))
+  local sx, sy
+  if on then sx, sy = Sp.scales() end
+  Game.Set("CameraViewScaleY", sy or 1)
+  Game.Set("CameraViewScaleX", sx or 1)
+  Net.CoopSplit(on and (sx and 1 or 2) or 0, pads or (on and 0 or -1))
+  if on then
+    local v = Sp.view()
+    local view = string.format("%s, scales %.2f %.2f", tostring(v and v.key), sx or 1, sy or 1)
+    if view ~= Sp.viewLogged then
+      Sp.viewLogged = view
+      Coop.log("split: view " .. view)
+    end
+  end
 end
 
 -- The effects' own values are kept in COOP_CFG (the only state a level change keeps): engine

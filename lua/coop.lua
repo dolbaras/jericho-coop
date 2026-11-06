@@ -271,11 +271,14 @@ Coop.TEXT = {
   en = {clip = "Last 30 s saved as a video: ", pads = "Gamepads assigned again", auto = "Auto",
         mode = "Display mode", full = "Full screen", window = "Window", borderless = "Borderless window",
         hz = "Refresh rate", hzunit = "Hz", fullonly = "(full screen)",
-        restart = "The display mode changes at the next start of the game"},
+        restart = "The display mode changes at the next start of the game",
+        split = "Split screen", splitfill = "Fill", splitcloser = "Fill (closer)", splitwhole = "Whole picture"},
   ru = {clip = "Видео последних 30 с сохранено: ", pads = "Геймпады назначены заново", auto = "Авто",
         mode = "Режим экрана", full = "Полный экран", window = "Окно", borderless = "Окно без рамки",
         hz = "Частота обновления", hzunit = "Гц", fullonly = "(в полном экране)",
-        restart = "Режим экрана сменится при следующем запуске игры"},
+        restart = "Режим экрана сменится при следующем запуске игры",
+        split = "Разделённый экран", splitfill = "Во всю ширину", splitcloser = "Во всю ширину (крупнее)",
+        splitwhole = "Весь кадр"},
 }
 Coop.addLangs(Coop.TEXT, "Coop.TEXT")
 function Coop.text(key)
@@ -2361,19 +2364,67 @@ end
 -- ultrawide screen was always stretched (owner, 0.2.1). The option now offers Auto (the
 -- screen's own ratio, the default) and the common ratios; the choice is kept in the mod's
 -- own file (Coop\display.txt) and put back every second over whatever the profile loaded.
-Coop.WIDE_ASPECT = 1.85
 Coop.ASPECTS = {
   {0, "Auto"}, {4 / 3, "4:3"}, {5 / 4, "5:4"}, {16 / 10, "16:10"}, {16 / 9, "16:9"},
   {64 / 27, "21:9 (2560x1080)"}, {43 / 18, "21:9 (3440x1440)"}, {32 / 9, "32:9"},
 }
+
+-- The mod's display choices (coop:display.txt): one "name<TAB>value" line each, "aspect" (the
+-- ratio, 0 = Auto) and "split" (a Coop.SPLIT_VIEWS key). Read once per level load. (0.3.0 and
+-- older wrote the aspect line alone and read only it: a file of this version suits them.)
 Coop.DISPLAY_FILE = "coop:display.txt"
+Coop.DISPLAY_KEYS = {"aspect", "split"}   -- the order they are written in
+
+function Coop.displayFile()
+  if not Coop.dispFile then
+    Coop.dispFile = {}
+    local text = Net.CoopFile and Net.CoopFile(Coop.DISPLAY_FILE, "r")
+    for k, v in string.gmatch(text or "", "([%w_]+)\t([^\r\n]*)") do Coop.dispFile[k] = v end
+  end
+  return Coop.dispFile
+end
+
+function Coop.saveDisplay(key, value)
+  local t = Coop.displayFile()
+  t[key] = value
+  local lines, known, rest = {}, {}, {}
+  for _, k in ipairs(Coop.DISPLAY_KEYS) do
+    known[k] = true
+    if t[k] then lines[#lines + 1] = k .. "\t" .. t[k] end
+  end
+  -- (lines of a newer version stay)
+  for k in pairs(t) do if not known[k] then rest[#rest + 1] = k end end
+  table.sort(rest)
+  for _, k in ipairs(rest) do lines[#lines + 1] = k .. "\t" .. t[k] end
+  local ok = Net.CoopFile and Net.CoopFile(Coop.DISPLAY_FILE, "w", table.concat(lines, "\n") .. "\n")
+  if ok ~= 1 then Coop.log("display: " .. Coop.DISPLAY_FILE .. " not written") end
+end
+
+-- Split screen: how each player's half shows its view (coop_split.lua Sp.view), a row of the
+-- Video screen (tester report 2026-11-06: on 16:9 the whole picture left half the screen black).
+-- sx, sy: CameraViewScaleX/Y of a filled half (split.c squeezes the frame to half height, so
+-- sy = 2 sx keeps every shape on any screen); none: the whole picture fitted into the half.
+Coop.SPLIT_VIEWS = {
+  {key = "fill", sx = 0.6, sy = 1.2},     -- objects 0.6x their full-screen size; view 1.67x as wide, 0.83x as high
+  {key = "closer", sx = 0.75, sy = 1.5},  -- 0.75x; 1.33x as wide, 0.67x as high
+  {key = "whole"},                        -- 0.5x; the whole picture (the first-person weapon too), black sides
+}
+
+function Coop.splitViewIndex(key)
+  for i, v in ipairs(Coop.SPLIT_VIEWS) do
+    if v.key == key then return i end
+  end
+end
+
+-- The player's choice (an index of Coop.SPLIT_VIEWS); Fill without one, on every screen.
+function Coop.splitChoice()
+  return Coop.splitViewIndex(Coop.displayFile().split) or 1
+end
 
 function Coop.aspectChoice()
   if Coop.aspectSel == nil then
     Coop.aspectSel = 1
-    local text = Net.CoopFile and Net.CoopFile(Coop.DISPLAY_FILE, "r")
-    local v = text and string.match(text, "aspect\t([%d%.]+)")
-    v = tonumber(v)
+    local v = tonumber(Coop.displayFile().aspect)
     if v then
       for i, a in ipairs(Coop.ASPECTS) do
         if math.abs(a[1] - v) < 0.001 then Coop.aspectSel = i end
@@ -2455,7 +2506,7 @@ function Coop.installAspectMenu()
   local function step(id, control, d)
     local n = #Coop.ASPECTS
     Coop.aspectSel = (Coop.aspectChoice() - 1 + d) % n + 1
-    if Net.CoopFile then Net.CoopFile(Coop.DISPLAY_FILE, "w", "aspect\t" .. string.format("%.6f", Coop.ASPECTS[Coop.aspectSel][1])) end
+    Coop.saveDisplay("aspect", string.format("%.6f", Coop.ASPECTS[Coop.aspectSel][1]))
     local r = Coop.wantedAspect()
     if r then Game.Set("PhysicalAspectRatio", r) end
     local itm = id and control and Scorer.GetItem(id, control)
@@ -2475,8 +2526,16 @@ end
 -- monitor: FullScreen 0 plus the DLL's borderless window) and the refresh rate (Auto or one
 -- the monitor has; full screen only). The DLL keeps them (Net.CoopDisplay, coop:video.txt)
 -- and puts the refresh rate into the device; they apply when the Video screen is left, the
--- display mode at the next start.
+-- display mode at the next start. A third row (tester report 2026-11-06): the split screen
+-- view (Coop.SPLIT_VIEWS), kept in coop:display.txt, applied as the two others (Accept on the
+-- Configuration screen; Cancel drops it) and seen when the split screen is back after the menu.
 Coop.MODES = {"full", "window", "borderless"}
+-- The mod's rows of the Video screen, after the game's resolution row (Itm3): Itm4, Itm5, Itm6.
+Coop.VIDEO_ROWS = {
+  {label = "displayModeLabel", nextFn = "Coop.displayModeNext", prevFn = "Coop.displayModePrev"},
+  {label = "displayHzLabel", nextFn = "Coop.displayHzNext", prevFn = "Coop.displayHzPrev"},
+  {label = "splitViewLabel", nextFn = "Coop.splitViewNext", prevFn = "Coop.splitViewPrev"},
+}
 -- SMOD sets FullScreen in its autoexec.lua on every start: there the player's SMOD setting
 -- decides full screen; the window can still go borderless.
 function Coop.displayModes()
@@ -2492,8 +2551,9 @@ function Coop.displayState()
     local ok, hz, bl = pcall(Net.CoopDisplay, "get")
     if not ok then hz, bl = 0, 0 end
     local fs = tonumber(Game.Get("FullScreen")) or 1
-    Coop.disp = {hz = tonumber(hz) or 0, mode = fs ~= 0 and 1 or ((tonumber(bl) or 0) ~= 0 and 3 or 2)}
-    Coop.dispSaved = {hz = Coop.disp.hz, mode = Coop.disp.mode}
+    Coop.disp = {hz = tonumber(hz) or 0, mode = fs ~= 0 and 1 or ((tonumber(bl) or 0) ~= 0 and 3 or 2),
+                 split = Coop.splitChoice()}
+    Coop.dispSaved = {hz = Coop.disp.hz, mode = Coop.disp.mode, split = Coop.disp.split}
   end
   return Coop.disp
 end
@@ -2545,11 +2605,34 @@ end
 function Coop.displayHzNext(id, control) Coop.displayHz(id, control, 1) end
 function Coop.displayHzPrev(id, control) Coop.displayHz(id, control, -1) end
 
+function Coop.splitViewLabel()
+  local v = Coop.SPLIT_VIEWS[Coop.displayState().split] or Coop.SPLIT_VIEWS[1]
+  return Coop.text("split") .. ": " .. Coop.text("split" .. v.key)
+end
+
+function Coop.splitView(id, control, dir)
+  local d = Coop.displayState()
+  d.split = ((d.split or 1) - 1 + (dir or 1)) % #Coop.SPLIT_VIEWS + 1
+  setRow(id, "Itm6", Coop.splitViewLabel())
+end
+function Coop.splitViewNext(id, control) Coop.splitView(id, control, 1) end
+function Coop.splitViewPrev(id, control) Coop.splitView(id, control, -1) end
+
 -- Leaving the Video screen: keep what changed. A new refresh rate in full screen applies at
--- once (the game's own mode change resets the device); the display mode at the next start.
+-- once (the game's own mode change resets the device); the display mode at the next start;
+-- the split screen view when the split screen is back (coop_split.lua reads the file's choice).
 function Coop.applyDisplay()
   local d, s = Coop.disp, Coop.dispSaved
-  if not d or (d.hz == s.hz and d.mode == s.mode) then return end
+  if not d then return end
+  if d.split ~= s.split then
+    local v = Coop.SPLIT_VIEWS[d.split]
+    if v then
+      Coop.saveDisplay("split", v.key)
+      Coop.log("display: split screen view " .. v.key)
+    end
+    s.split = d.split
+  end
+  if d.hz == s.hz and d.mode == s.mode then return end
   pcall(Net.CoopDisplay, "set", d.hz, d.mode == 3 and 1 or 0)
   if d.mode ~= s.mode then
     Game.Set("FullScreen", d.mode == 1 and 1 or 0)
@@ -2558,29 +2641,38 @@ function Coop.applyDisplay()
     pcall(Game.SetVideoCurrentMode, Game.GetVideoCurrentMode())
   end
   Coop.log(string.format("display: mode %s, %d Hz", Coop.MODES[d.mode], d.hz))
-  Coop.dispSaved = {hz = d.hz, mode = d.mode}
+  Coop.dispSaved = {hz = d.hz, mode = d.mode, split = d.split}
 end
 
 -- The rows go in through the screen's VerticalMenu call; its layout code (written for five
--- rows: Advanced and Back side by side at the bottom) is then redone for seven.
+-- rows: Advanced and Back side by side at the bottom) is then redone for eight. The rows keep
+-- the game's step (35 of the HUD's 480) below its resolution row; Advanced and Back one step
+-- below the last row (Y 427: the game's Controls screen puts its two buttons at 430). The
+-- game's own lines after VerticalMenu are written for its rows 4 and 5 (Advanced and Back at
+-- Y 380 side by side, the resolution row's Down to Back) and land on the mod's rows: undone.
 function Coop.layoutVideo()
-  local function it(n) return Scorer.GetItem(0, "Itm" .. n) end
-  local i2, i3, i4, i5, i6, i7 = it(2), it(3), it(4), it(5), it(6), it(7)
-  if not (i2 and i3 and i4 and i5 and i6 and i7) then return end
-  local step = i3.Y - i2.Y
-  for k, row in ipairs({i4, i5}) do
-    row.Y = i3.Y + k * step
+  local n = #Coop.VIDEO_ROWS
+  local rows = {}
+  for i = 2, 5 + n do
+    rows[i] = Scorer.GetItem(0, "Itm" .. i)
+    if not rows[i] then return end
+  end
+  local step = rows[3].Y - rows[2].Y
+  for k, r in ipairs(Coop.VIDEO_ROWS) do
+    local i = 3 + k
+    local row = rows[i]
+    row.Y = rows[3].Y + k * step
     row.X = 100
     row.Left, row.Right = "", ""
+    row.onLeft, row.onRight = r.prevFn, r.nextFn
+    rows[i - 1].Down, row.Up = "Itm" .. i, "Itm" .. (i - 1)
   end
-  i4.onLeft, i4.onRight = "Coop.displayModePrev", "Coop.displayModeNext"
-  i5.onLeft, i5.onRight = "Coop.displayHzPrev", "Coop.displayHzNext"
-  i3.Down, i4.Up, i4.Down, i5.Up = "Itm4", "Itm3", "Itm5", "Itm4"
-  local y = math.max(380, i5.Y + step)
-  i6.Y, i6.X, i7.Y, i7.X = y, 60, y, 440
-  Menu.LinkLR(i6, i7)
-  Menu.LinkLR(i7, i6)
-  i5.Down, i6.Up, i7.Up = "Itm6", "Itm5", "Itm5"
+  local last, adv, back = 3 + n, rows[4 + n], rows[5 + n]
+  local y = math.max(380, rows[last].Y + step)
+  adv.Y, adv.X, back.Y, back.X = y, 60, y, 440
+  Menu.LinkLR(adv, back)
+  Menu.LinkLR(back, adv)
+  rows[last].Down, adv.Up, back.Up = "Itm" .. (4 + n), "Itm" .. last, "Itm" .. last
 end
 
 function Coop.installDisplayMenu()
@@ -2593,8 +2685,9 @@ function Coop.installDisplayMenu()
     Menu.VerticalMenu = function(title, options, ...)
       Menu.VerticalMenu = vm
       if type(options) == "table" and #options == 5 then
-        table.insert(options, 4, {Coop.displayModeLabel(), "Coop.displayModeNext"})
-        table.insert(options, 5, {Coop.displayHzLabel(), "Coop.displayHzNext"})
+        for k, r in ipairs(Coop.VIDEO_ROWS) do
+          table.insert(options, 3 + k, {Coop[r.label](), r.nextFn})
+        end
         Coop.videoRows = true
       end
       return vm(title, options, ...)
@@ -2624,7 +2717,7 @@ function Coop.installDisplayMenu()
   if cancel then
     Menu.CancelConfig = function(...)
       local s = Coop.dispSaved
-      if s then Coop.disp = {hz = s.hz, mode = s.mode} end
+      if s then Coop.disp = {hz = s.hz, mode = s.mode, split = s.split} end
       return cancel(...)
     end
   end

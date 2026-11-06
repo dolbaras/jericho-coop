@@ -83,8 +83,8 @@ own wrapper.
   userdata into `cfg`.
 - Files: co-op saves and settings are `coop:*` files in `Documents\Codemasters\Clive Barker's
   Jericho\Coop` (`%JERICHO_COOP_SAVEDIR%` in tests), read and written through `Net.CoopFile`:
-  `save.txt`, `checkpoint.txt`, `progress.txt` (`coop_save.lua`), `display.txt` (aspect ratio,
-  `coop.lua:Coop.aspectChoice`), `video.txt` (refresh rate, borderless; read by the DLL,
+  `save.txt`, `checkpoint.txt`, `progress.txt` (`coop_save.lua`), `display.txt` (aspect ratio and
+  split screen view, one `name<TAB>value` line each, `coop.lua:Coop.displayFile` / `saveDisplay`), `video.txt` (refresh rate, borderless; read by the DLL,
   `display_hooks.c:display_load`), `coop.log` / `coop.1.log` ... `coop.4.log`, `clip-*.avi`. None of them
   feeds `cfg`.
 
@@ -112,7 +112,7 @@ Session state written by the mod:
 
 Test and development keys (set only through `JERICHO_COOP_CFG`): `auto`, `steamjoin`, `want`,
 `prespawn`, `dev`, `bot`, `nobody`, `waitpeers`, `lang`, `split2`, `splitview`, `splithud`,
-`splitsx`, `splitsy`, `splitvisflip`, `splitbodies`, `splitbodyflip`, `splitcheckflip`,
+`splitsx`, `splitsy`, `splittagx`, `splitvisflip`, `splitbodies`, `splitbodyflip`, `splitcheckflip`,
 `splitfpflip`, `astralmerge`, `astralswap`, `astraluser`, `fxprobe`, `lpchoice`, `patrolsecs`,
 `soulauto`, `spiritauto`, `spiritnofx`, `storykick`, `chainlog`, `mirrorlog`, `rosslog`,
 `povoff`, `povfallback`, `bodyoff`/`bodyhide`/`bodyskip`/`bodynm`/`bodyface` (the
@@ -582,8 +582,9 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   watchdog (`controlWatchdog`: clients only, 12 s), first-person sets for all six
   (`installFP` wraps `Team.SwitchSoldier`; `loadFPSounds` checks every sound file), F11, aspect
   ratio (`ASPECTS`, `autoAspect`, `installAspectMenu` replaces `Menu.Switch_Aspect_Ratio`), frame
-  cap, display mode and refresh rate rows (`installDisplayMenu` wraps `Menu.VideoMenu`,
-  `SaveConfig2`, `CancelConfig`, `MainMenu`), texts (`lang`, `addLangs`, `enc`, `cp1251`,
+  cap, display mode, refresh rate and split screen view rows (`VIDEO_ROWS`, `SPLIT_VIEWS`,
+  `layoutVideo`; `installDisplayMenu` wraps `Menu.VideoMenu`, `SaveConfig2`, `CancelConfig`,
+  `MainMenu`), texts (`lang`, `addLangs`, `enc`, `cp1251`,
   `cp1252`, `textBlock`). Replaces `Game.UsrEntity` with a guard.
 - **`coop_inst.lua`** (`CoopInst`): side instances (3.4).
 - **`coop_save.lua`** (`CoopSave`): co-op save files and the profile snapshot (`beginSession`,
@@ -700,7 +701,9 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   `notes\smod-addons11-analysis.md`. Test: `lua/tests/addon_mock_test.lua`.
 - **`coop_split.lua`** (`CoopSplit`, `Sp`): split screen. User 1 (`UsrControl = 1`), its camera
   `CoopCam1`, HUD in scorer 1, FP model `1FP_<char>`; per frame camera slot alternation with
-  `Net.CoopSplit`, visibility per view (`showFor`), hold to full screen for scenes and menus,
+  `Net.CoopSplit`, the view of each half (`view`, `scales`, `wide`: the player's Video screen
+  choice, Fill by default, test overrides `splitview`/`splitsx`/`splitsy` first), visibility per
+  view (`showFor`), hold to full screen for scenes and menus,
   player 2's powers run as user 1 (`asUser1`, `buildRemap`; wraps the class callbacks in
   `Sp.CALLBACKS` and the `Weapons` table), body checks, `claim2`. Extends `Game.UsrEntity` for
   id 3 (the hidden FP model's user).
@@ -709,7 +712,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
 - **`dev.lua`**: test bots (`cfg.bot`), probes and campaign steps for the test scripts, the test
   console. **`probe.lua`**: a one-off listing of the game's Lua environment.
   **`lang_de/fr/es/it.lua`**: `{["<Module>.TEXT"] = {...}}` tables merged by `Coop.addLangs`.
-  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`, `talk`, `anim`, `choice`, `cooluse`, `enemies`, `spectate`); the release gate runs all of them;
+  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`, `talk`, `anim`, `choice`, `cooluse`, `enemies`, `spectate`, `split`, `display`; `talk` and `display` take a file of the game's decompiled scripts as their argument); the release gate runs all of them;
   `tests/net_ping.lua`: transport smoke test.
 
 ## 7. Native side map (`native/`)
@@ -876,7 +879,7 @@ The code is right in each case:
   leader's area; `Q.follow` uses a chase state instead (`Q.areaOf` is left over).
 - `coop.lua:905-909` says a client drops states "in its first second", `Coop.frameCap` and
   `Coop.autoAspect` say "once a second": all three count 30 ticks, 1.5 s.
-- `native/split.h` names split modes 0 and 1; `coop_split.lua` uses 1 (wide) and 2 (fitted).
+- `native/split.h` names split modes 0 and 1; `coop_split.lua` uses 1 (filled: the views "fill" and "closer") and 2 (fitted: "whole").
 - `native/coop_net.h` calls `coop_log` a no-op without `%JERICHO_COOP_LOG%`; it writes
   `coop.log` in the co-op folder.
 - `native/display_hooks.c:401` and `coop.lua:1565` name a `coop_display.lua`; the display rows
