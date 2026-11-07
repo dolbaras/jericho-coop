@@ -266,18 +266,22 @@ function Coop.cp1252(s)
   end))
 end
 
--- Short texts of this file and of coop_split.lua.
+-- Short texts of this file and of coop_split.lua. The Video screen's rows ("mode", "hz" + "fullonly",
+-- "split" + its values) start at X 100 of the menu's 640: on a 4:3 or 5:4 screen a row of more than
+-- about 33 characters runs off the right edge (seen live on 1280x1024, 2026-11-07: the Russian
+-- "Во всю ширину (крупнее)" and refresh rate rows were cut), so every language keeps its longest
+-- row ("label: value", a three-digit rate with "fullonly") at 33 or less (tests/display_mock_test.lua).
 Coop.TEXT = {
   en = {clip = "Last 30 s saved as a video: ", pads = "Gamepads assigned again", auto = "Auto",
         mode = "Display mode", full = "Full screen", window = "Window", borderless = "Borderless window",
-        hz = "Refresh rate", hzunit = "Hz", fullonly = "(full screen)",
+        hz = "Refresh rate", hzunit = "Hz", fullonly = "(fullscreen)",
         restart = "The display mode changes at the next start of the game",
         split = "Split screen", splitfill = "Fill", splitcloser = "Fill (closer)", splitwhole = "Whole picture"},
   ru = {clip = "Видео последних 30 с сохранено: ", pads = "Геймпады назначены заново", auto = "Авто",
         mode = "Режим экрана", full = "Полный экран", window = "Окно", borderless = "Окно без рамки",
-        hz = "Частота обновления", hzunit = "Гц", fullonly = "(в полном экране)",
+        hz = "Частота", hzunit = "Гц", fullonly = "(полный экран)",
         restart = "Режим экрана сменится при следующем запуске игры",
-        split = "Разделённый экран", splitfill = "Во всю ширину", splitcloser = "Во всю ширину (крупнее)",
+        split = "Разделённый экран", splitfill = "Во всю ширину", splitcloser = "Крупный план",
         splitwhole = "Весь кадр"},
 }
 Coop.addLangs(Coop.TEXT, "Coop.TEXT")

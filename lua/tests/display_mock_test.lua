@@ -351,6 +351,18 @@ for _, lang in ipairs({"en", "ru", "de", "es", "fr", "it"}) do
     assert(not seenText[s], lang .. ": " .. k .. " differs from the others")
     seenText[s] = true
   end
+  -- The mod's three Video rows fit a 4:3 / 5:4 screen (from X 100; live 2026-11-07 on 1280x1024 the
+  -- Russian "Во всю ширину (крупнее)" and refresh rate rows ran off the edge): 33 characters at most,
+  -- counted in the game's code page (Coop.text gives one byte per character).
+  local rows = {}
+  for _, m in ipairs({"full", "window", "borderless"}) do rows[#rows + 1] = Coop.text("mode") .. ": " .. Coop.text(m) end
+  for _, v in ipairs({Coop.text("auto"), "144 " .. Coop.text("hzunit")}) do
+    rows[#rows + 1] = Coop.text("hz") .. ": " .. v .. " " .. Coop.text("fullonly")
+  end
+  for _, v in ipairs({"fill", "closer", "whole"}) do rows[#rows + 1] = Coop.text("split") .. ": " .. Coop.text("split" .. v) end
+  for _, r in ipairs(rows) do
+    assert(#r <= 33, lang .. ": Video row of " .. #r .. " characters: " .. r)
+  end
 end
 cfg.lang = "en"
 
