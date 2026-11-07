@@ -297,6 +297,10 @@ return {
     hzunit = "Hz",
     fullonly = "(plein écran)",
     restart = "Le mode d'affichage change au prochain lancement du jeu",
+    split = "Écran partagé",
+    splitfill = "Remplir",
+    splitcloser = "Remplir (plus près)",
+    splitwhole = "Image entière",
   },
   ["CoopSmod.TR"] = {
     Cheats = "Triches",

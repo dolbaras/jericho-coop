@@ -217,7 +217,8 @@ Screen: aspect ratio, display mode, refresh rate
 Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
 4:3, 5:4, 16:10, 16:9, 21:9 (2560x1080), 21:9 (3440x1440), 32:9. The choice is kept by the mod
 (the game's player profile used to put its own value back at the main menu, so editing game.cfg
-did not hold). Split screen fills each half on a wide screen.
+did not hold).
+Split screen (the same screen): Fill (default), Fill (closer) or Whole picture; see Split screen.
 Display mode (the same screen): Full screen, Window, or Borderless window (a window without a
 frame over the whole monitor; the picture is drawn at the chosen resolution and stretched, so
 pick your monitor's own resolution). It changes at the next start of the game. With SMOD its
@@ -233,9 +234,13 @@ character; it works in a hosted game and when you join one (up to 4 players in a
   second; with one connected, it is player 2's and player 1 plays with keyboard + mouse. A
   gamepad plugged in or out during play is assigned again within a few seconds (player 2 first).
 - In menus and cutscenes the screen is whole again and both gamepads work there.
-- Each half shows the whole picture with black bars at the sides; the HUD keeps its normal
-  shape, its corners (weapons and ammo, powers, squad, SMOD's health) sit on the bars at the
-  screen's edges and only the crosshair, messages and subtitles stay over the picture.
+- How each half shows its view: Configuration -> Video -> Split screen. Fill (default): the
+  half is filled with a view wider and less high than the whole screen's. Fill (closer): things
+  look larger, with less around them (a weapon held low, such as Delgado's minigun, is cut more
+  at the bottom). Whole picture: the whole normal picture at half size, black bars at the sides.
+  The choice applies after Accept on the Configuration screen. In every view the HUD keeps its
+  normal shape: its corners (weapons and ammo, powers, squad, SMOD's health) sit at the screen's
+  edges and only the crosshair, messages and subtitles stay in the middle.
 - Each player sees their own arms and the other player's whole body, and the screen effects
   of a power (blur, colours, noise) only in the half of the player who uses it. Delgado's fire
   barrier flames are not shown in split screen (they would cover both halves); the barrier
@@ -469,8 +474,9 @@ SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMO
 Экран: формат, режим экрана, частота обновления
 Конфигурация -> Видео -> Формат: Авто (по умолчанию: по разрешению экрана), 4:3, 5:4, 16:10, 16:9,
 21:9 (2560x1080), 21:9 (3440x1440), 32:9. Выбор запоминает мод (профиль игрока раньше возвращал
-при входе в меню своё значение, поэтому правка game.cfg не держалась). Сплитскрин на широком
-экране заполняет каждую половину.
+при входе в меню своё значение, поэтому правка game.cfg не держалась).
+Разделённый экран (тот же экран): Во всю ширину (по умолчанию), Во всю ширину (крупнее) или Весь
+кадр; см. «Сплитскрин».
 Режим экрана (тот же экран): Полный экран, Окно или Окно без рамки (окно без рамки на весь
 монитор; картинка рисуется в выбранном разрешении и растягивается, поэтому выберите родное
 разрешение монитора). Меняется при следующем запуске игры. Со SMOD полный экран задаёт его
@@ -487,9 +493,13 @@ autoexec.lua (FullScreen); окно всё равно можно сделать 
   подключённый или отключённый во время игры, назначается заново за несколько секунд (сначала
   игроку 2).
 - В меню и катсценах экран снова целый, и там работают оба геймпада.
-- В каждой половине видна вся картинка, по бокам чёрные полосы; HUD в своих обычных
-  пропорциях: его углы (оружие и патроны, способности, отряд, здоровье SMOD) стоят на полосах
-  у краёв экрана, а над картинкой остаются только прицел, сообщения и субтитры.
+- Как половина показывает вид: Конфигурация -> Видео -> Разделённый экран. Во всю ширину (по
+  умолчанию): половина заполнена, вид шире и ниже, чем на целом экране. Во всю ширину (крупнее):
+  всё крупнее, а вокруг видно меньше (низко висящее оружие, например пулемёт Дельгадо, сильнее
+  обрезано снизу). Весь кадр: вся обычная картинка в половинном размере, по бокам чёрные полосы.
+  Выбор применяется после подтверждения на экране «Конфигурация». В любом виде HUD в своих
+  обычных пропорциях: его углы (оружие и патроны, способности, отряд, здоровье SMOD) стоят у
+  краёв экрана, а в середине остаются только прицел, сообщения и субтитры.
 - Каждый видит свои руки и второго игрока целиком, а экранные эффекты способностей (размытие,
   цвет, шум) — только в половине того, кто ими пользуется. Пламя огненного барьера Дельгадо в
   сплитскрине не показывается (оно закрыло бы обе половины), сам барьер работает.

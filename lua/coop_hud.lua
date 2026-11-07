@@ -61,6 +61,25 @@ function H.project(camName, p)
   return 320 + 320 * x / (z * tw), 240 - 240 * y / (z * tv)
 end
 
+-- A plate's place on a split screen player's HUD (x, y from H.project). split.c draws each
+-- player's HUD in the middle of the half with the whole screen's shape (fit_vp, both views):
+-- over the whole picture in the "whole" view, but over the middle half of a filled half's
+-- picture, which is twice as wide (the screen's width at half its height): there x is twice as
+-- far from the middle. The HUD's corners are drawn out at the screen's edges (hud_edges, both
+-- views): no plate there. (Up to 0.3.0 a filled view had neither: plates sat halfway to the
+-- middle, INFERRED from the code, not seen; the filled view was then the 21:9 one only.)
+-- cfg.splittagx = false: as before.
+function H.splitPlace(x, y)
+  if not x or not y then return nil, y end
+  local filled = CoopSplit.wide()
+  if filled then
+    if Coop.cfg.splittagx == false then return x, y end
+    x = 320 + (x - 320) * 2
+  end
+  if (x < 140 or x > 500) and (y < 110 or y > 330) then return nil, y end
+  return x, y
+end
+
 -- Just above the body's head bone (the plate then follows crouching, agony...), else a
 -- fixed height over the body. A missing bone is an engine error on every read, so a body
 -- without one is remembered.
@@ -176,11 +195,7 @@ function H.update()
         if dist and dist < H.MAX_DIST then
           local x, y
           if split then
-            -- Full view (coop_split.lua): split.c draws each HUD over its picture only, so
-            -- the HUD space is the picture's, as on the whole screen.
-            x, y = H.project(cam, head)
-            -- The HUD's corners are drawn out on the black sides (split.c): no plate there.
-            if x and y and not CoopSplit.wide() and (x < 140 or x > 500) and (y < 110 or y > 330) then x = nil end
+            x, y = H.splitPlace(H.project(cam, head))
           else
             local camPos, fwd = cameraForward()
             local dd = head - camPos

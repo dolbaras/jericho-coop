@@ -23,19 +23,40 @@ Sp.CAM = "CoopCam1"
 -- Effects that blend the previous frame into this one: with the cameras taking turns they
 -- smear one view into the other (pixel motion blur) or flicker (HDR adaptation).
 Sp.FX = {RT_PixelMotionBlurPower = 0, RT_PixelMotionBlur = 0, RT_HDRExposureTime = 0.01}
--- How each half shows its view (cfg.splitview; players get "full"):
---   "full" (default): the whole normal frame, shape kept, in the middle of the half (black
---     sides): everything the game shows, the first-person weapon included.
---   "wide": the half filled, the view drawn wider than high (view scales below) and squeezed
---     into it; a low first-person weapon (Delgado's minigun) can fall off its bottom.
--- On a screen wider than 16:9 (21:9: each half about 4.7:1) "full" left each player a quarter of
--- the screen between black sides: "wide" is the default there (recorded on 21:9, 0.2.2).
-Sp.WIDE_SCALE_X, Sp.WIDE_SCALE_Y = 0.6, 1.2
+-- How each half shows its view: the player's choice in the game's Video screen (coop.lua
+-- Coop.SPLIT_VIEWS, kept in coop:display.txt beside the aspect ratio):
+--   "fill" (default) and "closer": the half filled, the view drawn wider than high
+--     (CameraViewScaleX/Y; Y = 2 X: no distortion on any screen) and squeezed into it (split.c
+--     mode 1); objects at 0.6x / 0.75x their full-screen size. A low first-person weapon
+--     (Delgado's minigun) can fall off its bottom, more so "closer".
+--   "whole": the whole normal frame, shape kept, in the middle of the half (black sides, split.c
+--     mode 2): everything the game shows, the first-person weapon included, at half size.
+-- Up to 0.3.0 nobody chose: "whole" below 1.85:1 (on 16:9 half the screen stayed black, tester
+-- report 2026-11-06), "fill" above (21:9: "whole" left each player a quarter of the screen, 0.2.2).
+-- Tests: cfg.splitview ("fill", "closer", "whole"; the old "wide" = "fill", "full" and any other
+-- = "whole") over the player's choice; cfg.splitsx / cfg.splitsy over a filled view's scales.
+Sp.TEST_VIEWS = {wide = "fill", full = "whole"}
 
+function Sp.view()
+  local i
+  if cfg.splitview then
+    i = Coop.splitViewIndex(Sp.TEST_VIEWS[cfg.splitview] or cfg.splitview) or Coop.splitViewIndex("whole")
+  else
+    i = Coop.splitChoice()
+  end
+  return Coop.SPLIT_VIEWS[i]
+end
+
+-- CameraViewScaleX, CameraViewScaleY of a filled half; nil: the whole picture.
+function Sp.scales()
+  local v = Sp.view()
+  if not v or not v.sx then return nil end
+  return cfg.splitsx or v.sx, cfg.splitsy or v.sy
+end
+
+-- The half filled (split.c mode 1), else the whole picture in it (mode 2).
 function Sp.wide()
-  if cfg.splitview then return cfg.splitview == "wide" end
-  local w, h = tonumber(Game.Get("VideoWidth")), tonumber(Game.Get("VideoHeight"))
-  return w ~= nil and h ~= nil and h > 0 and w / h >= (Coop.WIDE_ASPECT or 1.85)
+  return Sp.scales() ~= nil
 end
 
 -- The camera a player sees (their slot's, but swapped during player 2's astral projection).
@@ -48,9 +69,19 @@ function Sp.body()
   return Sp.char and Game.GetEntity(Sp.char)
 end
 
+-- The game's switches for parts of the HUD (scripts/menu/menu.lua Menu.ShowScorer). The desert's
+-- tutorial starts with crosshair, ammo and squad off and turns them on with Menu.ShowScorer(0),
+-- user 0's HUD only (alk_desert MapInit.TestTap; alk_tomb the squad): player 2 kept a HUD
+-- without them for the whole chapter (tester report 2026-11-06). Sp.checkHud builds it again.
+function Sp.hudFlags()
+  if not Menu then return "" end
+  return tostring(Menu.bShowAim ~= false) .. tostring(Menu.bShowAmmo ~= false) .. tostring(Menu.bShowTeamStatus ~= false)
+end
+
 -- The engine's own HUD widgets in scorer 1: Menu.ShowScorer run for user 1 (all of user 0's
 -- widgets, the Astral one Jones's projection needs included), else the main ones.
 function Sp.buildHud()
+  Sp.hudFlagsBuilt = Sp.hudFlags()
   Scorer.Clear(1)
   if cfg.splithud then   -- tests: only these widgets
     for _, w in ipairs(cfg.splithud) do Scorer.NewItem(1, w, w) end
@@ -97,6 +128,7 @@ end
 function Sp.takeBody(char, from)
   local t = Game.GetEntity(char)
   if not t then return false end
+  local before = Sp.char
   Sp.ensureFP(char)
   if from then
     local f = Game.GetEntity(from)
@@ -117,6 +149,26 @@ function Sp.takeBody(char, from)
   -- What the game does for a body user 0 switches into (power icons, the FP model's state).
   local sw = Team and Team.OnSwitchChar and Team.OnSwitchChar[t.ActCtrl or char]
   if sw then Sp.asUser1(sw, t) end
+  -- The game's switch also puts the body it gives user 0 into its rest action (team.lua
+  -- SwitchSoldier -> Team.ResetUsrAnim: Relax, standing, no zoom, a scripted move cut short);
+  -- player 2's did not, and the body went on with what its AI was doing (a cover, a sabre
+  -- strike, a spell's move; tester report 2026-11-06). Not for the same body again (a revive:
+  -- its getting up). cfg.p2resetanim = false: as before.
+  if before ~= char and cfg.p2resetanim ~= false and Team and Team.ResetUsrAnim then
+    local ok, err = pcall(Team.ResetUsrAnim, t)
+    if not ok then Coop.log("split: rest action of " .. char .. ": " .. tostring(err)) end
+  end
+  -- A first-person model of a set the mod built in this level (Coop.buildFP: Act 1, where only
+  -- Ross's is the game's) played none of its actions for player 2 - no shot, reload or sabre
+  -- animation, so the first magazine was the last (Rawlings did not fire at all) - until the
+  -- split screen had once gone full screen after the model existed (a menu, a scene, a squad
+  -- switch): tester report 2026-11-06, live N100 2026-11-07. So it goes full screen for a moment
+  -- here, each pad its player's. cfg.p2fpwake = seconds (0: off, as before).
+  local wake = tonumber(cfg.p2fpwake) or Sp.FP_WAKE
+  if before ~= char and wake > 0 and Coop.fpBuilt and Coop.fpBuilt[char] then
+    Sp.fpWakeUntil = Game.GetTime() + wake
+    Coop.log(string.format("split: %s's first-person set was built here: full screen for %.1f s", char, wake))
+  end
   -- Scripts of a character loaded since (wrapFn skips what is wrapped already).
   if Sp.on then pcall(Sp.installPowers) end
   Coop.log("split: " .. char .. " FPSEntity=" .. tostring(t.FPSEntity))
@@ -137,10 +189,19 @@ function Sp.applyEngine(on, pads)
   Game.Set("SplitScreen", on and 1 or 0)
   Game.Set("R_SplitScreen", on and 1 or 0)
   Game.Set("R_SplitScreenCamera", 0)
-  local wide = on and Sp.wide()
-  Game.Set("CameraViewScaleY", wide and (cfg.splitsy or Sp.WIDE_SCALE_Y) or 1)
-  Game.Set("CameraViewScaleX", wide and (cfg.splitsx or Sp.WIDE_SCALE_X) or 1)
-  Net.CoopSplit(on and (wide and 1 or 2) or 0, pads or (on and 0 or -1))
+  local sx, sy
+  if on then sx, sy = Sp.scales() end
+  Game.Set("CameraViewScaleY", sy or 1)
+  Game.Set("CameraViewScaleX", sx or 1)
+  Net.CoopSplit(on and (sx and 1 or 2) or 0, pads or (on and 0 or -1))
+  if on then
+    local v = Sp.view()
+    local view = string.format("%s, scales %.2f %.2f", tostring(v and v.key), sx or 1, sy or 1)
+    if view ~= Sp.viewLogged then
+      Sp.viewLogged = view
+      Coop.log("split: view " .. view)
+    end
+  end
 end
 
 -- The effects' own values are kept in COOP_CFG (the only state a level change keeps): engine
@@ -233,6 +294,9 @@ end
 -- flight camera (Team.EndTravelCam deletes "Cameraman" and gives "Walk" back in one call: split
 -- screen came back while it was still there; coop_team.lua T.installTravel).
 Sp.SCENE_CAM_WAIT = 3
+-- Seconds of full screen after player 2 enters a body whose first-person set the mod built
+-- (Sp.takeBody; 1.2 s woke the model in every live test, 2026-11-07).
+Sp.FP_WAKE = 1.2
 Sp.SCENE_CAMS = {"InterpolusCamera", "Cameraman"}
 function Sp.sceneCamUp()
   local up = false
@@ -258,6 +322,11 @@ function Sp.shouldHold()
   local set = Input.GetActionSet and Input.GetActionSet()
   if set == "Menu" or set == "Inactive" then return true end
   if Sp.waiting then return true, true end
+  -- (player 2's first-person model waking, Sp.FP_WAKE: each pad stays its player's)
+  if Sp.fpWakeUntil then
+    if Game.GetTime() < Sp.fpWakeUntil then return true, true end
+    Sp.fpWakeUntil = nil
+  end
   return false
 end
 
@@ -274,7 +343,9 @@ function Sp.frame()
   if hold ~= Sp.held or pads ~= Sp.heldPads then
     Sp.held, Sp.heldPads = hold, pads
     Sp.applyEngine(not hold, pads)
-    Coop.log("split: " .. (not hold and "split again" or apart and "full screen (player 2 waits), pads apart"
+    Coop.log("split: " .. (not hold and "split again" or
+      apart and (Sp.fpWakeUntil and "full screen (player 2's first-person model waking), pads apart" or
+                 "full screen (player 2 waits), pads apart")
       or "full screen (scene or menu)"))
   end
   -- Player 2's astral projection: its camera takes user 0's input only, so both pads act as
@@ -372,15 +443,19 @@ end
 -- its own player's half since 0.2.1; it was moved down while player 1's text came out over
 -- the whole screen.)
 function Sp.checkHud()
-  if Scorer.GetItem(1, "Selector") then return end
+  local stale = Sp.hudFlagsBuilt ~= nil and Sp.hudFlagsBuilt ~= Sp.hudFlags()
+  if Scorer.GetItem(1, "Selector") and not stale then return end
   local b = not Sp.waiting and Sp.body()
   local c = Game.GetEntity(Sp.CAM)
   if not b or b.UsrControl ~= 1 or b.IgnoreUsrControl == 1 or b.Life <= 0 or Game.GetCam(1) ~= Sp.CAM or
      not c or c.MainTarget ~= Sp.char then
     return
   end
+  local had = Scorer.GetItem(1, "Selector") ~= nil
   Sp.buildHud()
-  Coop.log("split: player 2's HUD back")
+  Sp.msgShown = false   -- (a new "Msg" widget: Sp.showMsg sets its visibility again)
+  Coop.log(had and ("split: player 2's HUD built again for the game's HUD switches " .. Sp.hudFlagsBuilt) or
+    "split: player 2's HUD back")
 end
 
 -- A player's astral projection takes the one action set ("Astral") for its camera, and the
@@ -983,11 +1058,27 @@ function Sp.sendHiddenUser()
   end
 end
 
+-- Inside player 2's code (Sp.asUser1) Game.UsrEntity(0) is player 2's body and a "0FP_" name is
+-- player 2's model: with those, player 2's own model was taken for player 1's and given id 0 for
+-- the call (every other frame: when it had 1), and player 1's kept the 3 of a hidden model. The
+-- engine's own functions are used here (tester report 2026-11-06; cfg.splitidfix = false: as before).
+function Sp.engineLookups()
+  local usr, get = Game.UsrEntity, Game.GetEntity
+  if cfg.splitidfix ~= false then
+    for _, e in ipairs(Sp.remap or {}) do
+      if e[1] == Game and e[2] == "UsrEntity" then usr = e[3] end
+      if e[1] == Game and e[2] == "GetEntity" then get = e[3] end
+    end
+  end
+  return usr, get
+end
+
 function Sp.realIds()
   if Sp.shownFor == nil then return nil end
-  local b0 = Game.UsrEntity(0)
-  local f0 = b0 and Game.GetEntity("0FP_" .. b0.Name)
-  local f1 = Sp.char and Game.GetEntity("1FP_" .. Sp.char)
+  local usr, get = Sp.engineLookups()
+  local b0 = usr(0)
+  local f0 = b0 and get("0FP_" .. b0.Name)
+  local f1 = Sp.char and get("1FP_" .. Sp.char)
   local w0, w1 = f0 and f0.id, f1 and f1.id
   if f0 and w0 ~= 0 then f0.id = 0 end
   if f1 and w1 ~= 1 then f1.id = 1 end
