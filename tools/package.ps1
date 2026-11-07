@@ -2,16 +2,20 @@
 #   Install Co-op.bat + coop-installer.ps1   the installer (backs up what it replaces, uninstalls)
 #   files\                                   what goes into the game folder (bin\dinput8.dll,
 #                                            coop\*.lua, the cutscene animation builder,
-#                                            coop\coop-launcher.ps1 behind the shortcut)
+#                                            coop\coop-launcher.ps1 behind the shortcut,
+#                                            coop\collect-logs.ps1 + coop\log-profiles\*.psd1 +
+#                                            coop\Collect logs.bat: the bug-report collector)
 #   README-COOP.txt, LICENSE.txt, ENET-LICENSE.txt, STEAM-NOTICE.txt
 # files\coop\steam_api.dll (Steam joining, native/steam_net.c) comes from
 # <workspace>\tools\steam: Steamworks.NET Standalone 2025.164.1, Windows-x86, SHA-256 checked.
+# The collector is the one every co-op mod of the workspace shares: <workspace>\tools\log-collector
+# (-LogCollector <folder> for a clone placed elsewhere).
 # Run native\build.sh first. The test helpers (dev.lua, probe.lua) are left out.
-# Usage: package.ps1 -Version 0.2 [-Exe] [-Dist <folder>]
+# Usage: package.ps1 -Version 0.2 [-Exe] [-Dist <folder>] [-LogCollector <folder>]
 # -Exe also builds dist\jericho-coop-setup-<version>.exe: a single-file installer that carries this zip (an ADDITIONAL release
 # asset; the zip stays the one the shortcut's launcher updates from). Made by <workspace>\tools\mkinstaller (-Mkinstaller <folder>
 # for a clone placed elsewhere); the exe is unsigned. -Dist: write to that folder instead of dist\ (tests: dist\ holds the published zips).
-param([Parameter(Mandatory)] [string] $Version, [switch] $Exe, [string] $Mkinstaller = "", [string] $Dist = "")
+param([Parameter(Mandatory)] [string] $Version, [switch] $Exe, [string] $Mkinstaller = "", [string] $Dist = "", [string] $LogCollector = "")
 $root = Split-Path $PSScriptRoot -Parent
 # Players of different versions are kept apart by Coop.VERSION (lobby check): it must be this one.
 $luaVersion = (Select-String -Path (Join-Path $root "lua\coop.lua") -Pattern '^Coop.VERSION = "([^"]+)"').Matches[0].Groups[1].Value
@@ -48,6 +52,18 @@ New-Item -ItemType Directory -Force (Join-Path $files "coop\anims") | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "cm3_retarget.py"), (Join-Path $PSScriptRoot "bfpk.py"), (Join-Path $PSScriptRoot "m3d.py") (Join-Path $files "coop\anims")
 # The "Jericho Co-op+" shortcut's launcher: updates the mod from the GitHub releases, then starts the game.
 Copy-Item (Join-Path $PSScriptRoot "launcher.ps1") (Join-Path $files "coop\coop-launcher.ps1")
+# The bug-report collector, one for every co-op mod of the workspace (<workspace>\tools\log-collector: collect-logs.ps1 + a
+# profile per game) and a double-clickable start for it: <game>\coop\Collect logs.bat -> one zip on the desktop. Every profile
+# goes along (collect-logs.ps1 -All also takes the other co-op mods found on the PC); the .bat names this mod's.
+$lc = if ($LogCollector) { $LogCollector } else { Join-Path $root "..\..\..\tools\log-collector" }
+foreach ($p in (Join-Path $lc "collect-logs.ps1"), (Join-Path $lc "profiles\jericho.psd1")) {
+    if (-not (Test-Path -LiteralPath $p)) { throw "$p missing (the workspace's tools\log-collector; -LogCollector <folder>)" }
+}
+Copy-Item -LiteralPath (Join-Path $lc "collect-logs.ps1") (Join-Path $files "coop\collect-logs.ps1")
+New-Item -ItemType Directory -Force (Join-Path $files "coop\log-profiles") | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $lc "profiles") -Filter "*.psd1" -File | ForEach-Object { Copy-Item -LiteralPath $_.FullName (Join-Path $files "coop\log-profiles\$($_.Name)") }
+[IO.File]::WriteAllText((Join-Path $files "coop\Collect logs.bat"),
+    "@powershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0collect-logs.ps1`" -Mod jericho`r`n", (New-Object Text.ASCIIEncoding))
 # Every file of the payload: the installer checks the folder it got against it before touching
 # the game (a 0.2.3 launcher started twice deleted the extracted files under the first one's
 # installer, which then installed half of them and removed the rest as old).

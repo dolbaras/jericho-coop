@@ -32,6 +32,23 @@ What the launcher already out there relies on, so every later release keeps it:
 A change to any of these needs a launcher that copes with both the old and the new form, shipped
 one release before the old form is dropped.
 
+## Bug reports: Collect logs.bat
+
+`package.ps1` puts the bug-report collector every co-op mod of the workspace shares into `files\coop\`:
+`collect-logs.ps1` and `log-profiles\*.psd1` from `<workspace>\tools\log-collector` (the script and one profile per game, all
+of them, so that `-All` also takes the other co-op mods found on a PC; `-LogCollector <folder>` for a clone placed elsewhere),
+and `Collect logs.bat` (`collect-logs.ps1 -Mod jericho`). A double-click puts `jericho-coop-report-<date>-<time>.zip` on the
+desktop: `report.txt` (mod version, SHA-256 of `bin\Jericho.exe`, SMOD's `bin\anselintegrationtestapp.exe` and the mod's
+`bin\dinput8.dll`, install record summary, Windows and its UI language, graphics adapters and drivers, memory, CPU, display
+modes), `logs\coop*.log` (from `Documents\Codemasters\Clive Barker's Jericho\Coop`), `logs\game\log.html` (the engine's log),
+`coop\install.txt`, `install-log.txt`, `version.txt`, `launcher-log.txt`, `settings\display.txt`, `video.txt`,
+`temp\jericho-coop-install.log`, and `files.txt` (names and sizes of `coop\` without Python, `bin\`, the game folder and the
+Documents folder: the saves and F11 clips by name only). Cleaned out: user, computer and domain names, the profile, Documents
+and game paths, any `<drive>:\Users\<x>`, the Steam persona name the log quotes (`name [..]`), Steam's account names, Steam IDs, public
+IPv4 / IPv6 addresses (LAN kept), e-mails, MACs; nothing is uploaded. The uninstaller removes it with `coop\`. Tests: the
+shared `tools\log-collector\tests\test-collect.ps1` (powershell.exe); before a release, once on a real install: double-click
+`coop\Collect logs.bat`, open the zip.
+
 ## The setup exe (additional release asset)
 
 `jericho-coop-setup-<version>.exe` is a single-file installer for players who do not want to unzip and run `Install Co-op.bat`.

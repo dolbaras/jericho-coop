@@ -32,8 +32,10 @@ QA level: the whole campaign runs through level by level in tests with two real 
 instances on two PCs (a playthrough bot plays both sides, both branches of the Lost Patrol
 included), every story split is played with a real host and client, every in-engine cutscene
 is compared with the original. Human playthroughs started with 0.2.1 over Steam; please report
-problems in Issues with `Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` (the four sessions before it are
-`coop.1.log` ... `coop.4.log`; and an F11 clip if you can).
+problems in Issues with the zip that `coop\Collect logs.bat` in the game folder puts on the desktop (the mod's logs
+`Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` and the four sessions before it, the install record, versions and
+system information, with the user, computer and player names, Steam IDs and public IP addresses removed; and an F11 clip if
+you can).
 
 Tested game: retail DVD release, `Jericho.exe` SHA-256
 `7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62`, Windows 10 and 11; SMOD
