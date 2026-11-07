@@ -234,6 +234,10 @@ character; it works in a hosted game and when you join one (up to 4 players in a
   second; with one connected, it is player 2's and player 1 plays with keyboard + mouse. A
   gamepad plugged in or out during play is assigned again within a few seconds (player 2 first).
 - In menus and cutscenes the screen is whole again and both gamepads work there.
+- When player 2 takes a squad member whose first-person weapon the mod builds for the level
+  (in Act 1 everyone's but Ross's), the screen is whole for about a second, each gamepad still
+  driving its own player: the game starts that weapon's animations only then (without it,
+  player 2 could not reload or attack after the first magazine).
 - How each half shows its view: Configuration -> Video -> Split screen. Fill (default): the
   half is filled with a view wider and less high than the whole screen's. Fill (closer): things
   look larger, with less around them (a weapon held low, such as Delgado's minigun, is cut more
@@ -499,6 +503,10 @@ autoexec.lua (FullScreen); окно всё равно можно сделать 
   подключённый или отключённый во время игры, назначается заново за несколько секунд (сначала
   игроку 2).
 - В меню и катсценах экран снова целый, и там работают оба геймпада.
+- Когда игрок 2 берёт бойца, чьё оружие от первого лица мод собирает для уровня (в акте 1 —
+  у всех, кроме Росса), экран примерно на секунду становится целым, а каждый геймпад по-прежнему
+  управляет своим игроком: только тогда игра запускает анимации этого оружия (без этого игрок 2
+  не мог перезарядиться и атаковать после первого магазина).
 - Как половина показывает вид: Конфигурация -> Видео -> Разделённый экран. Во всю ширину (по
   умолчанию): половина заполнена, вид шире и ниже, чем на целом экране. Во всю ширину (крупнее):
   всё крупнее, а вокруг видно меньше (низко висящее оружие, например пулемёт Дельгадо, сильнее
