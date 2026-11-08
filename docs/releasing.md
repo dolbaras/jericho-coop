@@ -75,7 +75,7 @@ uninstall byte for byte); a copy the player changed stays; no copy next to a for
 mod's DLL, a DLL that only names the loader; a loader without `dinput8.ini`; no `dinput8.dll` at all; another mod's DLL put over the
 co-op one, then uninstall / update / update + uninstall, also over an older loader; with `-OldZip` that release over a loader,
 updated by this tree's installer; the new texts in six languages, translated; the longest result text fits its page (measured,
-no window). 2026-11-08: this tree 52/52 with `-OldZip` 0.3.1; the published 0.3.1 zip (`-Zip`) fails 28 of 49.
+no window) and Fit-Result itself on controls of the page's geometry (none shown). 2026-11-08: this tree 53/53 with `-OldZip` 0.3.1; the published 0.3.1 zip (`-Zip`) fails 28 of 49.
 The installer's WINDOW (the result page now gives a long text the progress bar's and the log's room, then a smaller font) needs a
 person to look at it.
 

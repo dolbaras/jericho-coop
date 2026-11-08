@@ -290,6 +290,26 @@ foreach ($lg in $langs) {
 Check ($tall.Count -eq 0) "the result text with the dinput8.dll note fits (at 10.5 pt in 210 px; with the animation failure too at >= 8.5 pt in 290 px) ($($tall -join ', '))"
 $inst = Get-Content -LiteralPath (Join-Path $x1 "coop-installer.ps1") -Raw -Encoding UTF8
 Check ($inst.Contains("function Fit-Result") -and $inst.Contains("Fit-Result `$ok")) "the result page fits its text (Fit-Result)"
+# Fit-Result itself: the installer's function run on controls with the result page's geometry (none is shown)
+$fnFit = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Fit-Result" }, $true)
+$fnFont = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Font" }, $true)
+if ($fnFit -and $fnFont) {
+    . ([ScriptBlock]::Create($fnFont.Extent.Text + "`n" + $fnFit.Extent.Text))
+    $mk = { param($t, $x, $y, $w, $h) $c = New-Object $t; $c.Location = New-Object Drawing.Point($x, $y); $c.Size = New-Object Drawing.Size($w, $h); $c }
+    $lbResText = & $mk Windows.Forms.Label 92 66 540 160; $lbAction = & $mk Windows.Forms.Label 28 232 510 22; $lbPct = & $mk Windows.Forms.Label 540 232 92 22
+    $bar = & $mk Windows.Forms.Panel 28 258 604 14; $tbLog = & $mk Windows.Forms.TextBox 28 284 604 70; $btClose = & $mk Windows.Forms.Button 502 366 130 36
+    $fit = @()
+    $t = $TX["de"]
+    $base0 = $t["start_the_game_the"] + "`n`n" + $t["the_shortcut"]
+    foreach ($case in @(@("short", $t["start_the_game_the"], 160, $true, $true), @("SMOD + the note", ($base0 + $t["smod_found_supported"] + "`n`n" + $t["asi_note"]), 210, $false, $true),
+                        @("SMOD + the animation failure + the note", ($base0 + $t["smod_found_supported"] + "`n`n" + $t["the_build_of_the"] + " " + $t["the_cutscene_animations_and"] + "`n`n" + $t["asi_note"]), 290, $false, $false))) {
+        $lbResText.Text = ($case[1] -replace '`n', "`n")
+        try { Fit-Result $true } catch { $fit += "$($case[0]): $($_.Exception.Message)"; continue }
+        $h = [Windows.Forms.TextRenderer]::MeasureText($lbResText.Text, $lbResText.Font, (New-Object Drawing.Size(540, 100000)), [Windows.Forms.TextFormatFlags]::WordBreak).Height
+        if ($lbResText.Height -ne $case[2] -or $bar.Visible -ne $case[3] -or $tbLog.Visible -ne $case[4] -or $h -gt $lbResText.Height) { $fit += "$($case[0]): height $($lbResText.Height) bar $($bar.Visible) log $($tbLog.Visible) text $h px at $($lbResText.Font.Size) pt" }
+    }
+    Check ($fit.Count -eq 0) "Fit-Result (de): 160 px for a short text, 210 without the bar for SMOD + the note, 290 without the log and a smaller font for the longest ($($fit -join '; '))"
+}
 
 Write-Host ""
 Write-Host "test_installer: $($script:checks - $script:fails)/$($script:checks) passed"
