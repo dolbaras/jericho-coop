@@ -15,11 +15,11 @@ ZIG="${ZIG:-../../../../../tools/zig/zig-x86_64-windows-0.16.0/zig.exe}"
 OUT=../build/ualtest
 rm -rf "$OUT"
 mkdir -p "$OUT"
-CC="$ZIG cc -target x86-windows-gnu -O2"
-$CC -shared -o "$OUT/winmm.dll" ual_fake.c ual_fake.def
-$CC -o "$OUT/standin.exe" ual_standin.c -lwinmm -ldinput8 -Wl,--no-dynamicbase -Wl,--image-base=0x400000
-$CC -shared -DPLAIN -o "$OUT/model_plain.dll" ual_model.c ../dinput8.def -lwinmm
-$CC -shared -o "$OUT/model_guard.dll" ual_model.c ../iat_guard.c ../dinput8.def -lwinmm
+cc32() { "$ZIG" cc -target x86-windows-gnu -O2 "$@"; }   # (a ZIG path with spaces stays one word)
+cc32 -shared -o "$OUT/winmm.dll" ual_fake.c ual_fake.def
+cc32 -o "$OUT/standin.exe" ual_standin.c -lwinmm -ldinput8 -Wl,--no-dynamicbase -Wl,--image-base=0x400000
+cc32 -shared -DPLAIN -o "$OUT/model_plain.dll" ual_model.c ../dinput8.def -lwinmm
+cc32 -shared -o "$OUT/model_guard.dll" ual_model.c ../iat_guard.c ../dinput8.def -lwinmm
 fails=0; checks=0
 check() {   # check <name> <condition result 0/1>
     checks=$((checks + 1))
