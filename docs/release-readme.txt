@@ -213,6 +213,15 @@ the co-op mod. It needs SMOD and DXVK: put x32\d3d9.dll of DXVK (the Windows bui
 checked) into the game's bin folder. Ross's model for the other players in Act 1 gets the
 upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
 
+Other mods with a dinput8.dll (ASI loaders)
+The co-op mod is bin\dinput8.dll. An ASI loader that is there already (Ultimate ASI Loader, the dinput8.dll most
+ASI mods come with) is kept in coop-backup and keeps running as bin\winmm.dll, so its plugins (bin\scripts,
+bin\plugins) stay on. Any other mod's dinput8.dll is kept in coop-backup and is off while co-op is installed.
+Removing co-op puts it back. A dinput8.dll another mod puts over co-op's later is kept too: the next install or update of
+co-op keeps it as the original, the uninstaller leaves it in place. Other DLLs such mods use (d3d9.dll of DXVK or
+SMOD, dsound.dll, version.dll, xinput1_3.dll, winmm.dll) are not touched. Not checked in the game with a real ASI
+plugin (none is known for Jericho).
+
 Screen: aspect ratio, display mode, refresh rate
 Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
 4:3, 5:4, 16:10, 16:9, 21:9 (2560x1080), 21:9 (3440x1440), 32:9. The choice is kept by the mod

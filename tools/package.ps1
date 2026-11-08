@@ -20,6 +20,12 @@ $root = Split-Path $PSScriptRoot -Parent
 # Players of different versions are kept apart by Coop.VERSION (lobby check): it must be this one.
 $luaVersion = (Select-String -Path (Join-Path $root "lua\coop.lua") -Pattern '^Coop.VERSION = "([^"]+)"').Matches[0].Groups[1].Value
 if ($luaVersion -ne $Version) { throw "lua\coop.lua has Coop.VERSION = $luaVersion, not $Version" }
+# The workspace's shared tools folder (steam, python-embed, log-collector, mkinstaller): three levels above the repository
+# (games\jericho\mod), four above a worktree in games\jericho\work\.
+function Ws-Tool($rel) {
+    for ($d = Split-Path $root -Parent; $d; $d = Split-Path $d -Parent) { $p = Join-Path $d "tools\$rel"; if (Test-Path -LiteralPath $p) { return $p } }
+    Join-Path $root "..\..\..\tools\$rel"
+}
 $dll = Join-Path $root "native\build\dinput8.dll"
 if (-not (Test-Path $dll)) { throw "build native\build\dinput8.dll first (sh native/build.sh)" }
 $dist = if ($Dist) { $Dist } else { Join-Path $root "dist" }
@@ -29,7 +35,7 @@ $files = Join-Path $stage "files"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $files "bin"), (Join-Path $files "coop") | Out-Null
 Copy-Item $dll (Join-Path $files "bin")
-$steam = Join-Path $root "..\..\..\tools\steam\steam_api.dll"
+$steam = Ws-Tool "steam\steam_api.dll"
 $steamSha = "FDAFB7C65EC7D4182B42BF92CC8671C68E4DC547CC6E613899D2618A47EB65DA"
 if (-not (Test-Path $steam)) { throw "tools\steam\steam_api.dll missing (Steamworks.NET Standalone 2025.164.1, Windows-x86)" }
 $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($steam))) -replace "-", ""
@@ -38,7 +44,7 @@ Copy-Item $steam (Join-Path $files "coop")
 # files\coop\python: Python's official embeddable build (python.org 3.12.10, win32, PSF license
 # in it), so the installer builds the cutscene animations and Ross's model without the player
 # installing Python. <workspace>\tools\python-embed, SHA-256 checked.
-$pyZip = Join-Path $root "..\..\..\tools\python-embed\python-3.12.10-embed-win32.zip"
+$pyZip = Ws-Tool "python-embed\python-3.12.10-embed-win32.zip"
 $pySha = "084B9EB24CB848605C895D05B738FBC2572EFC8B4C18C415A824065864A2B853"
 if (-not (Test-Path $pyZip)) { throw "tools\python-embed\python-3.12.10-embed-win32.zip missing (python.org)" }
 $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($pyZip))) -replace "-", ""
@@ -55,7 +61,7 @@ Copy-Item (Join-Path $PSScriptRoot "launcher.ps1") (Join-Path $files "coop\coop-
 # The bug-report collector, one for every co-op mod of the workspace (<workspace>\tools\log-collector: collect-logs.ps1 + a
 # profile per game) and a double-clickable start for it: <game>\coop\Collect logs.bat -> one zip on the desktop. Every profile
 # goes along (collect-logs.ps1 -All also takes the other co-op mods found on the PC); the .bat names this mod's.
-$lc = if ($LogCollector) { $LogCollector } else { Join-Path $root "..\..\..\tools\log-collector" }
+$lc = if ($LogCollector) { $LogCollector } else { Ws-Tool "log-collector" }
 foreach ($p in (Join-Path $lc "collect-logs.ps1"), (Join-Path $lc "profiles\jericho.psd1")) {
     if (-not (Test-Path -LiteralPath $p)) { throw "$p missing (the workspace's tools\log-collector; -LogCollector <folder>)" }
 }
@@ -99,7 +105,7 @@ try {
 Remove-Item $stage -Recurse -Force
 "packaged $zip"
 if ($Exe) {
-    $mk = if ($Mkinstaller) { $Mkinstaller } elseif (Test-Path -LiteralPath (Join-Path $root "tools\mkinstaller\mkinstaller.ps1")) { Join-Path $root "tools\mkinstaller" } else { Join-Path $root "..\..\..\tools\mkinstaller" }
+    $mk = if ($Mkinstaller) { $Mkinstaller } elseif (Test-Path -LiteralPath (Join-Path $root "tools\mkinstaller\mkinstaller.ps1")) { Join-Path $root "tools\mkinstaller" } else { Ws-Tool "mkinstaller" }
     $mkScript = Join-Path $mk "mkinstaller.ps1"
     if (-not (Test-Path $mkScript)) { throw "tools\mkinstaller\mkinstaller.ps1 missing (the workspace's tools folder; -Mkinstaller <folder>)" }
     $exeOut = Join-Path $dist "jericho-coop-setup-$Version.exe"
