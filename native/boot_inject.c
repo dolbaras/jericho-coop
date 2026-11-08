@@ -2,7 +2,7 @@
  * Starts the co-op mod on a normal game launch: when the command line has no
  * -InitLuaLine of its own, append one that runs <game>\coop\boot.lua after the engine's
  * Lua init (the engine executes InitLuaLine once per Lua start; boot.lua re-arms it).
- * The exe reads its command line through GetCommandLineA (import table hook).
+ * The exe reads its command line through GetCommandLineA (import table hook, iat_guard.c).
  */
 #include <windows.h>
 #include <stdio.h>
@@ -11,6 +11,7 @@
 
 #include "boot_inject.h"
 #include "coop_net.h"
+#include "iat_guard.h"
 
 static char cmdline[4096];
 static LPSTR (WINAPI *real_GetCommandLineA)(void);
@@ -18,27 +19,6 @@ static LPSTR (WINAPI *real_GetCommandLineA)(void);
 static LPSTR WINAPI hook_GetCommandLineA(void)
 {
     return cmdline;
-}
-
-static void **find_import(const char *dll, const char *func)
-{
-    BYTE *base = (BYTE *)GetModuleHandleA(NULL);
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir.VirtualAddress); dir.VirtualAddress && d->Name; d++) {
-        if (_stricmp((const char *)(base + d->Name), dll) != 0)
-            continue;
-        IMAGE_THUNK_DATA *names = (IMAGE_THUNK_DATA *)(base + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
-        void **slots = (void **)(base + d->FirstThunk);
-        for (int i = 0; names[i].u1.AddressOfData; i++) {
-            if (IMAGE_SNAP_BY_ORDINAL(names[i].u1.Ordinal))
-                continue;
-            IMAGE_IMPORT_BY_NAME *ibn = (IMAGE_IMPORT_BY_NAME *)(base + names[i].u1.AddressOfData);
-            if (strcmp((const char *)ibn->Name, func) == 0)
-                return &slots[i];
-        }
-    }
-    return NULL;
 }
 
 /* <game>\coop\ with forward slashes, or %JERICHO_COOP_DIR% (test runs). */
@@ -122,12 +102,14 @@ void boot_inject_install(HINSTANCE self)
     int len = snprintf(cmdline, sizeof cmdline, "%s -InitLuaLine:\"" BOOT_LINE "\"", orig);
     if (len <= 0 || len >= (int)sizeof cmdline)
         return;
-    void **slot = find_import("KERNEL32.dll", "GetCommandLineA");
-    DWORD old;
-    if (slot && VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) {
-        real_GetCommandLineA = (LPSTR (WINAPI *)(void))*slot;
-        *slot = (void *)hook_GetCommandLineA;
-        VirtualProtect(slot, sizeof *slot, old, &old);
+    /* (iat_guard.c: an ASI loader that patched this slot first writes its value back at the game's first
+       call; then the exe's own call of GetCommandLineA, in its C runtime start, is pointed at this hook) */
+    iat_guard_result r;
+    if (iat_guard_hook("KERNEL32.dll", "GetCommandLineA", (void *)hook_GetCommandLineA, &r)) {
+        real_GetCommandLineA = (LPSTR (WINAPI *)(void))r.prev;
         coop_log("boot: mod at %s", coop_dir);
+        if (r.prepatched)
+            coop_log("boot: GetCommandLineA was hooked by %s before the mod (an ASI loader writes such hooks back): "
+                     "%d call(s) of the exe pointed at the mod's hook", r.by, r.redirected);
     }
 }

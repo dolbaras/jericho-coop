@@ -79,7 +79,23 @@ Copy-Item (Join-Path $root "docs\enet-license.txt") (Join-Path $stage "ENET-LICE
 Copy-Item (Join-Path $root "docs\steam-notice.txt") (Join-Path $stage "STEAM-NOTICE.txt")
 $zip = Join-Path $dist "jericho-coop-$Version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
+# The archive is written by .NET's ZipArchive with entry names built here, every one with "/" (the zip format's separator).
+# Compress-Archive of Windows PowerShell 5.1 wrote "files\coop\..." (the 0.3.0 / 0.3.1 zips: `unzip -t` warns about every
+# entry; Expand-Archive, Explorer, the launcher and the setup stub took them). Files only, in name order; the folders follow
+# from the names.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$base = (Get-Item -LiteralPath $stage).FullName.TrimEnd('\')
+$fs = [IO.File]::Open($zip, [IO.FileMode]::CreateNew)
+try {
+    $za = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($f in @(Get-ChildItem -LiteralPath $base -Recurse -File | Sort-Object FullName)) {
+            if (-not $f.FullName.StartsWith($base + '\')) { throw "zip: $($f.FullName) is not under $base" }
+            $name = $f.FullName.Substring($base.Length + 1).Replace('\', '/')
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, $f.FullName, $name, [IO.Compression.CompressionLevel]::Optimal)
+        }
+    } finally { $za.Dispose() }
+} finally { $fs.Dispose() }
 Remove-Item $stage -Recurse -Force
 "packaged $zip"
 if ($Exe) {

@@ -1,0 +1,6 @@
+LIBRARY winmm
+EXPORTS
+    timeBeginPeriod=timeBeginPeriod@4
+    timeEndPeriod=timeEndPeriod@4
+    timeGetTime=timeGetTime@0
+    IsUltimateASILoader=IsUltimateASILoader@0
