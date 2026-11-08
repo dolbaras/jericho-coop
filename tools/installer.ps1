@@ -517,10 +517,13 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # Started hidden ("Install Co-op.bat"): an error outside the install's own steps (before the
 # window shows, in building it) would leave the player with nothing on screen. Said and logged.
 trap {
-    $why = "Jericho Co-op+ installer: " + $_.Exception.Message
+    $msg = $_.Exception.Message
+    $why = "Jericho Co-op+ installer: " + $msg
     try { Add-Content -LiteralPath (Join-Path ([IO.Path]::GetTempPath()) "jericho-coop-install.log") -Value $why } catch { }
-    if ($Quiet) { Write-Host $why } else {
-        try { [System.Windows.Forms.MessageBox]::Show($why, "Jericho Co-op+", "OK", "Error") | Out-Null } catch { }
+    # (on screen in the window's language)
+    $said = try { (L "error") + $msg } catch { $why }
+    if ($Quiet) { Write-Host $said } else {
+        try { [System.Windows.Forms.MessageBox]::Show($said, "Jericho Co-op+", "OK", "Error") | Out-Null } catch { }
     }
     exit 1
 }
@@ -1609,7 +1612,7 @@ function Start-Install($g) {
             $script:closer.Start()
         }
     } catch {
-        Ui-Log ("ERROR: " + $_.Exception.Message)
+        Ui-Log ((L "error") + $_.Exception.Message)
         if ($script:ui.running) { $script:ui.running.icon.Text = [string][char]0x2716; $script:ui.running.icon.ForeColor = $C.bad }
         Save-Log $g
         Show-Result $false (L "installation_failed") ($_.Exception.Message + "`n`n" + (L "the_log_is_in"))
@@ -1637,7 +1640,7 @@ function Start-Uninstall($g) {
         Show-Result $true (L "co_op_removed") (L "the_co_op_mod3")
         $btReadme.Visible = $false
     } catch {
-        Ui-Log ("ERROR: " + $_.Exception.Message)
+        Ui-Log ((L "error") + $_.Exception.Message)
         Save-Log ""
         Show-Result $false (L "removal_failed") $_.Exception.Message
     }
