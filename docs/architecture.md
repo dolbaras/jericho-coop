@@ -716,7 +716,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
 - **`dev.lua`**: test bots (`cfg.bot`), probes and campaign steps for the test scripts, the test
   console. **`probe.lua`**: a one-off listing of the game's Lua environment.
   **`lang_de/fr/es/it.lua`**: `{["<Module>.TEXT"] = {...}}` tables merged by `Coop.addLangs`.
-  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`, `talk`, `anim`, `choice`, `cooluse`, `enemies`, `spectate`, `split`, `display`; `talk` and `display` take a file of the game's decompiled scripts as their argument); the release gate runs all of them;
+  **`tests/*_mock_test.lua`**: modules against an engine mock (`inst`, `souls`, `story`, `talk`, `anim`, `choice`, `cooluse`, `enemies`, `spectate`, `split`, `display`, `lang`; `talk` and `display` take a file of the game's decompiled scripts as their argument); the release gate runs all of them. `lang` loads every module and checks every table registered with `Coop.addLangs` in ru/de/fr/es/it: all keys, no English text except its `SAME` list, the same format directives, the code page, every module text table registered, the keys the code names exist; the repository's `tests/test_texts.ps1` does the same for the installer's and the launcher's tables;
   `tests/net_ping.lua`: transport smoke test.
 
 ## 7. Native side map (`native/`)
