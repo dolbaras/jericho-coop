@@ -65,6 +65,10 @@ if there is one).
 Play
 - Host: Co-op -> Host game -> pick a chapter (or Continue) -> Create session. In the lobby
   everyone picks a character and a nickname and presses Ready; the host presses Start.
+  A nickname can have Latin and Cyrillic letters (up to 16); a game whose font lacks a letter
+  shows it in its own alphabet (a Russian name in Latin letters on a German game, "Jürgen" as
+  "Jurgen" on the Russian one). Without a nickname every screen names the player in its own
+  language (Host, Player 2).
   Session settings (host): difficulty, enemy toughness, who does character-only actions,
   QTEs, how much damage the AI squadmates take, and the cutscene view (below).
 - The host picks the network when creating the game ("Network" row): local network or Steam.
@@ -191,6 +195,12 @@ the players who have it with [SMOD].
 - Every player's flashlight shows on the other screens as a beam from their weapon (with or
   without SMOD).
 SMOD's own texts follow the game language.
+SMOD sets the game's language itself at every start (its autoexec.lua: SelectedLanguage =
+"English", and it skips the game's language screen), so with SMOD the game and the co-op texts
+are in English. For German, French, Italian or Spanish write "German", "French", "Italian" or
+"Spanish" there (SMOD's own comment on that line lists them); co-op follows. The co-op mod never
+changes SMOD's files; the installer says this in German, French, Spanish and Italian. The
+Russian release stays Russian with "English" (its "English" texts are the Russian ones).
 
 SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, on top of SMOD)
 The co-op mod finds them by itself; the lobby marks the players who have them with [SMOD+]. Their files
@@ -214,13 +224,16 @@ checked) into the game's bin folder. Ross's model for the other players in Act 1
 upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
 
 Other mods with a dinput8.dll (ASI loaders)
-The co-op mod is bin\dinput8.dll. An ASI loader that is there already (Ultimate ASI Loader, the dinput8.dll most
-ASI mods come with) is kept in coop-backup and keeps running as bin\winmm.dll, so its plugins (bin\scripts,
-bin\plugins) stay on. Any other mod's dinput8.dll is kept in coop-backup and is off while co-op is installed.
-Removing co-op puts it back. A dinput8.dll another mod puts over co-op's later is kept too: the next install or update of
-co-op keeps it as the original, the uninstaller leaves it in place. Other DLLs such mods use (d3d9.dll of DXVK or
-SMOD, dsound.dll, version.dll, xinput1_3.dll, winmm.dll) are not touched. Not checked in the game with a real ASI
-plugin (none is known for Jericho).
+The co-op mod is bin\dinput8.dll. An ASI loader that is there already (Ultimate ASI Loader, the
+dinput8.dll most ASI mods come with) is kept in coop-backup and keeps running as bin\winmm.dll, so
+its plugins (bin\scripts, bin\plugins) stay on. Any other mod's dinput8.dll is kept in coop-backup
+and is off while co-op is installed. Removing co-op puts it back. A dinput8.dll another mod puts
+over co-op's later is kept too: the next install or update of co-op keeps it as the original, the
+uninstaller leaves it in place. Other DLLs such mods use (d3d9.dll of DXVK or SMOD, dsound.dll,
+version.dll, xinput1_3.dll, winmm.dll) are not touched. An ASI loader named bin\winmm.dll (or any
+name the game loads first) no longer stops co-op from starting. Checked in the game with Ultimate
+ASI Loader 10.0.2 and a test plugin, both as bin\dinput8.dll (installed over) and as bin\winmm.dll:
+co-op starts, the plugin is loaded, removing co-op puts every file back as it was.
 
 Screen: aspect ratio, display mode, refresh rate
 Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
@@ -345,6 +358,9 @@ Windows, скорее всего, напишет «Windows защитила ва
 Как играть
 - Хост: «Совместная игра» -> «Создать игру» -> выбрать главу (или «Продолжить») ->
   «Создать сессию». В лобби каждый выбирает персонажа и ник и нажимает «Готов», хост — «Начать».
+  В нике могут быть латинские и русские буквы (до 16); игра, в шрифте которой нет буквы,
+  показывает её своим алфавитом (русский ник латиницей в немецкой игре, «Jürgen» как «Jurgen» в
+  русской). Без ника каждый экран называет игрока на своём языке («Хост», «Игрок 2»).
   «Настройки сессии» (хост): сложность, живучесть врагов, кто делает действия персонажей,
   QTE, сколько урона получают союзники ИИ и вид катсцен (ниже).
 - Сеть хост выбирает при создании игры (строка «Сеть»): локальная сеть или Steam. У каждой
@@ -468,6 +484,13 @@ SMOD
 - Ваш прыжок SMOD видят остальные (даже без SMOD).
 - Фонарь каждого игрока виден на экранах остальных как луч от его оружия (со SMOD и без).
 Надписи SMOD показываются на языке игры.
+SMOD сам задаёт язык игры при каждом запуске (его autoexec.lua: SelectedLanguage = "English", и
+экран выбора языка он пропускает), поэтому со SMOD игра и надписи кооператива на английском.
+Для немецкого, французского, итальянского или испанского впишите туда "German", "French",
+"Italian" или "Spanish" (их перечисляет комментарий SMOD у этой строки); кооператив следует за
+игрой. Файлы SMOD мод не меняет; установщик говорит об этом по-немецки, по-французски,
+по-испански и по-итальянски. Русское издание с "English" остаётся русским (его «английские»
+тексты и есть русские).
 
 SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMOD)
 Мод находит их сам; в лобби у игроков с ними стоит пометка [SMOD+]. Их файлы ваши: установщик их не
@@ -489,6 +512,20 @@ SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMO
 кооперативом. Ему нужны SMOD и DXVK: положите x32\d3d9.dll из DXVK (сборка для Windows;
 проверена 3.1.1) в папку bin игры. Модель Росса для других игроков в акте 1 тоже получает
 увеличенные текстуры. Проверено: все 33 уровня загружены подряд, сплитскрин, клипы F11.
+
+Другие моды с dinput8.dll (загрузчики ASI)
+Кооператив — это bin\dinput8.dll. Загрузчик ASI, который уже там лежит (Ultimate ASI Loader —
+dinput8.dll, с которым приходит большинство модов ASI), сохраняется в coop-backup и продолжает
+работать как bin\winmm.dll, так что его плагины (bin\scripts, bin\plugins) остаются включены.
+dinput8.dll любого другого мода сохраняется в coop-backup и выключен, пока стоит кооператив;
+удаление кооператива возвращает его. dinput8.dll, который другой мод положит поверх кооперативного
+позже, тоже сохраняется: следующая установка или обновление кооператива считает его оригиналом,
+удаление оставляет его на месте. Другие DLL таких модов (d3d9.dll из DXVK или SMOD, dsound.dll,
+version.dll, xinput1_3.dll, winmm.dll) не трогаются. Загрузчик ASI под именем bin\winmm.dll (или
+под любым именем, которое игра загружает раньше) больше не мешает кооперативу запуститься.
+Проверено в игре с Ultimate ASI Loader 10.0.2 и тестовым плагином, как bin\dinput8.dll (установка
+поверх) и как bin\winmm.dll: кооператив запускается, плагин загружается, удаление кооператива
+возвращает все файлы как были.
 
 Экран: формат, режим экрана, частота обновления
 Конфигурация -> Видео -> Формат: Авто (по умолчанию: по разрешению экрана), 4:3, 5:4, 16:10, 16:9,

@@ -233,7 +233,9 @@ second, `% 30` 1.5 s, `% 40` 2 s. The level-start guards use it: host 300 ticks 
   checks a message's sender for either of them. A peer id of 8 would read as the host's
   player 2: keep the player limit below that.
 - **Seats**: `cfg.seats = "owner:char:ready:nick;..."`, the lobby's list (owner ids, split
-  screen seats included). Used for nicknames (`CoopHud.nicks`), the souls' seat order
+  screen seats included). Used for nicknames (`CoopHud.nicks`; UTF-8 since 0.3.2, `Coop.cleanNick`, each screen
+  shows them in its font's code page with `Coop.nickShow`; a seat without one carries "" and is named by
+  `CoopMenu.seatName` / `CoopChoice.playerName` in that machine's language), the souls' seat order
   (`CoopSouls.seats`, host first, clients in join order, split screen players last), the
   scene gate's expected machines (`CoopEnemies.expectedAll`) and split screen start
   (`CoopSplit.seatChar`).
@@ -257,7 +259,7 @@ module stays unchanged:
 ### 3.5 Message format and dispatch
 
 Messages are text, fields separated by `|`, first field the kind. Senders must keep `|` out of
-fields (`Coop.cleanNick`, `coop_world.lua:encode` uses `\1`, `coop_save.lua:esc` `%XX`,
+fields (`Coop.cleanNick` drops `|`, `;`, `:`, `[]`, `%`; `coop_world.lua:encode` uses `\1`, `coop_save.lua:esc` `%XX`,
 `coop_story.lua:enc` drops `|` and `;`). `coop.lua:split` keeps empty fields but drops one
 trailing empty field.
 
