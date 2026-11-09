@@ -129,46 +129,62 @@ $asg = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.Assig
 $TX = & ([ScriptBlock]::Create($asg.Right.Extent.Text))
 function T($k) { $v = $TX["en"][$k]; if ($v) { $v -replace '`n', "`n" } else { "<no text $k>" } }
 
-# 3. an Ultimate ASI Loader as bin\dinput8.dll, next to the other proxies and plugin folders
+# 3. an Ultimate ASI Loader as bin\dinput8.dll, next to the other proxies and plugin folders: kept in coop-backup and off, its plugins
+#    too, and the result says so. No copy of it runs under another name: Windows loads its own winmm.dll for Jericho before the game's
+#    imports (its compatibility shims; seen live 2026-11-09 on Windows 10 and 11), so a bin\winmm.dll copy never ran (rel-032 build).
 $g = New-Game -Ual -Proxies
 $clean = Snap $g
 Install $x1 $g
 $rec = Rec $g
 Check ($script:exit -eq 0 -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll) "ASI loader: install exit 0, bin\dinput8.dll is the mod's ($($script:exit))"
 Check ((Test-Path -LiteralPath (Join-Path $g "coop-backup\bin\dinput8.dll")) -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"]) "ASI loader: the original is kept in coop-backup"
-Check ((Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and (Sha (Join-Path $g "bin\winmm.dll")) -eq $clean["bin\dinput8.dll"]) "ASI loader: it also runs on as bin\winmm.dll (the same bytes), so its plugins load"
-Check ((Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and (Sha (Join-Path $g "bin\winmm.ini")) -eq $clean["bin\dinput8.ini"]) "ASI loader: its settings bin\dinput8.ini go along as bin\winmm.ini"
-Check (($rec -contains "chain=bin\winmm.dll") -and ($rec -contains "chain=bin\winmm.ini") -and ($rec -contains "file=bin\winmm.dll") -and ($rec -contains "file=bin\winmm.ini") -and ($rec -contains "backup=bin\dinput8.dll")) "ASI loader: the record lists the copies (chain= and file=) and the backup"
-Check ($script:out.Contains((T "asi_note"))) "ASI loader: the result says it runs on as bin\winmm.dll"
+Check (-not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and -not ($rec | Where-Object { $_ -like "chain=*" -or $_ -like "file=bin\winmm*" }) -and ($rec -contains "backup=bin\dinput8.dll")) "ASI loader: no copy under another name (no bin\winmm.dll / .ini, no chain= line), the backup in the record"
+Check ($script:out.Contains((T "asi_note")) -and -not $script:out.Contains((T "off_note"))) "ASI loader: the result says it is kept and off, its plugins too"
 $after = Snap $g
 $changed = @(Snap-Diff $clean $after | Where-Object { $clean.ContainsKey($_) -and $_ -ne "bin\dinput8.dll" })
 Check ($changed.Count -eq 0) "ASI loader: every other file unchanged: plugins (bin\scripts, bin\plugins), d3d9 / dsound (+ini) / version / xinput1_3 ($($changed -join ', '))"
 Install $x1 $g
 Update $x2 $g
 $rec = Rec $g
-Check ($script:exit -eq 0 -and (Get-Content -LiteralPath (Join-Path $g "coop\version.txt") -TotalCount 1) -eq "9.9.9" -and (Sha (Join-Path $g "bin\winmm.dll")) -eq $clean["bin\dinput8.dll"] -and
-       (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"] -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll) "ASI loader: reinstall + update keep the backup and the copy"
-Check (@($rec | Where-Object { $_ -eq "chain=bin\winmm.dll" }).Count -eq 1 -and @($rec | Where-Object { $_ -eq "file=bin\winmm.dll" }).Count -eq 1 -and
-       @($rec | Where-Object { $_ -eq "backup=bin\dinput8.dll" }).Count -eq 1) "ASI loader: after reinstall + update each line once"
+Check ($script:exit -eq 0 -and (Get-Content -LiteralPath (Join-Path $g "coop\version.txt") -TotalCount 1) -eq "9.9.9" -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and
+       (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"] -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll) "ASI loader: reinstall + update keep the backup, no copy"
+Check (@($rec | Where-Object { $_ -eq "backup=bin\dinput8.dll" }).Count -eq 1 -and -not ($rec | Where-Object { $_ -like "chain=*" })) "ASI loader: after reinstall + update the backup line once, no chain= line"
 Uninstall $g
 $d = @(Snap-Diff $clean (Snap $g))
-Check ($script:exit -eq 0 -and $d.Count -eq 0) "ASI loader: uninstall puts the folder back byte for byte (the loader as bin\dinput8.dll, no winmm.dll / .ini; $($d -join ', '))"
+Check ($script:exit -eq 0 -and $d.Count -eq 0) "ASI loader: uninstall puts the folder back byte for byte (the loader as bin\dinput8.dll; $($d -join ', '))"
 
-# 4. the player changed the copy (another winmm.dll) while co-op was installed: the uninstall leaves it
-$g = New-Game -Ual
-$clean = Snap $g
-Install $x1 $g
-[IO.File]::WriteAllText((Join-Path $g "bin\winmm.dll"), "the player's own winmm.dll now")
-Uninstall $g
-Check ($script:exit -eq 0 -and (Get-Content -LiteralPath (Join-Path $g "bin\winmm.dll") -Raw) -eq "the player's own winmm.dll now" -and
-       (Sha (Join-Path $g "bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"] -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and
-       -not (Test-Path -LiteralPath (Join-Path $g "coop-backup"))) "a winmm.dll the player changed stays; the loader comes back; winmm.ini goes"
+# 4. a copy an unreleased rel-032 build made (bin\winmm.dll + .ini listed as chain= and file=): the next install removes it while it
+#    still equals its source; one the player changed is the player's (left in place, no longer listed); then uninstall
+foreach ($changedCopy in $false, $true) {
+    $g = New-Game -Ual
+    $clean = Snap $g
+    Install $x1 $g
+    Copy-Item -LiteralPath (Join-Path $g "coop-backup\bin\dinput8.dll") (Join-Path $g "bin\winmm.dll")
+    Copy-Item -LiteralPath (Join-Path $g "bin\dinput8.ini") (Join-Path $g "bin\winmm.ini")
+    Add-Content -LiteralPath (Join-Path $g "coop\install.txt") -Value @("file=bin\winmm.dll", "file=bin\winmm.ini", "chain=bin\winmm.dll", "chain=bin\winmm.ini") -Encoding UTF8
+    if ($changedCopy) { [IO.File]::WriteAllText((Join-Path $g "bin\winmm.dll"), "the player's own winmm.dll now") }
+    Update $x2 $g
+    $rec = Rec $g
+    $name = $(if ($changedCopy) { "a copy the player changed" } else { "an earlier build's copy" })
+    if ($changedCopy) {
+        Check ($script:exit -eq 0 -and (Get-Content -LiteralPath (Join-Path $g "bin\winmm.dll") -Raw) -eq "the player's own winmm.dll now" -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and
+               -not ($rec | Where-Object { $_ -like "chain=*" -or $_ -like "file=bin\winmm*" })) "${name}: the update leaves it (no longer listed), removes the unchanged .ini"
+    } else {
+        Check ($script:exit -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and
+               -not ($rec | Where-Object { $_ -like "chain=*" -or $_ -like "file=bin\winmm*" })) "${name}: the update removes bin\winmm.dll / .ini and their record lines"
+    }
+    Uninstall $g
+    $d = @(Snap-Diff $clean (Snap $g))
+    $want = $(if ($changedCopy) { "bin\winmm.dll" } else { "" })
+    Check ($script:exit -eq 0 -and ($d -join ",") -eq $want -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"] -and -not (Test-Path -LiteralPath (Join-Path $g "coop-backup"))) "${name}, uninstall: the loader back, the rest as before co-op ($($d -join ', '))"
+}
 
-# 5. cases where no copy is made: a loader next to a foreign winmm.dll, a 64-bit loader, another mod's DLL that is no loader, a
-#    plugin that only names the loader; and a loader without dinput8.ini (the DLL only)
-foreach ($c in @(@{ name = "loader + a foreign winmm.dll"; g = (New-Game -Ual -Winmm) }, @{ name = "a 64-bit loader"; g = (New-Game -Ual -Machine 0x8664) },
-                 @{ name = "a dinput8.dll that is no loader"; g = (New-Game -Dinput8Text "another mod's dinput8.dll") },
-                 @{ name = "a DLL that only names IsUltimateASILoader"; g = (New-Game) })) {
+# 5. the note for each kind of foreign bin\dinput8.dll: an Ultimate ASI Loader (also next to a winmm.dll of someone else's, also
+#    without dinput8.ini) gets the loader's note; a 64-bit loader, another mod's DLL, a DLL that only names the loader get the general one
+foreach ($c in @(@{ name = "loader + a foreign winmm.dll"; g = (New-Game -Ual -Winmm); note = "asi_note" }, @{ name = "a loader without dinput8.ini"; g = (New-Game -Ual -NoIni); note = "asi_note" },
+                 @{ name = "a 64-bit loader"; g = (New-Game -Ual -Machine 0x8664); note = "off_note" },
+                 @{ name = "a dinput8.dll that is no loader"; g = (New-Game -Dinput8Text "another mod's dinput8.dll"); note = "off_note" },
+                 @{ name = "a DLL that only names IsUltimateASILoader"; g = (New-Game); note = "off_note" })) {
     $g = $c.g
     if ($c.name -like "*only names*") { New-FakePe (Join-Path $g "bin\dinput8.dll") @("DirectInput8Create", "timeGetTime") 0x14C "IsUltimateASILoader" }
     $cl = Snap $g
@@ -177,25 +193,19 @@ foreach ($c in @(@{ name = "loader + a foreign winmm.dll"; g = (New-Game -Ual -W
     $rec = Rec $g
     $w1 = if (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) { Sha (Join-Path $g "bin\winmm.dll") } else { "" }
     Check ($script:exit -eq 0 -and $w1 -eq $w0 -and -not ($rec | Where-Object { $_ -like "chain=*" }) -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $cl["bin\dinput8.dll"]) "$($c.name): kept in coop-backup, no copy, no chain= line"
-    Check ($script:out.Contains((T "off_note"))) "$($c.name): the result says it is kept and off"
+    $other = $(if ($c.note -eq "asi_note") { "off_note" } else { "asi_note" })
+    Check ($script:out.Contains((T $c.note)) -and -not $script:out.Contains((T $other))) "$($c.name): the result says it is kept and off ($($c.note))"
     Uninstall $g
     $d = @(Snap-Diff $cl (Snap $g))
     Check ($script:exit -eq 0 -and $d.Count -eq 0) "$($c.name): uninstall leaves the folder byte for byte ($($d -join ', '))"
 }
-$g = New-Game -Ual -NoIni
-$clean = Snap $g
-Install $x1 $g
-$rec = Rec $g
-Check ((Sha (Join-Path $g "bin\winmm.dll")) -eq $clean["bin\dinput8.dll"] -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.ini")) -and ($rec -contains "chain=bin\winmm.dll") -and -not ($rec -contains "chain=bin\winmm.ini")) "a loader without dinput8.ini: winmm.dll only"
-Uninstall $g
-Check ((@(Snap-Diff $clean (Snap $g))).Count -eq 0) "a loader without dinput8.ini: uninstall leaves the folder byte for byte"
 
-# 6. a game without any dinput8.dll, other proxies only: nothing of theirs is touched, nothing chained, no note
+# 6. a game without any dinput8.dll, other proxies only: nothing of theirs is touched, no backup, no note
 $g = New-Game -Proxies
 $clean = Snap $g
 Install $x1 $g
 $rec = Rec $g
-Check ($script:exit -eq 0 -and -not ($rec | Where-Object { $_ -like "chain=*" -or $_ -like "backup=*" }) -and -not $script:out.Contains((T "off_note")) -and -not (Test-Path -LiteralPath (Join-Path $g "coop-backup"))) "no dinput8.dll: no backup, no copy, no note"
+Check ($script:exit -eq 0 -and -not ($rec | Where-Object { $_ -like "chain=*" -or $_ -like "backup=*" }) -and -not $script:out.Contains((T "off_note")) -and -not $script:out.Contains((T "asi_note")) -and -not (Test-Path -LiteralPath (Join-Path $g "coop-backup"))) "no dinput8.dll: no backup, no copy, no note"
 Uninstall $g
 $d = @(Snap-Diff $clean (Snap $g))
 Check ($script:exit -eq 0 -and $d.Count -eq 0) "no dinput8.dll, other proxies: uninstall byte for byte ($($d -join ', '))"
@@ -212,8 +222,8 @@ $d = @(Snap-Diff $clean (Snap $g))
 Check ($script:exit -eq 0 -and (Test-Path -LiteralPath (Join-Path $g "bin\dinput8.dll")) -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $f1) "over co-op's DLL, then uninstall: the other mod's dinput8.dll stays in place"
 Check (($d -join ",") -eq "bin\dinput8.dll") "over co-op's DLL, then uninstall: nothing else of co-op is left ($($d -join ', '))"
 Check ($script:out.Contains((T "left_note").Trim())) "over co-op's DLL, then uninstall: the result says it stays"
-#    b) an update then (the shortcut's launcher found a newer release): it is kept as the original, its copy as winmm.dll made; the
-#       uninstall afterwards puts it back
+#    b) an update then (the shortcut's launcher found a newer release): it is kept as the original (off, the result says so), co-op's
+#       DLL goes back in; the uninstall afterwards puts it back
 $g = New-Game -Proxies
 $clean = Snap $g
 Install $x1 $g
@@ -223,18 +233,18 @@ $f1 = Sha (Join-Path $g "bin\dinput8.dll")
 Update $x2 $g
 $rec = Rec $g
 Check ($script:exit -eq 0 -and (Test-Path -LiteralPath (Join-Path $g "coop-backup\bin\dinput8.dll")) -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $f1 -and ($rec -contains "backup=bin\dinput8.dll")) "over co-op's DLL, then update: it is kept in coop-backup (not overwritten unseen)"
-Check ((Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll -and (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and (Sha (Join-Path $g "bin\winmm.dll")) -eq $f1) "over co-op's DLL, then update: co-op's DLL back, the loader runs on as winmm.dll"
+Check ((Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and $script:out.Contains((T "asi_note"))) "over co-op's DLL, then update: co-op's DLL back, no copy, the result says the loader is off"
 Uninstall $g
 $d = @(Snap-Diff $clean (Snap $g))
 Check ($script:exit -eq 0 -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $f1 -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and (($d | Where-Object { $_ -notin "bin\dinput8.dll", "bin\dinput8.ini" }).Count -eq 0)) "over co-op's DLL, update, uninstall: the player's loader is back as dinput8.dll, nothing of co-op left ($($d -join ', '))"
-#    c) the same over a game that had a loader before co-op: the newer one wins, the copy of the older one is replaced
+#    c) the same over a game that had a loader before co-op: the newer one wins
 $g = New-Game -Ual
 $clean = Snap $g
 Install $x1 $g
 New-FakePe (Join-Path $g "bin\dinput8.dll") $ualExports 0x14C "a NEWER loader the player put over co-op"
 $f2 = Sha (Join-Path $g "bin\dinput8.dll")
 Update $x2 $g
-Check ($script:exit -eq 0 -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $f2 -and (Sha (Join-Path $g "bin\winmm.dll")) -eq $f2 -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll) "a newer loader over co-op's DLL, then update: it is the original now and runs as winmm.dll"
+Check ($script:exit -eq 0 -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $f2 -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $ourDll) "a newer loader over co-op's DLL, then update: it is the original now"
 Uninstall $g
 $d = @(Snap-Diff $clean (Snap $g))
 Check ($script:exit -eq 0 -and (Sha (Join-Path $g "bin\dinput8.dll")) -eq $f2 -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and ($d -join ",") -eq "bin\dinput8.dll") "a newer loader, update, uninstall: the newer loader stays as dinput8.dll, the rest as before co-op ($($d -join ', '))"
@@ -250,7 +260,7 @@ if ($OldZip) {
     Check ($oldOk -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"]) "old release over an ASI loader: kept in coop-backup (winmm.dll made: $(Test-Path -LiteralPath (Join-Path $g 'bin\winmm.dll')))"
     Update $x2 $g
     $rec = Rec $g
-    Check ($script:exit -eq 0 -and (Sha (Join-Path $g "bin\winmm.dll")) -eq $clean["bin\dinput8.dll"] -and ($rec -contains "chain=bin\winmm.dll") -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"]) "the update from the old release makes the kept loader run on as winmm.dll"
+    Check ($script:exit -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $g "bin\winmm.dll")) -and -not ($rec | Where-Object { $_ -like "chain=*" }) -and (Sha (Join-Path $g "coop-backup\bin\dinput8.dll")) -eq $clean["bin\dinput8.dll"]) "the update from the old release keeps the loader in coop-backup, no copy"
     Uninstall $g
     $d = @(Snap-Diff $clean (Snap $g))
     Check ($script:exit -eq 0 -and $d.Count -eq 0) "old release + update + uninstall: byte for byte ($($d -join ', '))"
@@ -283,7 +293,7 @@ Check ($hint.Count -eq 0) "SMOD's English language: the hint in a de/fr/es/it in
 
 # 9. texts: the new keys in all six languages, translated; the result text fits its label (measured, no window)
 $langs = "en", "ru", "de", "fr", "es", "it"
-$newKeys = "asi_copy", "asi_note", "off_note", "winmm_taken", "left_alone", "foreign_over_coop", "left_in_place", "left_note", "smod_english"
+$newKeys = "asi_note", "off_note", "left_alone", "foreign_over_coop", "left_in_place", "left_note", "smod_english"
 foreach ($lg in $langs) {
     $missing = @($newKeys | Where-Object { -not $TX[$lg][$_] })
     Check ($missing.Count -eq 0) "texts $lg : the dinput8.dll keys are there ($($missing -join ','))"

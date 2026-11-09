@@ -3,8 +3,8 @@
 #   install: finds the game folder (this folder, install records in the registry, Steam
 #            libraries, or the player picks it), keeps the files it replaces in <game>\coop-backup,
 #            copies the mod and writes <game>\coop\install.txt (what it installed, what it backed up).
-#            When the bin\dinput8.dll it replaces is an Ultimate ASI Loader (the loader of most ASI mods), a copy of it
-#            runs on as bin\winmm.dll, so its plugins stay on (Chain-Plan).
+#            A bin\dinput8.dll of another mod (an ASI loader too) is kept there and is off while co-op is installed; the
+#            result says so (Chain-Plan: why no copy of a loader runs under another name).
 #   update:  the same over an older version; originals already backed up are kept. A dinput8.dll another mod
 #            put over the co-op one meanwhile becomes the original.
 #   remove:  deletes what install.txt lists and puts the backed-up files back (a dinput8.dll another mod put
@@ -52,10 +52,8 @@ $script:TEXTS = @{
         "smod_found" = "SMOD found."
         "smod_addons_found" = "SMOD Add-ons found: they stay as they are."
         "original_kept" = "Original kept: "
-        "asi_copy" = "Your ASI loader also runs as: "
-        "asi_note" = "Your ASI loader (another mod's dinput8.dll) now also runs as bin\winmm.dll, so its plugins stay on."
+        "asi_note" = "Your ASI loader (another mod's dinput8.dll) is kept in coop-backup and is off while co-op is installed, its plugins too; removing co-op puts it back."
         "off_note" = "Another mod's dinput8.dll is kept in coop-backup and is off while co-op is installed; removing co-op puts it back."
-        "winmm_taken" = "bin\winmm.dll of another mod is there already: the ASI loader stays off."
         "left_alone" = "Not the copy co-op made any more, left in place: "
         "foreign_over_coop" = "Another mod's file was put over co-op's; kept as the original now: "
         "left_in_place" = "Another mod's file over co-op's, left in place: "
@@ -139,10 +137,8 @@ $script:TEXTS = @{
         "smod_found" = "Найден SMOD."
         "smod_addons_found" = "Найдены SMOD Add-ons: они остаются как есть."
         "original_kept" = "Оригинал сохранён: "
-        "asi_copy" = "Ваш загрузчик ASI работает и как: "
-        "asi_note" = "Ваш загрузчик ASI (dinput8.dll другого мода) теперь работает и как bin\winmm.dll, поэтому его плагины остаются включены."
+        "asi_note" = "Ваш загрузчик ASI (dinput8.dll другого мода) сохранён в coop-backup и выключен вместе с плагинами, пока установлен кооп; удаление коопа вернёт его."
         "off_note" = "dinput8.dll другого мода сохранён в coop-backup и выключен, пока установлен кооп; удаление коопа вернёт его."
-        "winmm_taken" = "bin\winmm.dll другого мода уже есть: загрузчик ASI остаётся выключенным."
         "left_alone" = "Уже не копия, сделанная коопом, оставлен на месте: "
         "foreign_over_coop" = "Поверх коопа положен файл другого мода; теперь он сохранён как оригинал: "
         "left_in_place" = "Файл другого мода поверх коопа, оставлен на месте: "
@@ -226,10 +222,8 @@ $script:TEXTS = @{
         "smod_found" = "SMOD gefunden."
         "smod_addons_found" = "SMOD Add-ons gefunden: sie bleiben unverändert."
         "original_kept" = "Original gesichert: "
-        "asi_copy" = "Ihr ASI-Loader läuft zusätzlich als: "
-        "asi_note" = "Ihr ASI-Loader (die dinput8.dll eines anderen Mods) läuft jetzt zusätzlich als bin\winmm.dll, seine Plugins bleiben also aktiv."
+        "asi_note" = "Ihr ASI-Loader (dinput8.dll eines anderen Mods) liegt in coop-backup und ist samt Plugins aus, solange Koop installiert ist; ohne Koop ist er wieder da."
         "off_note" = "Die dinput8.dll eines anderen Mods ist in coop-backup gesichert und aus, solange Koop installiert ist; das Entfernen von Koop stellt sie wieder her."
-        "winmm_taken" = "Eine bin\winmm.dll eines anderen Mods ist schon vorhanden: der ASI-Loader bleibt aus."
         "left_alone" = "Nicht mehr die Kopie von Koop, bleibt an ihrem Platz: "
         "foreign_over_coop" = "Eine Datei eines anderen Mods wurde über die von Koop gelegt; sie gilt jetzt als Original: "
         "left_in_place" = "Datei eines anderen Mods über der von Koop, bleibt an ihrem Platz: "
@@ -313,10 +307,8 @@ $script:TEXTS = @{
         "smod_found" = "SMOD détecté."
         "smod_addons_found" = "SMOD Add-ons détectés: ils restent tels quels."
         "original_kept" = "Original conservé: "
-        "asi_copy" = "Votre chargeur ASI tourne aussi sous le nom: "
-        "asi_note" = "Votre chargeur ASI (le dinput8.dll d'un autre mod) tourne désormais aussi sous le nom bin\winmm.dll: ses plugins restent actifs."
+        "asi_note" = "Votre chargeur ASI (dinput8.dll d'un autre mod) est gardé dans coop-backup et désactivé avec ses plugins tant que le mod coop est installé; sans le mod coop, il revient."
         "off_note" = "Le dinput8.dll d'un autre mod est conservé dans coop-backup et désactivé tant que le mod coop est installé; retirer le mod coop le remet en place."
-        "winmm_taken" = "Un bin\winmm.dll d'un autre mod est déjà là: le chargeur ASI reste désactivé."
         "left_alone" = "N'est plus la copie faite par le mod coop, laissé en place: "
         "foreign_over_coop" = "Un fichier d'un autre mod a remplacé celui du mod coop; il est désormais conservé comme original: "
         "left_in_place" = "Fichier d'un autre mod à la place de celui du mod coop, laissé en place: "
@@ -400,10 +392,8 @@ $script:TEXTS = @{
         "smod_found" = "SMOD encontrado."
         "smod_addons_found" = "SMOD Add-ons encontrados: se quedan como están."
         "original_kept" = "Original conservado: "
-        "asi_copy" = "Tu cargador ASI también funciona como: "
-        "asi_note" = "Tu cargador ASI (el dinput8.dll de otro mod) ahora también funciona como bin\winmm.dll, así que sus plugins siguen activos."
+        "asi_note" = "Tu cargador ASI (dinput8.dll de otro mod) se guarda en coop-backup y queda desactivado con sus plugins mientras el cooperativo esté instalado; al quitarlo vuelve."
         "off_note" = "El dinput8.dll de otro mod se guarda en coop-backup y queda desactivado mientras el cooperativo esté instalado; al quitar el cooperativo se restaura."
-        "winmm_taken" = "Ya hay un bin\winmm.dll de otro mod: el cargador ASI queda desactivado."
         "left_alone" = "Ya no es la copia que hizo el cooperativo, se deja en su sitio: "
         "foreign_over_coop" = "Un archivo de otro mod sustituyó al del cooperativo; ahora se guarda como original: "
         "left_in_place" = "Archivo de otro mod en lugar del del cooperativo, se deja en su sitio: "
@@ -487,10 +477,8 @@ $script:TEXTS = @{
         "smod_found" = "SMOD rilevato."
         "smod_addons_found" = "SMOD Add-ons rilevati: restano come sono."
         "original_kept" = "Originale conservato: "
-        "asi_copy" = "Il tuo caricatore ASI gira anche come: "
-        "asi_note" = "Il tuo caricatore ASI (il dinput8.dll di un'altra mod) ora gira anche come bin\winmm.dll, quindi i suoi plugin restano attivi."
+        "asi_note" = "Il tuo caricatore ASI (dinput8.dll di un'altra mod) resta in coop-backup, disattivato con i suoi plugin finché la mod co-op è installata; rimuovendola torna."
         "off_note" = "Il dinput8.dll di un'altra mod è conservato in coop-backup e resta disattivato finché la mod co-op è installata; rimuovendo la mod co-op torna al suo posto."
-        "winmm_taken" = "C'è già un bin\winmm.dll di un'altra mod: il caricatore ASI resta disattivato."
         "left_alone" = "Non è più la copia fatta dalla mod co-op, lasciato al suo posto: "
         "foreign_over_coop" = "Un file di un'altra mod ha sostituito quello della mod co-op; ora è conservato come originale: "
         "left_in_place" = "File di un'altra mod al posto di quello della mod co-op, lasciato al suo posto: "
@@ -809,36 +797,30 @@ function Is-AsiLoader($p) {
     [bool]($x -and $x.machine -eq 0x14C -and $x.names.Contains("IsUltimateASILoader") -and $x.names.Contains("timeGetTime"))
 }
 
-# The player's ASI loader keeps running next to the mod (whose DLL is bin\dinput8.dll too). The loader knows itself by its file
-# name only (any other name: "This library isn't supported." and the game closes), so the copy is named bin\winmm.dll: a name the
-# loader serves (it forwards winmm's functions to the system's winmm.dll) and Jericho.exe imports, so Windows loads it from bin at
-# the start and it loads its plugins (bin\scripts, bin\plugins) as it did as dinput8.dll. The loader patches the exe's start-up
-# imports and writes them back at its first call: the mod's DLL keeps its own hook on that (native/iat_guard.c). The original stays in
-# coop-backup\bin\dinput8.dll; the loader's settings file bin\dinput8.ini goes along as bin\winmm.ini (it reads <its name>.ini).
-# Copy -> where it comes from (relative to the game folder). Same as Resident Evil Revelations 2 Co-op 0.2.0.
+# The player's ASI loader cannot keep running next to the mod (whose DLL is bin\dinput8.dll too). The loader knows itself by its
+# file name only (any other name: "This library isn't supported." and the game closes); of the names it serves, Jericho.exe imports
+# winmm.dll before dinput8.dll, but Windows never loads a bin\winmm.dll for this game: its compatibility shims for Jericho.exe
+# (apphelp.dll with AcLayers.dll and AcSpecfc.dll, retail and large-address-aware exe alike) import WINMM and map the system's
+# winmm.dll before the game's own imports are resolved. Seen 2026-11-09 with Ultimate ASI Loader 10.0.2 on Windows 10 LTSC 19044 (the
+# game's module list: SYSTEM32\WINMM.dll, no bin\winmm.dll, no plugin) and in the load order on Windows 11 build 28000
+# (lab\rel032\loadorder.py: AcLayers, AcSpecfc, then SysWOW64\winmm.dll as module 38, before any import of the exe). So 0.3.2 makes no
+# copy (a rel-032 build that copied it to bin\winmm.dll was never released): the loader stays in coop-backup\bin\dinput8.dll, off
+# with its plugins while co-op is installed, and the result says so. A copy listed as chain= by such a build is removed by the next
+# install while it still equals its source (a changed one is the player's, left alone); the uninstaller still knows chain= lines.
+# Copy -> where it came from (relative to the game folder).
 $script:CHAIN = [ordered]@{ "bin\winmm.dll" = "coop-backup\bin\dinput8.dll"; "bin\winmm.ini" = "bin\dinput8.ini" }
 $script:PROXY = "bin\dinput8.dll"
 
-# What the install does for a foreign bin\dinput8.dll kept in coop-backup: state "asi" (the loader runs as bin\winmm.dll), "off" (it
-# stays off: not such a loader, or a winmm.dll of someone else's is in bin already), "" (none); keep = copies of an earlier install
-# that are still the same as their source; make = copies to make. A copy that is no longer the same as its source is the player's
-# now: it is left alone and no longer listed.
+# What the install does for a foreign bin\dinput8.dll kept in coop-backup: state "asi" (an Ultimate ASI Loader: off, with its
+# plugins), "off" (another mod's DLL: off), "" (none); drop = copies an earlier install listed as chain= that still equal their source.
 function Chain-Plan($g, $old, $backups) {
-    $plan = @{ state = ""; keep = @(); make = @() }
-    if ($backups -notcontains $script:PROXY) { return $plan }
-    $plan.state = "off"
-    if (-not (Is-AsiLoader (Join-Path $g "coop-backup\$($script:PROXY)"))) { return $plan }
-    foreach ($name in $script:CHAIN.Keys) {
-        $from = Join-Path $g $script:CHAIN[$name]; $dst = Join-Path $g $name
-        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
-        if (Test-Path -LiteralPath $dst) {
-            if (($old.chains -contains $name) -and (Same-File $dst $from)) { $plan.keep += $name }
-            elseif ($name -eq "bin\winmm.dll") { Ui-Log (L "winmm_taken"); $plan.keep = @(); $plan.make = @(); return $plan }
-        } else { $plan.make += $name }
-        # (the settings file only goes along with the loader)
-        if ($name -eq "bin\winmm.dll" -and $plan.keep -notcontains $name -and $plan.make -notcontains $name) { return $plan }
+    $plan = @{ state = ""; drop = @() }
+    foreach ($c in $old.chains) {
+        $cp = Join-Path $g $c
+        if ((Test-Path -LiteralPath $cp -PathType Leaf) -and (Same-File $cp (Join-Path $g $script:CHAIN[$c]))) { $plan.drop += $c }
     }
-    $plan.state = "asi"
+    if ($backups -notcontains $script:PROXY) { return $plan }
+    $plan.state = if (Is-AsiLoader (Join-Path $g "coop-backup\$($script:PROXY)")) { "asi" } else { "off" }
     $plan
 }
 
@@ -1369,12 +1351,10 @@ function Do-Install($g) {
         $files.Add($rel)
     }
     Ui-Log (L "copied_file_s" $($all.Count))
-    # The player's ASI loader (kept in coop-backup) runs on as bin\winmm.dll (Chain-Plan): the copies are in the record before they
-    # are made, so a run that breaks off leaves nothing the uninstaller does not know.
+    # The player's ASI loader stays in coop-backup, off (Chain-Plan: Windows never loads a copy of it as bin\winmm.dll for Jericho);
+    # a copy an unreleased rel-032 build made goes while it still equals its source.
     $plan = Chain-Plan $g $old $backups
-    foreach ($nm in @($plan.keep) + @($plan.make)) { $chains.Add($nm); if ($files -notcontains $nm) { $files.Add($nm) } }
-    if ($plan.make.Count) { & $writeRecord }
-    foreach ($nm in $plan.make) { Copy-Item -LiteralPath (Join-Path $g $script:CHAIN[$nm]) (Join-Path $g $nm) -Force; Ui-Log ((L "asi_copy") + $nm) }
+    foreach ($nm in $plan.drop) { Remove-Item -LiteralPath (Join-Path $g $nm) -Force -ErrorAction SilentlyContinue }
     # A release's texts in the game folder's root (0.1.0, or an archive extracted there): kept,
     # and recorded so that the removal takes them too.
     foreach ($o in $script:OLD_ROOT) {
