@@ -8,7 +8,7 @@
 -- snap when they drift too far.
 --
 -- Messages (text, fields separated by "|"):
---   hello|<wantedChar>|<nick>|<version>     client -> host, reliable
+--   hello|<wantedChar>|<nick>|<version>     client -> host, reliable (nicknames: UTF-8, Coop.cleanNick)
 --   welcome|<peerId>|<level>|<char>         host -> client, reliable
 --   own|<char>=<peer>,...                   host -> all, reliable (ownership table)
 --   claim|<char>                            client -> host, reliable (player switched)
@@ -189,9 +189,171 @@ function Coop.textBlockHide(name, from)
   end
 end
 
-function Coop.cleanNick(s)
-  s = string.gsub(tostring(s or ""), "[^%w _%-92-­]", "")
-  return string.sub(s, 1, 16)
+-- Nicknames (0.3.2): UTF-8 inside the mod and on the network, so a name reads the same on every
+-- machine; the game's code page only on the screen (Coop.nickShow) and in the lobby's nickname
+-- field (typed in this machine's code page: Coop.nickFromLocal). Up to 0.3.1 a name went in the
+-- sender's code page ("Хост" from a Russian game showed as "Õîñò" on a German one) and the filter
+-- (a mangled "\192-\255" class) let "|" and ";" through but dropped most Cyrillic letters; 0.3.1
+-- and 0.3.2 refuse each other by version anyway. A name keeps letters (Latin, Latin-1, Latin
+-- Extended-A, Cyrillic), digits, spaces and plain punctuation, never the messages' separators
+-- ("|", ";", ":"), the engine's markup "[...]", "%", quotes, "\", "{}", "`"; NICK_MAX characters.
+Coop.NICK_MAX = 16
+
+-- The code points of a valid UTF-8 string, else nil.
+function Coop.utf8Codes(s)
+  local t, i, n = {}, 1, #s
+  while i <= n do
+    local b = string.byte(s, i)
+    local c, len
+    if b < 0x80 then c, len = b, 1
+    elseif b >= 0xC2 and b <= 0xDF then c, len = b - 0xC0, 2
+    elseif b >= 0xE0 and b <= 0xEF then c, len = b - 0xE0, 3
+    elseif b >= 0xF0 and b <= 0xF4 then c, len = b - 0xF0, 4
+    else return nil end
+    if i + len - 1 > n then return nil end
+    for k = i + 1, i + len - 1 do
+      local x = string.byte(s, k)
+      if x < 0x80 or x > 0xBF then return nil end
+      c = c * 64 + (x - 0x80)
+    end
+    -- (overlong forms, surrogates, beyond U+10FFFF)
+    if (len == 3 and c < 0x800) or (len == 4 and (c < 0x10000 or c > 0x10FFFF)) or (c >= 0xD800 and c <= 0xDFFF) then
+      return nil
+    end
+    t[#t + 1] = c
+    i = i + len
+  end
+  return t
+end
+
+function Coop.utf8Char(c)
+  if c < 0x80 then return string.char(c) end
+  if c < 0x800 then return string.char(0xC0 + math.floor(c / 64), 0x80 + c % 64) end
+  if c < 0x10000 then
+    return string.char(0xE0 + math.floor(c / 4096), 0x80 + math.floor(c / 64) % 64, 0x80 + c % 64)
+  end
+  return string.char(0xF0 + math.floor(c / 262144), 0x80 + math.floor(c / 4096) % 64, 0x80 + math.floor(c / 64) % 64,
+    0x80 + c % 64)
+end
+
+-- The code points of bytes 0x80-0xBF in cp1251 and 0x80-0x9F in cp1252 (0: none).
+Coop.CP1251_HIGH = {
+  0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
+  0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
+  0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
+  0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457}
+Coop.CP1252_HIGH = {
+  0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0,
+  0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178}
+
+local NICK_BANNED = "|;:[]\"%\\{}`"
+local function nickAllowed(c)
+  if c < 0x80 then return c >= 0x20 and c < 0x7F and not string.find(NICK_BANNED, string.char(c), 1, true) end
+  return (c >= 0xC0 and c <= 0x17F and c ~= 0xD7 and c ~= 0xF7) or (c >= 0x400 and c <= 0x45F) or c == 0x490 or c == 0x491
+end
+
+-- Code points -> a clean UTF-8 nickname: allowed characters, single spaces, NICK_MAX characters.
+local function nickFromCodes(codes)
+  local out, n, space = {}, 0, false
+  for _, c in ipairs(codes) do
+    if c == 0x20 or c == 0xA0 then
+      space = n > 0
+    elseif nickAllowed(c) then
+      if space then
+        if n + 1 >= Coop.NICK_MAX then break end
+        out[#out + 1] = " "
+        n, space = n + 1, false
+      end
+      if n >= Coop.NICK_MAX then break end
+      out[#out + 1] = Coop.utf8Char(c)
+      n = n + 1
+    end
+  end
+  return table.concat(out)
+end
+
+-- Text in this machine's code page (the game's font: cp1251 for Russian, cp1252 for the others)
+-- -> a clean UTF-8 nickname. The lobby's nickname field.
+function Coop.nickFromLocal(s, lang)
+  lang = lang or Coop.lang()
+  s = tostring(s or "")
+  local codes = {}
+  for i = 1, #s do
+    local b = string.byte(s, i)
+    local c = b
+    if b >= 0x80 then
+      if lang == "ru" then
+        c = b >= 0xC0 and 0x410 + b - 0xC0 or Coop.CP1251_HIGH[b - 0x7F]
+      else
+        c = b >= 0xA0 and b or Coop.CP1252_HIGH[b - 0x7F]
+      end
+    end
+    if c and c > 0 then codes[#codes + 1] = c end
+  end
+  return nickFromCodes(codes)
+end
+
+-- Any nickname (the network, Steam's names, a test's cfg) -> a clean UTF-8 one. Bytes that are
+-- not UTF-8 came from an older version or this machine's code page: read in this machine's.
+function Coop.cleanNick(s, lang)
+  s = tostring(s or "")
+  local codes = Coop.utf8Codes(s)
+  if not codes then return Coop.nickFromLocal(s, lang) end
+  return nickFromCodes(codes)
+end
+
+-- The first n characters of a nickname.
+function Coop.nickCut(s, n)
+  local codes = Coop.utf8Codes(Coop.cleanNick(s))
+  local out = {}
+  for i = 1, math.min(n, #codes) do out[i] = Coop.utf8Char(codes[i]) end
+  return (string.gsub(table.concat(out), " +$", ""))
+end
+
+-- On the screen: a character the font has as itself, else its letters in the other alphabet
+-- (Cyrillic in Latin letters on a cp1252 font: "Хост" -> "Khost"; Latin letters with marks as
+-- the plain letter on the Russian font: "Jürgen" -> "Jurgen").
+Coop.NICK_CYR_LATIN = {
+  [0] = "E", "Yo", "Dj", "G", "Ye", "Dz", "I", "Yi", "J", "Lj", "Nj", "C", "K", "I", "U", "Dz",
+  "A", "B", "V", "G", "D", "E", "Zh", "Z", "I", "Y", "K", "L", "M", "N", "O", "P",
+  "R", "S", "T", "U", "F", "Kh", "Ts", "Ch", "Sh", "Shch", "", "Y", "", "E", "Yu", "Ya",
+  "a", "b", "v", "g", "d", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p",
+  "r", "s", "t", "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "yu", "ya",
+  "e", "yo", "dj", "g", "ye", "dz", "i", "yi", "j", "lj", "nj", "c", "k", "i", "u", "dz"}
+-- (U+00C0-U+017F as plain letters; the ones written with two letters in NICK_LATIN_TWO)
+Coop.NICK_LATIN_PLAIN = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty" ..
+  "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIiIiJjKkkLlLlLlLlLlNnNnNnnNnOoOoOoOoRrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs"
+Coop.NICK_LATIN_TWO = {[0xC6] = "AE", [0xDE] = "Th", [0xDF] = "ss", [0xE6] = "ae", [0xFE] = "th", [0x152] = "OE", [0x153] = "oe"}
+-- (the Ukrainian / Belarusian letters as the nearest Russian one on the Russian font)
+Coop.NICK_CYR_RU = {[0x404] = 0x415, [0x40E] = 0x423, [0x490] = 0x413, [0x454] = 0x435, [0x45E] = 0x443, [0x491] = 0x433}
+
+function Coop.nickShow(s, lang)
+  lang = lang or Coop.lang()
+  local codes = Coop.utf8Codes(Coop.cleanNick(s, lang)) or {}
+  local out = {}
+  for _, c in ipairs(codes) do
+    local x
+    if c < 0x80 then
+      x = string.char(c)
+    elseif lang == "ru" then
+      c = Coop.NICK_CYR_RU[c] or c
+      if c >= 0x410 and c <= 0x44F then x = string.char(c - 0x410 + 0xC0)
+      elseif c == 0x401 then x = "\168"
+      elseif c == 0x451 then x = "\184"
+      end
+    elseif c <= 0xFF then
+      x = string.char(c)
+    end
+    if not x then
+      if c >= 0x400 and c <= 0x45F then x = Coop.NICK_CYR_LATIN[c - 0x400]
+      elseif c == 0x490 then x = "G"
+      elseif c == 0x491 then x = "g"
+      elseif c >= 0xC0 and c <= 0x17F then x = Coop.NICK_LATIN_TWO[c] or string.sub(Coop.NICK_LATIN_PLAIN, c - 0xBF, c - 0xBF)
+      else x = "?" end
+    end
+    out[#out + 1] = x
+  end
+  return table.concat(out)
 end
 
 -- The mod's language: the game's (Options -> Language): "de", "fr", "es", "it", "ru" when its

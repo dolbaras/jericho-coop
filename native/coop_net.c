@@ -980,7 +980,7 @@ static int l_console(lua_State *L)
  *   "invite"   -> 1/0   open the Steam overlay's invite dialog (host)
  *   "online"   -> "name|id;..." friends online (the co-op menu's own invite list)
  *   "inviteuser", id -> 1/0   invite that friend to the lobby (host)
- *   "name"     -> the player's Steam name (cp1251), "" without Steam */
+ *   "name"     -> the player's Steam name (UTF-8, 0.3.2), "" without Steam */
 static int l_steam(lua_State *L)
 {
     const char *cmd = lua_tolstring(L, 1, NULL);

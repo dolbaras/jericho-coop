@@ -85,7 +85,8 @@ class Bot:
             self.log_file.flush()
 
     def send(self, text, reliable):
-        data = text.encode('latin-1')
+        # (UTF-8: the nickname is the only text that is not ASCII, and the mod keeps nicknames in UTF-8 since 0.3.2)
+        data = text.encode('utf-8')
         pk = enet.enet_packet_create(data, len(data), FLAG_RELIABLE if reliable else 0)
         enet.enet_peer_send(self.peer, 0 if reliable else 1, pk)
 
@@ -101,7 +102,28 @@ class Bot:
     def on_message(self, text):
         self.received += 1
         f = text.split('|')
-        if f[0] == 'welcome':
+        if f[0] == 'welcome' and len(f) >= 4 and f[2] == 'Menu' and self.args.lobby:
+            # The host's lobby (coop_menu.lua CoopMenu.onJoin): version, nickname, ready, as a player's game sends them.
+            self.my_id = int(f[1])
+            self.log(f'lobby welcome id={self.my_id} char={f[3]} host version={f[4] if len(f) > 4 else "?"}')
+            self.send('ver|' + self.args.version, True)
+            self.send('nick|' + self.args.nick, True)
+            self.send('ready|1', True)
+            self.log(f'sent ver {self.args.version}, nick {self.args.nick!r}, ready 1')
+        elif f[0] == 'lobby' and len(f) >= 3:
+            if f[2] != getattr(self, 'last_seats', None):
+                self.last_seats = f[2]
+                self.log('lobby seats ' + self.utf8(f[2]))
+        elif f[0] == 'start' and len(f) >= 3:
+            # The host started: load the level (a real client's takes ~15 s), then report it (lready).
+            self.level = f[1]
+            for seat in f[2].split(';'):
+                p = seat.split(':', 3)
+                if len(p) >= 2 and p[0] == str(self.my_id):
+                    self.char = p[1]
+            self.log(f'start level={self.level} char={self.char} seats {self.utf8(f[2])}')
+            self.ready_at = time.time() + 15
+        elif f[0] == 'welcome':
             self.my_id, self.level, self.char = int(f[1]), f[2], f[3]
             if len(f) >= 8:
                 self.pos = [float(f[4]), float(f[5]), float(f[6])]
@@ -133,6 +155,15 @@ class Bot:
                 self.pos = [float(f[2]), float(f[3]), float(f[4])]
                 self.yaw = float(f[5])
                 self.log(f'start pos {self.pos} yaw {self.yaw}')
+
+    @staticmethod
+    def utf8(s):
+        """A received field (bytes kept as latin-1) as the UTF-8 text it carries; 'X?' marks bytes that are not UTF-8."""
+        b = s.encode('latin-1')
+        try:
+            return b.decode('utf-8')
+        except UnicodeDecodeError:
+            return 'X?' + b.hex()
 
     def load_path(self, path_file):
         """Read 'path|t|x|y|z|yaw|walk' lines recorded by the mod's dev 'wander' bot."""
@@ -189,7 +220,8 @@ class Bot:
             while enet.enet_host_service(self.host, ctypes.byref(ev), 0) > 0:
                 if ev.type == EV_CONNECT:
                     self.log('connected')
-                    self.send('hello|' + self.args.want + ('||' + self.args.version if self.args.version else ''), True)
+                    if not self.args.lobby:
+                        self.send('hello|' + self.args.want + ('|' + self.args.nick + '|' + self.args.version if self.args.version else ''), True)
                 elif ev.type == EV_RECEIVE:
                     pk = ev.packet.contents
                     self.on_message(ctypes.string_at(pk.data, pk.dataLength).decode('latin-1'))
@@ -236,6 +268,9 @@ def main():
     ap.add_argument('--seconds', type=float, default=60)
     ap.add_argument('--log')
     ap.add_argument('--version', default=COOP_VERSION, help="co-op version sent in hello ('' as before 0.2)")
+    ap.add_argument('--nick', default='', help='nickname (UTF-8) sent in hello / the lobby')
+    ap.add_argument('--lobby', action='store_true',
+                    help="join the host's lobby (menu level): ver, nick, ready; follow its start into the level")
     sys.exit(Bot(ap.parse_args()).run())
 
 

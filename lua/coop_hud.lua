@@ -11,19 +11,24 @@ H.MAX_DIST = 8000       -- hide plates farther than this
 H.items = {}
 H.POWER_CAMS = {AstralCam = true, RawlingsHealtyCam = true}
 
--- Peer id -> nickname, from the lobby seats ("peer:char:ready:nick;...").
+-- Owner id -> nickname as this screen shows it (Coop.nickShow: the seats carry UTF-8), from the
+-- lobby seats ("peer:char:ready:nick;..."); "" for a seat without one.
 function H.nicks()
   local t = {}
   for peer, nick in string.gmatch(Coop.cfg.seats or "", "(%d+):%a+:%d:([^;]*)") do
-    t[tonumber(peer)] = nick
+    t[tonumber(peer)] = Coop.nickShow(nick)
   end
   return t
 end
 
+-- A body's plate: its player's nickname; a seat without one is named as the lobby and the choice
+-- cards name it (Host, Player 2, in this machine's language); no seat (a test session): the
+-- character.
 function H.label(name)
   local peer = Coop.ownerOf(name)
   local nick = H.nickCache and peer and H.nickCache[peer]
   if nick and nick ~= "" then return nick end
+  if nick == "" and CoopChoice and CoopChoice.playerName then return CoopChoice.playerName(peer) end
   return Coop.charName(name)
 end
 

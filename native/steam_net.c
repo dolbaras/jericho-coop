@@ -178,13 +178,20 @@ static double now_s(void)
     return (double)t.QuadPart / (double)f.QuadPart;
 }
 
-static void to_cp1251(const char *utf8, char *out, size_t size)
+/* A Steam name as the mod keeps nicknames (0.3.2, lua/coop.lua Coop.cleanNick): UTF-8, whole
+   characters only (up to 31 UTF-16 units, so a name always fits `out`; Lua keeps 16 characters),
+   invalid bytes as U+FFFD (Lua drops them). Up to 0.3.1 it was cp1251 whatever the game's
+   language: a German game showed a Steam name's Cyrillic as Latin-1 letters. */
+static void steam_name(const char *utf8, char *out, size_t size)
 {
     WCHAR w[256];
     out[0] = 0;
     if (!utf8 || !MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, 256))
         return;
-    if (!WideCharToMultiByte(1251, 0, w, -1, out, (int)size, "?", NULL))
+    w[31] = 0;
+    if (w[30] >= 0xD800 && w[30] <= 0xDBFF)
+        w[30] = 0;   /* (half of a pair) */
+    if (!WideCharToMultiByte(CP_UTF8, 0, w, -1, out, (int)size, NULL, NULL))
         out[0] = 0;
     out[size - 1] = 0;
     for (char *c = out; *c; c++)
@@ -268,9 +275,9 @@ int steam_net_init(void)
     if (utils)
         s_U_InitRelay(utils);
     me = s_User_GetSteamID(user);
-    to_cp1251(s_F_GetPersonaName(friends), persona, sizeof persona);
+    steam_name(s_F_GetPersonaName(friends), persona, sizeof persona);
     ready = 1;
-    coop_log("steam: ready, id %llu, name %s", me, persona);
+    coop_log("steam: ready, id %llu, name [%s]", me, persona);
     return 1;
 }
 
@@ -786,7 +793,7 @@ void steam_net_friends(char *out, size_t size)
         if (!s_F_GetFriendGamePlayed(friends, f, &info) || (info.game & 0xffffff) != 480 || !info.lobby)
             continue;
         char name[96];
-        to_cp1251(s_F_GetFriendPersonaName(friends, f), name, sizeof name);
+        steam_name(s_F_GetFriendPersonaName(friends, f), name, sizeof name);
         int k = snprintf(out + used, size - used, "%s%s|%llu", used ? ";" : "", name, info.lobby);
         if (k < 0 || used + (size_t)k >= size)
             break;
@@ -823,7 +830,7 @@ void steam_net_online(char *out, size_t size)
         if (s_F_GetPersonaState(friends, f) == 0)
             continue;   /* offline */
         char name[96];
-        to_cp1251(s_F_GetFriendPersonaName(friends, f), name, sizeof name);
+        steam_name(s_F_GetFriendPersonaName(friends, f), name, sizeof name);
         int k = snprintf(out + used, size - used, "%s%s|%llu", used ? ";" : "", name, f);
         if (k < 0 || used + (size_t)k >= size)
             break;
@@ -848,6 +855,6 @@ void steam_net_status(char *out, size_t size)
     if (!ready)
         snprintf(out, size, "steam=off error=%s", error_text[0] ? error_text : "not started");
     else
-        snprintf(out, size, "steam=ready role=%s lobby=%llu peers=%d name=%s", role == 1 ? "host" : role == 2 ? "client" : "none",
+        snprintf(out, size, "steam=ready role=%s lobby=%llu peers=%d name=[%s]", role == 1 ? "host" : role == 2 ? "client" : "none",
                  lobby, linked, persona);
 }

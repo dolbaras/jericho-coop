@@ -4,7 +4,7 @@
 --
 -- Lobby messages (text, "|" separated, reliable):
 --   pick|<char>                 client -> host: wants this character
---   nick|<nick>                 client -> host: nickname
+--   nick|<nick>                 client -> host: nickname (UTF-8 since 0.3.2, Coop.cleanNick; "" = none)
 --   ready|<0/1>                 client -> host
 --   lobby|<level>|<seats>|<c>   host -> all; seats = "peer:char:ready:nick;...", c=1: continuing
 --   sv|<save>                   host -> all, before start: the save vars (coop_save.lua)
@@ -429,7 +429,7 @@ function CoopMenu.refreshLan()
   for entry in string.gmatch(Net.CoopDiscover() or "", "[^;]+") do
     local f = {}
     for x in string.gmatch(entry .. "|", "([^|]*)|") do f[#f + 1] = x end
-    local g = {ip = f[1], nick = f[2], level = f[3], players = f[4], max = f[5], port = tonumber(f[6])}
+    local g = {ip = f[1], nick = Coop.cleanNick(f[2]), level = f[3], players = f[4], max = f[5], port = tonumber(f[6])}
     -- A host on this PC answers on the loopback and on its LAN address: list it once,
     -- under the LAN address.
     local key = table.concat(f, "|", 2)
@@ -446,7 +446,7 @@ function CoopMenu.refreshLan()
     local g = CoopMenu.lan[i]
     if it then
       if g then
-        local nick = (g.nick and g.nick ~= "") and g.nick or T("host_name")
+        local nick = g.nick ~= "" and Coop.nickShow(g.nick) or T("host_name")
         setText(it, string.format("LAN: %s - %s (%s/%s)", nick, CoopMenu.levelName(g.level or ""),
           g.players or "?", g.max or "?"))
       else
@@ -483,7 +483,7 @@ function CoopMenu.refreshSteam()
   if CoopMenu.steamReady then
     for entry in string.gmatch(Net.CoopSteam("friends") or "", "[^;]+") do
       local name, lobby = string.match(entry, "^(.*)|(%d+)$")
-      if lobby then CoopMenu.steamGames[#CoopMenu.steamGames + 1] = {lobby = lobby, nick = name} end
+      if lobby then CoopMenu.steamGames[#CoopMenu.steamGames + 1] = {lobby = lobby, nick = Coop.cleanNick(name)} end
     end
   end
   for i = 1, CoopMenu.LAN_SLOTS do
@@ -491,7 +491,7 @@ function CoopMenu.refreshSteam()
     local g = CoopMenu.steamGames[i]
     if it then
       if g then
-        setText(it, "Steam: " .. Coop.cleanNick(g.nick or ""))
+        setText(it, "Steam: " .. Coop.nickShow(g.nick))
       else
         setText(it, i == 1 and CoopMenu.steamReady and T("steam_none") or "")
       end
@@ -511,7 +511,7 @@ function CoopMenu.ConnectSteam(lobby, name)
   Net.CoopClose()
   local ok = Net.CoopSteam("join", lobby)
   Coop.log("lobby: steam join " .. tostring(lobby) .. " -> " .. tostring(ok))
-  cfg.joinLabel = "Steam: " .. Coop.cleanNick(name or "")
+  cfg.joinLabel = "Steam: " .. Coop.nickShow(name)
   cfg.net = "steam"
   cfg.role = "client"
   cfg.myId = nil
@@ -532,7 +532,7 @@ function CoopMenu.SteamInvite()
   CoopMenu.inviteList = {}
   for entry in string.gmatch(Net.CoopSteam and Net.CoopSteam("online") or "", "[^;]+") do
     local name, id = string.match(entry, "^(.*)|(%d+)$")
-    if id then CoopMenu.inviteList[#CoopMenu.inviteList + 1] = {id = id, nick = name} end
+    if id then CoopMenu.inviteList[#CoopMenu.inviteList + 1] = {id = id, nick = Coop.cleanNick(name)} end
   end
   local options = {}
   for i = 1, CoopMenu.INVITE_ROWS do options[#options + 1] = {"", "CoopMenu.InviteFriend" .. i} end
@@ -614,7 +614,7 @@ function CoopMenu.Lobby()
   CoopMenu.sub = nil
   local options = {
     {"", "CoopMenu.NextChar"},
-    {CoopMenu.myNick(), "!EditText"},
+    {CoopMenu.nickField(), "!EditText"},
     {"", "CoopMenu.ToggleTags"},
     -- A second player on this PC with gamepad 2 (split screen, coop_split.lua).
     {"", "CoopMenu.NextP2"},
@@ -643,6 +643,7 @@ function CoopMenu.Lobby()
   p2.onLeft = "CoopMenu.PrevP2"
   p2.onRight = "CoopMenu.NextP2"
   CoopMenu.nickSent = CoopMenu.myNick()
+  CoopMenu.nickShown = CoopMenu.nickField()
   -- Read-only lines: chapter and the player list.
   for i = 0, CoopMenu.MAX_PLAYERS do
     local t = Scorer.NewItem(0, "CoopLine" .. i, "Text")
@@ -729,7 +730,7 @@ function CoopMenu.refreshLobby()
       local f = CoopMenu.inviteList[CoopMenu.invitePage * CoopMenu.INVITE_ROWS + i]
       local text = ""
       if f then
-        text = Coop.cleanNick(f.nick or "") .. (f.invited and "  - " .. T("invited") or "")
+        text = Coop.nickShow(f.nick) .. (f.invited and "  - " .. T("invited") or "")
       elseif i == 1 and #CoopMenu.inviteList == 0 then
         text = T("friends_none")
       end
@@ -755,7 +756,7 @@ function CoopMenu.refreshLobby()
     local s = CoopMenu.seats[i]
     if t then
       if s then
-        local who = (s.nick and s.nick ~= "") and s.nick or (s.peer == 0 and T("host_name") or (T("player") .. " " .. (s.peer + 1)))
+        local who = CoopMenu.seatName(s)
         local you = s.peer == CoopMenu.myPeer() and " " .. T("you") or ""
         -- Act 1: the host is Ross until Ross dies (Coop.startChar), then takes the seat.
         local char = CoopMenu.charName(s.char)
@@ -905,8 +906,10 @@ function CoopMenu.setP2(peer, char)
   end
   local main = CoopMenu.seatOf(peer)
   if char and char ~= "-" and main and not CoopMenu.taken(char, id) and #CoopMenu.seats < CoopMenu.MAX_PLAYERS then
+    -- (no nickname of its machine: none either, each screen names the seat in its own language)
+    local nick = Coop.cleanNick(main.nick)
     CoopMenu.seats[#CoopMenu.seats + 1] = {peer = id, char = char, ready = true,
-                                           nick = Coop.cleanNick(string.sub(main.nick or "", 1, 13) .. " 2")}
+                                           nick = nick ~= "" and Coop.nickCut(nick, 13) .. " 2" or ""}
   end
   CoopMenu.broadcastLobby()
 end
@@ -937,23 +940,47 @@ end
 function CoopMenu.NextP2() CoopMenu.cycleP2(1) end
 function CoopMenu.PrevP2() CoopMenu.cycleP2(-1) end
 
+-- This player's nickname (UTF-8, Coop.cleanNick): the one typed, else the Steam name, else none
+-- ("" on the network: every screen then names the seat in its own language, CoopMenu.seatName;
+-- up to 0.3.1 the sender's word for "Host" / "Player" went out in its code page).
 function CoopMenu.myNick()
   local n = Coop.cleanNick(cfg.nick)
   if n == "" and CoopMenu.steamReady and Net.CoopSteam then n = Coop.cleanNick(Net.CoopSteam("name") or "") end
-  if n == "" then n = Coop.isHost() and T("host_name") or T("player") end
   return n
 end
 
--- The nickname field is edited in place by the engine; send it once it stops changing.
+-- The nickname field's text (this machine's code page): the nickname, else the seat's name.
+function CoopMenu.nickField()
+  local n = CoopMenu.myNick()
+  if n ~= "" then return Coop.nickShow(n) end
+  return Coop.isHost() and T("host_name") or T("player")
+end
+
+-- A seat's name on this screen: its nickname, else the host / "Player <n>" in this machine's
+-- language (a split screen player 2's seat: its machine's name and " 2").
+function CoopMenu.seatName(s)
+  if s.nick and s.nick ~= "" then return Coop.nickShow(s.nick) end
+  local p = Coop.peerOf(s.peer) or 0
+  local name = p == 0 and T("host_name") or (T("player") .. " " .. (p + 1))
+  if s.peer >= Coop.P2 then name = name .. " 2" end
+  return name
+end
+
+-- The nickname field is edited in place by the engine; send it once it stops changing. The text
+-- is in this machine's code page; a field nobody changed keeps the nickname as it was (a Steam
+-- name's letters the font lacks are shown in other letters there).
 function CoopMenu.checkNick()
   local it = item("Itm2")
   if not it then return end
-  local text = Coop.cleanNick(it.Text)
-  if text ~= CoopMenu.nickPending then
-    CoopMenu.nickPending, CoopMenu.nickSince = text, Net.CoopTime()
+  local raw = tostring(it.Text or "")
+  if raw ~= CoopMenu.nickPending then
+    CoopMenu.nickPending, CoopMenu.nickSince = raw, Net.CoopTime()
     return
   end
-  if text ~= "" and text ~= CoopMenu.nickSent and Net.CoopTime() - CoopMenu.nickSince > 1 then
+  if raw == CoopMenu.nickShown or Net.CoopTime() - CoopMenu.nickSince <= 1 then return end
+  CoopMenu.nickShown = raw
+  local text = Coop.nickFromLocal(raw)
+  if text ~= "" and text ~= CoopMenu.nickSent then
     CoopMenu.nickSent = text
     cfg.nick = text
     if Coop.isHost() then
@@ -1165,8 +1192,7 @@ function CoopMenu.onJoin(peer)
       Net.CoopClose(peer)
       return
     end
-    CoopMenu.seats[#CoopMenu.seats + 1] = {peer = peer, char = CoopMenu.firstFree(peer), ready = false,
-                                           nick = T("player") .. " " .. (peer + 1)}
+    CoopMenu.seats[#CoopMenu.seats + 1] = {peer = peer, char = CoopMenu.firstFree(peer), ready = false, nick = ""}
     Net.CoopSend(peer, 1, "welcome|" .. peer .. "|Menu|" .. CoopMenu.seats[#CoopMenu.seats].char .. "|" .. Coop.VERSION)
     CoopMenu.broadcastLobby()
   end
@@ -1177,8 +1203,8 @@ function CoopMenu.refuse(peer, ver, nick)
   Coop.log("lobby: peer " .. peer .. " has version " .. tostring(ver) .. ", refused")
   Net.CoopClose(peer)
   CoopMenu.onLeave(peer)
-  CoopMenu.message(string.format(T("version_peer"), Coop.cleanNick(nick or "") ~= "" and Coop.cleanNick(nick) or
-    (T("player") .. " " .. (peer + 1)), Coop.VERSION))
+  CoopMenu.message(string.format(T("version_peer"), CoopMenu.seatName({peer = peer, nick = Coop.cleanNick(nick)}),
+    Coop.VERSION))
 end
 
 function CoopMenu.onLeave(peer)

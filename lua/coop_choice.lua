@@ -820,15 +820,19 @@ function C.localUpdate()
 end
 
 local nickCache
-local function nick(owner)
-  if not nickCache or Coop.frame % 20 == 0 then nickCache = CoopHud and CoopHud.nicks and CoopHud.nicks() or {} end
-  local n = nickCache[owner]
+-- A player by owner id as this screen shows them: the nickname, else as the lobby names a seat
+-- (a seat without a nickname, a test session), in this machine's language.
+function C.playerName(owner, cache)
+  local n = (cache or {})[owner]
   if n and n ~= "" then return n end
-  -- (no nickname, as in a test session: named as the lobby names a seat, in this machine's language)
   local peer = Coop.peerOf(owner) or owner
   local s = peer == 0 and C.text("host_name") or C.text("player_n", peer + 1)
   if owner >= Coop.P2 then s = s .. " 2" end
   return s
+end
+local function nick(owner)
+  if not nickCache or Coop.frame % 20 == 0 then nickCache = CoopHud and CoopHud.nicks and CoopHud.nicks() or {} end
+  return C.playerName(owner, nickCache)
 end
 
 -- Number of rows a text takes in a block of this width (Coop.textBlock breaks the same way).
