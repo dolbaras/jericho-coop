@@ -507,6 +507,14 @@ Proposal [P]:
 |---|---|---|---|
 | Nameplates (toggle) plus downed icon | M | Med (world-to-screen API unknown) | L4D outlines, Serious Sam names |
 | Off-screen arrows | S-M | Med | many shooters |
+
+Status (2026-11-09, 0.3.2): nameplates are built (`coop_hud.lua`, on by default, per player); off-screen arrows are not (the owner's idea, 2026-11-08).
+Sketch: in `CoopHud.update`, when a plate is off the view, take the camera-space
+direction from `H.project`'s maths (without its `z <= 1` cut; behind the camera mirror x), put a text item "< name 25 m" /
+"name 25 m >" / "^ name" on a rectangle inside the HUD (full screen: clear of the corners where the game's HUD sits; split:
+`H.splitPlace`'s corner rule per half), hidden under the same conditions as the plates (cutscenes, black, menus, power cams,
+`cfg.tags == false`). Not done in 0.3.2 because an item at the screen's edges must be checked by eye against the game's HUD
+in 4:3 and 16:9 full screen and both split views for both players, and that did not fit this release's test time.
 | Ping | M | Low | Apex |
 | Text chat plus system messages | S | Low | Payday, Sven |
 | Character portraits in select | S | Low (reuses HUD icons) | Halo 3 |
