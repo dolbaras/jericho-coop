@@ -21,7 +21,7 @@ What the launcher already out there relies on, so every later release keeps it:
   `-NoShortcut` refreshes only the shortcuts the install record lists.
 - **`files\coop\version.txt`** holding the version without the `v`.
 - **`<game>\coop\install.txt`**, the install record the next installer reads: `version=`,
-  then one line per `file=`, `backup=`, `chain=` (the release after 0.3.1: a copy made for the player's ASI loader, also a `file=`), `built=` and
+  then one line per `file=`, `backup=`, `chain=` (from 0.3.2: a copy made for the player's ASI loader, also a `file=`), `built=` and
   `shortcut=`. 0.2.3-0.2.4 wrote all
   shortcuts on one `shortcut=` line joined by spaces (or an empty one with none); from 0.2.5
   the installer splits such a line after each `.lnk` and drops empty ones, and keeps doing so.
@@ -33,7 +33,7 @@ What the launcher already out there relies on, so every later release keeps it:
 A change to any of these needs a launcher that copes with both the old and the new form, shipped
 one release before the old form is dropped.
 
-## Other mods' DLLs: an ASI loader as bin\dinput8.dll (the release after 0.3.1)
+## Other mods' DLLs: an ASI loader as bin\dinput8.dll (from 0.3.2)
 
 The mod is `bin\dinput8.dll` too. What the installer does with what it finds in `bin\`:
 

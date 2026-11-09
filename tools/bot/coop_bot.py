@@ -15,7 +15,7 @@ import sys
 import time
 
 # The co-op version the host expects in hello (lua/coop.lua Coop.VERSION).
-COOP_VERSION = "0.2.1"
+COOP_VERSION = "0.3.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DLL = os.path.join(HERE, '..', '..', 'native', 'build', 'enet64.dll')
