@@ -224,16 +224,18 @@ checked) into the game's bin folder. Ross's model for the other players in Act 1
 upscaled textures too. Checked: all 33 levels loaded one after another, split screen, F11 clips.
 
 Other mods with a dinput8.dll (ASI loaders)
-The co-op mod is bin\dinput8.dll. An ASI loader that is there already (Ultimate ASI Loader, the
-dinput8.dll most ASI mods come with) is kept in coop-backup and keeps running as bin\winmm.dll, so
-its plugins (bin\scripts, bin\plugins) stay on. Any other mod's dinput8.dll is kept in coop-backup
-and is off while co-op is installed. Removing co-op puts it back. A dinput8.dll another mod puts
-over co-op's later is kept too: the next install or update of co-op keeps it as the original, the
+The co-op mod is bin\dinput8.dll. Another mod's dinput8.dll that is there already (an ASI loader
+such as Ultimate ASI Loader, the dinput8.dll most ASI mods come with, or any other) is kept in
+coop-backup and is off while co-op is installed; with an ASI loader its plugins (bin\scripts,
+bin\plugins) are off too. The installer's result says so. Removing co-op puts it back. The loader
+cannot run under another name for this game: Windows applies its compatibility settings to
+Jericho.exe and loads its own winmm.dll first, so an ASI loader placed as bin\winmm.dll is never
+loaded, with or without co-op (seen on Windows 10 and 11). A dinput8.dll another mod puts over
+co-op's later is kept: the next install or update of co-op keeps it as the original, the
 uninstaller leaves it in place. Other DLLs such mods use (d3d9.dll of DXVK or SMOD, dsound.dll,
-version.dll, xinput1_3.dll, winmm.dll) are not touched. An ASI loader named bin\winmm.dll (or any
-name the game loads first) no longer stops co-op from starting. Checked in the game with Ultimate
-ASI Loader 10.0.2 and a test plugin, both as bin\dinput8.dll (installed over) and as bin\winmm.dll:
-co-op starts, the plugin is loaded, removing co-op puts every file back as it was.
+version.dll, xinput1_3.dll, winmm.dll) are not touched. Checked in the game with Ultimate ASI
+Loader 10.0.2 and a test plugin as bin\dinput8.dll: co-op installed over it starts, removing co-op
+puts every file back as it was.
 
 Screen: aspect ratio, display mode, refresh rate
 Main menu Configuration -> Video -> Aspect ratio: Auto (default: from the screen resolution),
@@ -514,17 +516,18 @@ SMOD Add-ons (PHM2D, nexusmods.com/clivebarkersjericho/mods/11, поверх SMO
 увеличенные текстуры. Проверено: все 33 уровня загружены подряд, сплитскрин, клипы F11.
 
 Другие моды с dinput8.dll (загрузчики ASI)
-Кооператив — это bin\dinput8.dll. Загрузчик ASI, который уже там лежит (Ultimate ASI Loader —
-dinput8.dll, с которым приходит большинство модов ASI), сохраняется в coop-backup и продолжает
-работать как bin\winmm.dll, так что его плагины (bin\scripts, bin\plugins) остаются включены.
-dinput8.dll любого другого мода сохраняется в coop-backup и выключен, пока стоит кооператив;
-удаление кооператива возвращает его. dinput8.dll, который другой мод положит поверх кооперативного
-позже, тоже сохраняется: следующая установка или обновление кооператива считает его оригиналом,
-удаление оставляет его на месте. Другие DLL таких модов (d3d9.dll из DXVK или SMOD, dsound.dll,
-version.dll, xinput1_3.dll, winmm.dll) не трогаются. Загрузчик ASI под именем bin\winmm.dll (или
-под любым именем, которое игра загружает раньше) больше не мешает кооперативу запуститься.
-Проверено в игре с Ultimate ASI Loader 10.0.2 и тестовым плагином, как bin\dinput8.dll (установка
-поверх) и как bin\winmm.dll: кооператив запускается, плагин загружается, удаление кооператива
+Кооператив — это bin\dinput8.dll. dinput8.dll другого мода, который уже там лежит (загрузчик ASI,
+например Ultimate ASI Loader — dinput8.dll, с которым приходит большинство модов ASI, или любой
+другой), сохраняется в coop-backup и выключен, пока стоит кооператив; у загрузчика ASI выключены
+и его плагины (bin\scripts, bin\plugins). Окно результата установщика об этом говорит. Удаление
+кооператива возвращает его. Под другим именем загрузчик в этой игре работать не может: Windows
+применяет к Jericho.exe свои настройки совместимости и первой загружает свою winmm.dll, поэтому
+загрузчик ASI, положенный как bin\winmm.dll, не загружается никогда, с кооперативом или без него
+(видно в Windows 10 и 11). dinput8.dll, который другой мод положит поверх кооперативного позже,
+сохраняется: следующая установка или обновление кооператива считает его оригиналом, удаление
+оставляет его на месте. Другие DLL таких модов (d3d9.dll из DXVK или SMOD, dsound.dll, version.dll,
+xinput1_3.dll, winmm.dll) не трогаются. Проверено в игре с Ultimate ASI Loader 10.0.2 и тестовым
+плагином как bin\dinput8.dll: кооператив, установленный поверх, запускается, удаление кооператива
 возвращает все файлы как были.
 
 Экран: формат, режим экрана, частота обновления
