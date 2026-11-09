@@ -3,8 +3,12 @@
 #   install: finds the game folder (this folder, install records in the registry, Steam
 #            libraries, or the player picks it), keeps the files it replaces in <game>\coop-backup,
 #            copies the mod and writes <game>\coop\install.txt (what it installed, what it backed up).
-#   update:  the same over an older version; originals already backed up are kept.
-#   remove:  deletes what install.txt lists and puts the backed-up files back. The co-op saves
+#            When the bin\dinput8.dll it replaces is an Ultimate ASI Loader (the loader of most ASI mods), a copy of it
+#            runs on as bin\winmm.dll, so its plugins stay on (Chain-Plan).
+#   update:  the same over an older version; originals already backed up are kept. A dinput8.dll another mod
+#            put over the co-op one meanwhile becomes the original.
+#   remove:  deletes what install.txt lists and puts the backed-up files back (a dinput8.dll another mod put
+#            over the co-op one, or a loader copy the player changed, stays). The co-op saves
 #            (Documents\Codemasters\Clive Barker's Jericho\Coop) are not touched.
 # A window shows the steps, a progress bar (also on the taskbar button) and what is being done;
 # the longest step, building the cutscene animations from the game's files, reports file by file.
@@ -48,6 +52,14 @@ $script:TEXTS = @{
         "smod_found" = "SMOD found."
         "smod_addons_found" = "SMOD Add-ons found: they stay as they are."
         "original_kept" = "Original kept: "
+        "asi_copy" = "Your ASI loader also runs as: "
+        "asi_note" = "Your ASI loader (another mod's dinput8.dll) now also runs as bin\winmm.dll, so its plugins stay on."
+        "off_note" = "Another mod's dinput8.dll is kept in coop-backup and is off while co-op is installed; removing co-op puts it back."
+        "winmm_taken" = "bin\winmm.dll of another mod is there already: the ASI loader stays off."
+        "left_alone" = "Not the copy co-op made any more, left in place: "
+        "foreign_over_coop" = "Another mod's file was put over co-op's; kept as the original now: "
+        "left_in_place" = "Another mod's file over co-op's, left in place: "
+        "left_note" = "`n`nAnother mod's bin\dinput8.dll had been put over co-op's: it stays in place."
         "copied_file_s" = "Copied {0} file(s)."
         "already_large_address_aware" = "Already large address aware: "
         "large_address_aware" = "Large address aware: "
@@ -126,6 +138,14 @@ $script:TEXTS = @{
         "smod_found" = "Найден SMOD."
         "smod_addons_found" = "Найдены SMOD Add-ons: они остаются как есть."
         "original_kept" = "Оригинал сохранён: "
+        "asi_copy" = "Ваш загрузчик ASI работает и как: "
+        "asi_note" = "Ваш загрузчик ASI (dinput8.dll другого мода) теперь работает и как bin\winmm.dll, поэтому его плагины остаются включены."
+        "off_note" = "dinput8.dll другого мода сохранён в coop-backup и выключен, пока установлен кооп; удаление коопа вернёт его."
+        "winmm_taken" = "bin\winmm.dll другого мода уже есть: загрузчик ASI остаётся выключенным."
+        "left_alone" = "Уже не копия, сделанная коопом, оставлен на месте: "
+        "foreign_over_coop" = "Поверх коопа положен файл другого мода; теперь он сохранён как оригинал: "
+        "left_in_place" = "Файл другого мода поверх коопа, оставлен на месте: "
+        "left_note" = "`n`nПоверх коопа был положен bin\dinput8.dll другого мода: он остаётся на месте."
         "copied_file_s" = "Скопировано файлов: {0}."
         "already_large_address_aware" = "Флаг уже стоит: "
         "large_address_aware" = "Флаг large address aware: "
@@ -204,6 +224,14 @@ $script:TEXTS = @{
         "smod_found" = "SMOD gefunden."
         "smod_addons_found" = "SMOD Add-ons gefunden: sie bleiben unverändert."
         "original_kept" = "Original gesichert: "
+        "asi_copy" = "Ihr ASI-Loader läuft zusätzlich als: "
+        "asi_note" = "Ihr ASI-Loader (die dinput8.dll eines anderen Mods) läuft jetzt zusätzlich als bin\winmm.dll, seine Plugins bleiben also aktiv."
+        "off_note" = "Die dinput8.dll eines anderen Mods ist in coop-backup gesichert und aus, solange Koop installiert ist; das Entfernen von Koop stellt sie wieder her."
+        "winmm_taken" = "Eine bin\winmm.dll eines anderen Mods ist schon vorhanden: der ASI-Loader bleibt aus."
+        "left_alone" = "Nicht mehr die Kopie von Koop, bleibt an ihrem Platz: "
+        "foreign_over_coop" = "Eine Datei eines anderen Mods wurde über die von Koop gelegt; sie gilt jetzt als Original: "
+        "left_in_place" = "Datei eines anderen Mods über der von Koop, bleibt an ihrem Platz: "
+        "left_note" = "`n`nÜber die Datei von Koop war die bin\dinput8.dll eines anderen Mods gelegt worden: sie bleibt an ihrem Platz."
         "copied_file_s" = "{0} Datei(en) kopiert."
         "already_large_address_aware" = "Bereits Large Address Aware: "
         "large_address_aware" = "Large Address Aware: "
@@ -282,6 +310,14 @@ $script:TEXTS = @{
         "smod_found" = "SMOD détecté."
         "smod_addons_found" = "SMOD Add-ons détectés: ils restent tels quels."
         "original_kept" = "Original conservé: "
+        "asi_copy" = "Votre chargeur ASI tourne aussi sous le nom: "
+        "asi_note" = "Votre chargeur ASI (le dinput8.dll d'un autre mod) tourne désormais aussi sous le nom bin\winmm.dll: ses plugins restent actifs."
+        "off_note" = "Le dinput8.dll d'un autre mod est conservé dans coop-backup et désactivé tant que le mod coop est installé; retirer le mod coop le remet en place."
+        "winmm_taken" = "Un bin\winmm.dll d'un autre mod est déjà là: le chargeur ASI reste désactivé."
+        "left_alone" = "N'est plus la copie faite par le mod coop, laissé en place: "
+        "foreign_over_coop" = "Un fichier d'un autre mod a remplacé celui du mod coop; il est désormais conservé comme original: "
+        "left_in_place" = "Fichier d'un autre mod à la place de celui du mod coop, laissé en place: "
+        "left_note" = "`n`nLe bin\dinput8.dll d'un autre mod avait remplacé celui du mod coop: il reste en place."
         "copied_file_s" = "{0} fichier(s) copié(s)."
         "already_large_address_aware" = "Déjà large address aware: "
         "large_address_aware" = "Large address aware: "
@@ -360,6 +396,14 @@ $script:TEXTS = @{
         "smod_found" = "SMOD encontrado."
         "smod_addons_found" = "SMOD Add-ons encontrados: se quedan como están."
         "original_kept" = "Original conservado: "
+        "asi_copy" = "Tu cargador ASI también funciona como: "
+        "asi_note" = "Tu cargador ASI (el dinput8.dll de otro mod) ahora también funciona como bin\winmm.dll, así que sus plugins siguen activos."
+        "off_note" = "El dinput8.dll de otro mod se guarda en coop-backup y queda desactivado mientras el cooperativo esté instalado; al quitar el cooperativo se restaura."
+        "winmm_taken" = "Ya hay un bin\winmm.dll de otro mod: el cargador ASI queda desactivado."
+        "left_alone" = "Ya no es la copia que hizo el cooperativo, se deja en su sitio: "
+        "foreign_over_coop" = "Un archivo de otro mod sustituyó al del cooperativo; ahora se guarda como original: "
+        "left_in_place" = "Archivo de otro mod en lugar del del cooperativo, se deja en su sitio: "
+        "left_note" = "`n`nUn bin\dinput8.dll de otro mod había sustituido al del cooperativo: se queda en su sitio."
         "copied_file_s" = "Archivos copiados: {0}."
         "already_large_address_aware" = "Ya es large address aware: "
         "large_address_aware" = "Large address aware: "
@@ -438,6 +482,14 @@ $script:TEXTS = @{
         "smod_found" = "SMOD rilevato."
         "smod_addons_found" = "SMOD Add-ons rilevati: restano come sono."
         "original_kept" = "Originale conservato: "
+        "asi_copy" = "Il tuo caricatore ASI gira anche come: "
+        "asi_note" = "Il tuo caricatore ASI (il dinput8.dll di un'altra mod) ora gira anche come bin\winmm.dll, quindi i suoi plugin restano attivi."
+        "off_note" = "Il dinput8.dll di un'altra mod è conservato in coop-backup e resta disattivato finché la mod co-op è installata; rimuovendo la mod co-op torna al suo posto."
+        "winmm_taken" = "C'è già un bin\winmm.dll di un'altra mod: il caricatore ASI resta disattivato."
+        "left_alone" = "Non è più la copia fatta dalla mod co-op, lasciato al suo posto: "
+        "foreign_over_coop" = "Un file di un'altra mod ha sostituito quello della mod co-op; ora è conservato come originale: "
+        "left_in_place" = "File di un'altra mod al posto di quello della mod co-op, lasciato al suo posto: "
+        "left_note" = "`n`nUn bin\dinput8.dll di un'altra mod aveva sostituito quello della mod co-op: resta al suo posto."
         "copied_file_s" = "Copiati {0} file."
         "already_large_address_aware" = "Già large address aware: "
         "large_address_aware" = "Large address aware: "
@@ -652,13 +704,15 @@ function Find-Games {
 }
 
 function Read-Manifest($g) {
-    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); version = "" }
+    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); chains = @(); version = "" }
     $f = Join-Path $g "coop\install.txt"
     if (Test-Path -LiteralPath $f) {
         foreach ($line in Get-Content -LiteralPath $f) {
             if ($line -match '^version=(.*)$') { $m.version = $Matches[1] }
             elseif ($line -match '^file=(.*)$') { $m.files += $Matches[1] }
             elseif ($line -match '^backup=(.*)$') { $m.backups += $Matches[1] }
+            # (after 0.3.1: a copy the install made for the player's ASI loader, see Chain-Plan; also listed as file=)
+            elseif ($line -match '^chain=(.*)$') { if ($script:CHAIN.Contains($Matches[1])) { $m.chains += $Matches[1] } }
             elseif ($line -match '^built=(.*)$') { $m.built += $Matches[1] }
             # (0.2.3-0.2.4 wrote all shortcuts on one line, space-separated, and an empty line
             # when there were none)
@@ -690,6 +744,95 @@ function Has-Text($p, [string[]] $words) {
 }
 function Is-CoopDll($p) { Has-Text $p @("coop_net installed") }
 
+function Sha256-File($p) {
+    $fs = [IO.File]::OpenRead($p)
+    try { [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($fs)) -replace "-", "" } finally { $fs.Close() }
+}
+function Same-File($a, $b) {
+    (Test-Path -LiteralPath $a -PathType Leaf) -and (Test-Path -LiteralPath $b -PathType Leaf) -and
+        ((Get-Item -LiteralPath $a).Length -eq (Get-Item -LiteralPath $b).Length) -and ((Sha256-File $a) -eq (Sha256-File $b))
+}
+
+# The machine and the exported names of a PE file, read from its bytes (nothing of it runs); $null for anything that is not one.
+function Pe-Exports($p) {
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+    try { $b = [IO.File]::ReadAllBytes($p) } catch { return $null }
+    $n = $b.Length
+    if ($n -lt 0x40 -or $b[0] -ne 0x4D -or $b[1] -ne 0x5A) { return $null }
+    $pe = [long][BitConverter]::ToUInt32($b, 0x3C)
+    if ($pe + 26 -gt $n -or [Text.Encoding]::ASCII.GetString($b, [int]$pe, 4) -ne "PE`0`0") { return $null }
+    $machine = [BitConverter]::ToUInt16($b, $pe + 4); $nsec = [BitConverter]::ToUInt16($b, $pe + 6); $optsize = [BitConverter]::ToUInt16($b, $pe + 20)
+    $opt = $pe + 24; $sec = $opt + $optsize
+    if ($sec + 40 * $nsec -gt $n) { return $null }
+    $magic = [BitConverter]::ToUInt16($b, $opt)
+    $dirs = if ($magic -eq 0x10B) { $opt + 96 } elseif ($magic -eq 0x20B) { $opt + 112 } else { return $null }
+    if ($dirs + 8 -gt $opt + $optsize) { return $null }
+    # (an RVA's offset in the file by the section table, -1 outside the file)
+    $secs = @(for ($i = 0; $i -lt $nsec; $i++) { $s = $sec + 40 * $i
+        @{ va = [long][BitConverter]::ToUInt32($b, $s + 12); vs = [long][BitConverter]::ToUInt32($b, $s + 8); raw = [long][BitConverter]::ToUInt32($b, $s + 16); ptr = [long][BitConverter]::ToUInt32($b, $s + 20) } })
+    $off = { param([long] $rva)
+        foreach ($s in $secs) { $span = [Math]::Max($s.vs, $s.raw)
+            if ($rva -ge $s.va -and $rva -lt $s.va + $span) { $o = $rva - $s.va; if ($o -ge $s.raw -or $s.ptr + $o -ge $n) { return -1 }; return $s.ptr + $o } }
+        -1 }
+    $names = New-Object System.Collections.Generic.HashSet[string]
+    $erva = [long][BitConverter]::ToUInt32($b, $dirs)
+    $ed = if ($erva) { & $off $erva } else { -1 }
+    if ($ed -ge 0 -and $ed + 40 -le $n) {
+        $cnt = [long][BitConverter]::ToUInt32($b, $ed + 24)
+        $np = & $off ([long][BitConverter]::ToUInt32($b, $ed + 32))
+        if ($np -ge 0 -and $cnt -le 65536) {
+            for ($i = 0; $i -lt $cnt -and $np + 4 * $i + 4 -le $n; $i++) {
+                $so = & $off ([long][BitConverter]::ToUInt32($b, $np + 4 * $i))
+                if ($so -lt 0) { continue }
+                $e = $so; while ($e -lt $n -and $b[$e] -ne 0 -and $e - $so -lt 512) { $e++ }
+                [void]$names.Add([Text.Encoding]::ASCII.GetString($b, [int]$so, [int]($e - $so)))
+            }
+        }
+    }
+    @{ machine = $machine; names = $names }
+}
+
+# An Ultimate ASI Loader (ThirteenAG; the usual dinput8.dll of ASI mods) that can stand in for winmm.dll: 32-bit (the game is),
+# exports IsUltimateASILoader (the name plugins and other loaders know it by) and winmm's timeGetTime (it serves winmm.dll).
+# Both builds checked for Revelations 2 do: v10.0.2 and v7.8.0 (2026-11-07).
+function Is-AsiLoader($p) {
+    $x = Pe-Exports $p
+    [bool]($x -and $x.machine -eq 0x14C -and $x.names.Contains("IsUltimateASILoader") -and $x.names.Contains("timeGetTime"))
+}
+
+# The player's ASI loader keeps running next to the mod (whose DLL is bin\dinput8.dll too). The loader knows itself by its file
+# name only (any other name: "This library isn't supported." and the game closes), so the copy is named bin\winmm.dll: a name the
+# loader serves (it forwards winmm's functions to the system's winmm.dll) and Jericho.exe imports, so Windows loads it from bin at
+# the start and it loads its plugins (bin\scripts, bin\plugins) as it did as dinput8.dll. The loader patches the exe's start-up
+# imports and writes them back at its first call: the mod's DLL keeps its own hook on that (native/iat_guard.c). The original stays in
+# coop-backup\bin\dinput8.dll; the loader's settings file bin\dinput8.ini goes along as bin\winmm.ini (it reads <its name>.ini).
+# Copy -> where it comes from (relative to the game folder). Same as Resident Evil Revelations 2 Co-op 0.2.0.
+$script:CHAIN = [ordered]@{ "bin\winmm.dll" = "coop-backup\bin\dinput8.dll"; "bin\winmm.ini" = "bin\dinput8.ini" }
+$script:PROXY = "bin\dinput8.dll"
+
+# What the install does for a foreign bin\dinput8.dll kept in coop-backup: state "asi" (the loader runs as bin\winmm.dll), "off" (it
+# stays off: not such a loader, or a winmm.dll of someone else's is in bin already), "" (none); keep = copies of an earlier install
+# that are still the same as their source; make = copies to make. A copy that is no longer the same as its source is the player's
+# now: it is left alone and no longer listed.
+function Chain-Plan($g, $old, $backups) {
+    $plan = @{ state = ""; keep = @(); make = @() }
+    if ($backups -notcontains $script:PROXY) { return $plan }
+    $plan.state = "off"
+    if (-not (Is-AsiLoader (Join-Path $g "coop-backup\$($script:PROXY)"))) { return $plan }
+    foreach ($name in $script:CHAIN.Keys) {
+        $from = Join-Path $g $script:CHAIN[$name]; $dst = Join-Path $g $name
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+        if (Test-Path -LiteralPath $dst) {
+            if (($old.chains -contains $name) -and (Same-File $dst $from)) { $plan.keep += $name }
+            elseif ($name -eq "bin\winmm.dll") { Ui-Log (L "winmm_taken"); $plan.keep = @(); $plan.make = @(); return $plan }
+        } else { $plan.make += $name }
+        # (the settings file only goes along with the loader)
+        if ($name -eq "bin\winmm.dll" -and $plan.keep -notcontains $name -and $plan.make -notcontains $name) { return $plan }
+    }
+    $plan.state = "asi"
+    $plan
+}
+
 # Texts of a release's archive root in the game folder (0.1.0's zip, or a later one extracted
 # there): kept while the mod is installed, removed with it.
 $script:OLD_ROOT = @(@("README-COOP.txt", "Jericho"), @("LICENSE.txt", "Jericho Co-op contributors"),
@@ -700,7 +843,7 @@ $script:OLD_SPLIT = @(@("Co-op split screen.bat", "coop-splitscreen.ps1"), @("co
 # A co-op install without a usable record: what is the mod's, found by the files themselves.
 # The version from coop\version.txt (0.1.1 on), else 0.1.0.
 function Find-OldCoop($g) {
-    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); version = ""; found = $false }
+    $m = @{ files = @(); backups = @(); built = @(); shortcuts = @(); chains = @(); version = ""; found = $false }
     $root = [IO.Path]::GetFullPath($g).TrimEnd('\')
     $coop = Join-Path $root "coop"
     $dll = Is-CoopDll (Join-Path $root "bin\dinput8.dll")
@@ -765,11 +908,23 @@ function Do-Uninstall($g) {
     Lock-Install
     Ui-Step "rm" "run"
     $all = @($m.files + $m.built)
+    $leftIn = New-Object System.Collections.Generic.List[string]
     $i = 0
     foreach ($rel in $all) {
         $i++
         Ui-Progress (5 + 50 * $i / [Math]::Max(1, $all.Count)) $rel
-        Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue
+        $p = Join-Path $g $rel
+        # (a copy made for the player's ASI loader goes only while it is still the same as its source: the loader in coop-backup,
+        # the player's dinput8.ini)
+        if ($m.chains -contains $rel -and (Test-Path -LiteralPath $p) -and -not (Same-File $p (Join-Path $g $script:CHAIN[$rel]))) {
+            Ui-Log ((L "left_alone") + $rel); continue
+        }
+        # (a dinput8.dll another mod put over the co-op one after the install is the player's now: it stays, and the older original
+        # in coop-backup is not put back over it)
+        if ($rel -eq $script:PROXY -and (Test-Path -LiteralPath $p) -and -not (Is-CoopDll $p)) {
+            Ui-Log ((L "left_in_place") + $rel); $leftIn.Add($rel); continue
+        }
+        Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
     }
     Ui-Log (L "removed_file_s" $($all.Count))
     # (only "Jericho Co-op+.lnk" files the install made: the record names them)
@@ -782,6 +937,7 @@ function Do-Uninstall($g) {
     foreach ($rel in $m.backups) {
         $i++
         Ui-Progress (55 + 35 * $i / [Math]::Max(1, $m.backups.Count)) $rel
+        if ($leftIn -contains $rel) { continue }
         $b = Join-Path $g "coop-backup\$rel"
         if (Test-Path -LiteralPath $b) { Copy-Item -LiteralPath $b (Join-Path $g $rel) -Force; Ui-Log ((L "put_back") + $rel) }
     }
@@ -792,7 +948,7 @@ function Do-Uninstall($g) {
     Remove-Item -LiteralPath (Join-Path $g "coop-backup") -Recurse -Force -ErrorAction SilentlyContinue
     Ui-Step "clean" "done"
     Ui-Progress 100 ""
-    @{ removed = $m.version }
+    @{ removed = $m.version; left = $leftIn.Count }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -1135,11 +1291,35 @@ function Do-Install($g) {
     # coop\version.txt goes last, once everything is in: the launcher reads it, and an update
     # that broke off is tried again at the next start.
     $built, $links = @($old.built), @($old.shortcuts)
+    $chains = New-Object System.Collections.Generic.List[string]
     $writeRecord = {
         $lines = @("version=$version") + ($files | ForEach-Object { "file=$_" }) + ($backups | ForEach-Object { "backup=$_" }) +
-            ($built | ForEach-Object { "built=$_" }) + ($links | ForEach-Object { "shortcut=$_" })
+            ($chains | ForEach-Object { "chain=$_" }) + ($built | ForEach-Object { "built=$_" }) + ($links | ForEach-Object { "shortcut=$_" })
         New-Item -ItemType Directory -Force (Join-Path $g "coop") | Out-Null
         Set-Content -LiteralPath (Join-Path $g "coop\install.txt") -Value $lines -Encoding UTF8
+    }
+    # A dinput8.dll another mod put over the co-op one after an earlier install (an ASI loader, a fix): the player's now, kept like
+    # any other file of someone else's before the co-op DLL goes back in. It replaces an older original in coop-backup (the file
+    # the player put there last is the one the removal puts back); copies made from that older one (Chain-Plan) go with it and are
+    # made again from this one.
+    $proxyPath = Join-Path $g $script:PROXY
+    if (($old.files -contains $script:PROXY) -and (Test-Path -LiteralPath $proxyPath) -and -not (Is-CoopDll $proxyPath)) {
+        foreach ($c in $old.chains) {
+            $cp = Join-Path $g $c
+            if (Same-File $cp (Join-Path $g $script:CHAIN[$c])) { Remove-Item -LiteralPath $cp -Force -ErrorAction SilentlyContinue }
+        }
+        $bk = Join-Path $g "coop-backup\$($script:PROXY)"
+        New-Item -ItemType Directory -Force (Split-Path $bk -Parent) | Out-Null
+        Copy-Item -LiteralPath $proxyPath $bk -Force
+        if ($backups -notcontains $script:PROXY) {
+            $backups.Add($script:PROXY)
+            # (in the record at once, the earlier install's files with it: a run that breaks off still puts it back)
+            foreach ($f in $old.files) { $files.Add($f) }
+            foreach ($c in $old.chains) { $chains.Add($c) }
+            & $writeRecord
+            $files.Clear(); $chains.Clear()
+        }
+        Ui-Log ((L "foreign_over_coop") + $script:PROXY)
     }
     $versionFile = $null
     $i = 0
@@ -1168,15 +1348,21 @@ function Do-Install($g) {
         $files.Add($rel)
     }
     Ui-Log (L "copied_file_s" $($all.Count))
+    # The player's ASI loader (kept in coop-backup) runs on as bin\winmm.dll (Chain-Plan): the copies are in the record before they
+    # are made, so a run that breaks off leaves nothing the uninstaller does not know.
+    $plan = Chain-Plan $g $old $backups
+    foreach ($nm in @($plan.keep) + @($plan.make)) { $chains.Add($nm); if ($files -notcontains $nm) { $files.Add($nm) } }
+    if ($plan.make.Count) { & $writeRecord }
+    foreach ($nm in $plan.make) { Copy-Item -LiteralPath (Join-Path $g $script:CHAIN[$nm]) (Join-Path $g $nm) -Force; Ui-Log ((L "asi_copy") + $nm) }
     # A release's texts in the game folder's root (0.1.0, or an archive extracted there): kept,
     # and recorded so that the removal takes them too.
     foreach ($o in $script:OLD_ROOT) {
         if ($files -notcontains $o[0] -and (Has-Text (Join-Path $g $o[0]) @($o[1]))) { $files.Add($o[0]) }
     }
     # Files of an older version that this one no longer has.
-    # (by the package's list: never a file it has)
+    # (by the package's list: never a file it has; a loader copy the player changed is his now)
     foreach ($rel in $old.files) {
-        if ($packageFiles -notcontains $rel -and $files -notcontains $rel -and $rel -ne "Pack1.packed") {
+        if ($packageFiles -notcontains $rel -and $files -notcontains $rel -and $rel -ne "Pack1.packed" -and $old.chains -notcontains $rel) {
             Remove-Item -LiteralPath (Join-Path $g $rel) -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1267,13 +1453,15 @@ function Do-Install($g) {
     Remove-Item -LiteralPath $snap -Recurse -Force -ErrorAction SilentlyContinue
     Ui-Step "finish" "done"
     Ui-Progress 100 ""
-    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); links = $links.Count }
+    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); links = $links.Count; chain = $plan.state }
 }
 
 function Install-Message($g, $r) {
     $msg = L "start_the_game_the"
     if ($r.links -gt 0) { $msg += "`n`n" + (L "the_shortcut") }
     if ($r.smod) { $msg += (L "smod_found_supported") }
+    # (another mod's dinput8.dll: what became of it)
+    if ($r.chain -eq "asi") { $msg += "`n`n" + (L "asi_note") } elseif ($r.chain -eq "off") { $msg += "`n`n" + (L "off_note") }
     if ($r.anims -eq "nopython" -or $r.anims -eq "failed") {
         $msg += "`n`n"
         if ($r.anims -eq "failed") { $msg += (L "the_build_of_the") + " " }
@@ -1299,8 +1487,8 @@ if ($Quiet) {
         if ($g) { if (-not (Test-Game $g)) { throw (L "not_a_jericho_folder" $g) }; $g = (Resolve-Path -LiteralPath $g).Path }
         else { $g = @(Find-Games)[0]; if (-not $g) { throw (L "the_game_was_not") } }
         if ($Uninstall) {
-            $null = Do-Uninstall $g
-            Write-Host (L "the_co_op_mod2")
+            $u = Do-Uninstall $g
+            Write-Host ((L "the_co_op_mod2") + $(if ($u.left) { L "left_note" } else { "" }))
         } else {
             $r = Do-Install $g
             Save-Log $g
@@ -1542,6 +1730,22 @@ function Show-Work($title, $stepList) {
     Ui-Progress 0 ""
 }
 
+# The result text gets the room it needs (measured): its label, then also the progress bar's place, then (after a success) the
+# log's, then a smaller font. A long one (SMOD + a failed animation build + another mod's dinput8.dll) was cut off at 160 px.
+function Fit-Result($ok) {
+    $flags = [Windows.Forms.TextFormatFlags]::WordBreak
+    $lbResText.Font = Font 10.5
+    $need = { $lbResText.Top + [Windows.Forms.TextRenderer]::MeasureText($lbResText.Text, $lbResText.Font, (New-Object Drawing.Size($lbResText.Width, 100000)), $flags).Height }
+    $rooms = @(($lbAction.Top - 6), ($tbLog.Top - 8))
+    if ($ok) { $rooms += ($btClose.Top - 10) }
+    $r = 0
+    while ($r -lt $rooms.Count - 1 -and (& $need) -gt $rooms[$r]) { $r++ }
+    foreach ($size in 10, 9.5, 9, 8.5) { if ((& $need) -le $rooms[$r]) { break }; $lbResText.Font = Font $size }
+    $lbResText.Height = $rooms[$r] - $lbResText.Top
+    $bar.Visible = $r -lt 1; $lbPct.Visible = $r -lt 1; $lbAction.Visible = $r -lt 1
+    $tbLog.Visible = $r -lt 2
+}
+
 function Show-Result($ok, $title, $text) {
     $script:busy = $false
     $timer.Stop()
@@ -1551,6 +1755,7 @@ function Show-Result($ok, $title, $text) {
     $lbResIcon.Text = $(if ($ok) { [string][char]0x2714 } else { [string][char]0x2716 })
     $lbResIcon.ForeColor = $(if ($ok) { $C.ok } else { $C.bad })
     $lbResText.Text = $text
+    Fit-Result $ok
     $lbResIcon.Visible = $true; $lbResText.Visible = $true
     $lbAction.Text = ""
     if ($ok) { $fill.BackColor = $C.ok } else { $fill.BackColor = $C.bad; $fill.Width = $bar.ClientSize.Width; $lbPct.Text = "" }
@@ -1631,10 +1836,10 @@ function Start-Uninstall($g) {
         @("restore", (L "putting_back_the_game")),
         @("clean", (L "removing_the_backups_and")))
     try {
-        $null = Do-Uninstall $g
+        $u = Do-Uninstall $g
         $script:exitCode = 0
         $btFolder.Text = L "open_game_folder"
-        Show-Result $true (L "co_op_removed") (L "the_co_op_mod3")
+        Show-Result $true (L "co_op_removed") ((L "the_co_op_mod3") + $(if ($u.left) { L "left_note" } else { "" }))
         $btReadme.Visible = $false
     } catch {
         Ui-Log ("ERROR: " + $_.Exception.Message)

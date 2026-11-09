@@ -21,7 +21,8 @@ What the launcher already out there relies on, so every later release keeps it:
   `-NoShortcut` refreshes only the shortcuts the install record lists.
 - **`files\coop\version.txt`** holding the version without the `v`.
 - **`<game>\coop\install.txt`**, the install record the next installer reads: `version=`,
-  then one line per `file=`, `backup=`, `built=` and `shortcut=`. 0.2.3-0.2.4 wrote all
+  then one line per `file=`, `backup=`, `chain=` (the release after 0.3.1: a copy made for the player's ASI loader, also a `file=`), `built=` and
+  `shortcut=`. 0.2.3-0.2.4 wrote all
   shortcuts on one `shortcut=` line joined by spaces (or an empty one with none); from 0.2.5
   the installer splits such a line after each `.lnk` and drops empty ones, and keeps doing so.
 - **Installs without a record.** 0.1.0 had no installer (its zip was extracted into the game
@@ -31,6 +32,52 @@ What the launcher already out there relies on, so every later release keeps it:
 
 A change to any of these needs a launcher that copes with both the old and the new form, shipped
 one release before the old form is dropped.
+
+## Other mods' DLLs: an ASI loader as bin\dinput8.dll (the release after 0.3.1)
+
+The mod is `bin\dinput8.dll` too. What the installer does with what it finds in `bin\`:
+
+- **`bin\dinput8.dll` of someone else's** (an ASI loader, any other mod): kept in `coop-backupin\dinput8.dll` once, replaced, put
+  back on uninstall (byte for byte). When it is an **Ultimate ASI Loader** (ThirteenAG; 32-bit, exports `IsUltimateASILoader` and
+  winmm's `timeGetTime`; the file's export table is read, nothing of it runs) and `bin\winmm.dll` does not exist, a copy of it is made
+  as `bin\winmm.dll` and its `bin\dinput8.ini` as `bin\winmm.ini`: a name the loader serves and `Jericho.exe` imports, so Windows loads
+  it at the start and it loads its plugins (`bin\scripts`, `bin\plugins`) as before. The record lists the copies as `chain=` and
+  `file=` (written before the copies are made); reinstall and update keep them; the uninstaller removes a copy only while it still
+  equals its source. Not `dinput8_real.dll` or any other name: the loader picks its role by its own file name and shows "This library
+  isn't supported." and closes the game under one it does not know (its source, read for Revelations 2 Co-op 0.2.0, which does the
+  same). Any other `dinput8.dll`, a 64-bit loader, or a loader next to a `winmm.dll` of someone else's stays off while co-op is
+  installed; the result page says which of the two happened.
+- **A `dinput8.dll` another mod put over the co-op one after the install** (the player installed an ASI mod later): an update keeps it
+  in `coop-backup` as the original (it replaces an older one there; copies made from that older one are made again from it) and puts
+  the co-op DLL back; the uninstaller leaves it in place. Up to 0.3.1 the update overwrote it without a copy and the uninstaller
+  deleted it.
+- **Other proxy DLLs and plugin folders** (`d3d9.dll` of SMOD's D9VK, DXVK or ReShade, `dsound.dll` + `dsound.ini` of IndirectSound,
+  `version.dll`, `xinput1_3.dll`, a `winmm.dll`, `bin\scripts`, `bin\plugins`): not in the payload, never touched.
+
+The DLL's side (native/iat_guard.c): Ultimate ASI Loader (v10.0.2 `source/loader/startup/startup.cpp`, read on GitHub) patches the
+exe's kernel32 import slots of about 30 functions in its DllMain, `GetCommandLineA` among them, records the value it saw and writes it
+back at the exe's first such call (the C runtime's start), before the C runtime reads the command line. Loaded before the mod's DLL
+(as `bin\winmm.dll` always: the mod's DLL imports winmm) it took the `-InitLuaLine` boot line away and co-op never started. The boot
+hook now also points the exe's own call of `GetCommandLineA` at the mod's hook when the slot was patched before (only then); the log
+says `boot: GetCommandLineA was hooked by <dll> before the mod ...`. Tests: `sh native/tests/ual_test.sh` (a stand-in loader written
+from that source as `winmm.dll`, a stand-in exe importing WINMM before DINPUT8 like `Jericho.exe`, a model DLL and the real build;
+`OLD_DLL=<an earlier dinput8.dll>` shows that one losing the boot line). NOT checked with the real loader in the game (no
+Jericho ASI plugin is known: ThirteenAG's WidescreenFixesPack has none, 2026-11-08).
+
+## Tests
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File tests	est_installer.ps1 [-Zip <release zip>] [-OldZip <release zip>] [-Keep]`
+(Windows PowerShell 5.1; everything under `%TEMP%`, stand-in game folders, made-up PE files that are only read; about 2 minutes).
+It packages this tree (`tools\package.ps1 -Dist <temp>`) unless `-Zip` is given and checks: the zip's entry names use `/`; an ASI
+loader as `bin\dinput8.dll` next to `d3d9` / `dsound` (+ini) / `version` / `xinput1_3` proxies and plugin folders (backup, the
+`winmm.dll` + `winmm.ini` copies, the record, the result text, every other file unchanged, reinstall + update keep it all once,
+uninstall byte for byte); a copy the player changed stays; no copy next to a foreign `winmm.dll`, for a 64-bit loader, another
+mod's DLL, a DLL that only names the loader; a loader without `dinput8.ini`; no `dinput8.dll` at all; another mod's DLL put over the
+co-op one, then uninstall / update / update + uninstall, also over an older loader; with `-OldZip` that release over a loader,
+updated by this tree's installer; the new texts in six languages, translated; the longest result text fits its page (measured,
+no window) and Fit-Result itself on controls of the page's geometry (none shown). 2026-11-08: this tree 53/53 with `-OldZip` 0.3.1; the published 0.3.1 zip (`-Zip`) fails 28 of 49.
+The installer's WINDOW (the result page now gives a long text the progress bar's and the log's room, then a smaller font) needs a
+person to look at it.
 
 ## Bug reports: Collect logs.bat
 

@@ -7,7 +7,7 @@ ENET="${ENET:-../../../../tools/enet/enet-1.3.18}"
 mkdir -p build
 "$ZIG" cc -target x86-windows-gnu -O2 -fno-omit-frame-pointer -shared -o build/dinput8.dll \
   -DWIN32 -I"$ENET/include" \
-  dinput8_proxy.c coop_net.c steam_net.c display_hooks.c boot_inject.c capture.c clip.c split.c dinput8.def \
+  dinput8_proxy.c coop_net.c steam_net.c display_hooks.c boot_inject.c iat_guard.c capture.c clip.c split.c dinput8.def \
   "$ENET/callbacks.c" "$ENET/compress.c" "$ENET/host.c" "$ENET/list.c" \
   "$ENET/packet.c" "$ENET/peer.c" "$ENET/protocol.c" "$ENET/win32.c" \
   -luser32 -lshell32 -lkernel32 -lws2_32 -lwinmm -liphlpapi -lole32 -loleaut32 -lwindowscodecs
