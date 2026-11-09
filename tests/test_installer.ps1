@@ -256,9 +256,34 @@ if ($OldZip) {
     Check ($script:exit -eq 0 -and $d.Count -eq 0) "old release + update + uninstall: byte for byte ($($d -join ', '))"
 }
 
+# 8b. SMOD's autoexec.lua sets the language at every start ("English" as shipped): a German / French / Spanish / Italian installer
+# says where (0.3.2); not in English or Russian, not when SMOD's file names another language, not without SMOD. SMOD's file untouched.
+function New-SmodGame([string] $sel) {
+    $g = New-Game
+    [IO.File]::WriteAllText((Join-Path $g "bin\anselintegrationtestapp.exe"), "SMOD's game exe stand-in")
+    [IO.File]::WriteAllText((Join-Path $g "autoexec.lua"), "local GameOverrides = {`r`n`tShowSplashScreen = 0,`r`n`tSelectedLanguage = `"$sel`",`t--English/German/French/Italian/Spanish.`r`n}`r`n")
+    $g
+}
+$hint = @()
+foreach ($case in @(@("English", "de", $true), @("English", "fr", $true), @("English", "es", $true), @("English", "it", $true), @("English", "en", $false), @("English", "ru", $false), @("German", "de", $false))) {
+    $g = New-SmodGame $case[0]
+    $ae = Sha (Join-Path $g "autoexec.lua")
+    Run-PS (Join-Path $x1 "coop-installer.ps1") @("-Quiet", "-Game", "`"$g`"", "-NoShortcut", "-Lang", $case[1])
+    # (the quiet output's code page is the console's: only ASCII is compared)
+    $want = @{ de = 'SelectedLanguage = "German"'; fr = 'SelectedLanguage = "French"'; es = 'SelectedLanguage = "Spanish"'; it = 'SelectedLanguage = "Italian"' }[$case[1]]
+    $has = $(if ($want) { $script:out.Contains($want) } else { $script:out.Contains("SelectedLanguage") })
+    if ($script:exit -ne 0 -or $has -ne $case[2] -or (Sha (Join-Path $g "autoexec.lua")) -ne $ae) { $hint += "$($case[0])/$($case[1]): exit $($script:exit) hint $has" }
+    Uninstall $g
+}
+$g = New-Game
+Run-PS (Join-Path $x1 "coop-installer.ps1") @("-Quiet", "-Game", "`"$g`"", "-NoShortcut", "-Lang", "de")
+if ($script:out.Contains("SelectedLanguage")) { $hint += "no SMOD/de: hint" }
+Uninstall $g
+Check ($hint.Count -eq 0) "SMOD's English language: the hint in a de/fr/es/it installer only, SMOD's autoexec.lua untouched ($($hint -join '; '))"
+
 # 9. texts: the new keys in all six languages, translated; the result text fits its label (measured, no window)
 $langs = "en", "ru", "de", "fr", "es", "it"
-$newKeys = "asi_copy", "asi_note", "off_note", "winmm_taken", "left_alone", "foreign_over_coop", "left_in_place", "left_note"
+$newKeys = "asi_copy", "asi_note", "off_note", "winmm_taken", "left_alone", "foreign_over_coop", "left_in_place", "left_note", "smod_english"
 foreach ($lg in $langs) {
     $missing = @($newKeys | Where-Object { -not $TX[$lg][$_] })
     Check ($missing.Count -eq 0) "texts $lg : the dinput8.dll keys are there ($($missing -join ','))"
@@ -274,7 +299,9 @@ $tall = @()
 foreach ($lg in $langs) {
     $t = $TX[$lg]
     if (-not $t["asi_note"]) { $tall += "$lg (no note)"; continue }
-    $txt = ($t["start_the_game_the"] + "`n`n" + $t["the_shortcut"] + $t["smod_found_supported"] + "`n`n" + $t["the_build_of_the"] + " " + $t["the_cutscene_animations_and"] + "`n`n" + $t["asi_note"]) -replace '`n', "`n"
+    # (a German, French, Spanish or Italian installer adds where SMOD sets the language, 0.3.2)
+    $sm = $(if (@("de", "fr", "es", "it") -contains $lg) { " " + $t["smod_english"] } else { "" })
+    $txt = ($t["start_the_game_the"] + "`n`n" + $t["the_shortcut"] + $t["smod_found_supported"] + $sm + "`n`n" + $t["the_build_of_the"] + " " + $t["the_cutscene_animations_and"] + "`n`n" + $t["asi_note"]) -replace '`n', "`n"
     $fits = $false
     foreach ($sz in 10.5, 10, 9.5, 9, 8.5) {
         $h = [Windows.Forms.TextRenderer]::MeasureText($txt, (New-Object Drawing.Font("Segoe UI", $sz)), (New-Object Drawing.Size(540, 100000)), [Windows.Forms.TextFormatFlags]::WordBreak).Height
@@ -282,12 +309,13 @@ foreach ($lg in $langs) {
     }
     if (-not $fits) { $tall += "$lg $h px" }
     foreach ($k in "asi_note", "off_note") {
-        $one = ($t["start_the_game_the"] + "`n`n" + $t["the_shortcut"] + $t["smod_found_supported"] + "`n`n" + $t[$k]) -replace '`n', "`n"
+        $one = ($t["start_the_game_the"] + "`n`n" + $t["the_shortcut"] + $t["smod_found_supported"] + $sm + "`n`n" + $t[$k]) -replace '`n', "`n"
         $h = [Windows.Forms.TextRenderer]::MeasureText($one, (New-Object Drawing.Font("Segoe UI", 10.5)), (New-Object Drawing.Size(540, 100000)), [Windows.Forms.TextFormatFlags]::WordBreak).Height
-        if ($h -gt 210) { $tall += "$lg/$k $h px at 10.5" }
+        # (with the SMOD language hint the room without the log, 290 px, still at 10.5 pt)
+        if ($h -gt $(if ($sm) { 290 } else { 210 })) { $tall += "$lg/$k $h px at 10.5" }
     }
 }
-Check ($tall.Count -eq 0) "the result text with the dinput8.dll note fits (at 10.5 pt in 210 px; with the animation failure too at >= 8.5 pt in 290 px) ($($tall -join ', '))"
+Check ($tall.Count -eq 0) "the result text with the dinput8.dll note fits (at 10.5 pt in 210 px, 290 with the SMOD language hint; with the animation failure too at >= 8.5 pt in 290 px) ($($tall -join ', '))"
 $inst = Get-Content -LiteralPath (Join-Path $x1 "coop-installer.ps1") -Raw -Encoding UTF8
 Check ($inst.Contains("function Fit-Result") -and $inst.Contains("Fit-Result `$ok")) "the result page fits its text (Fit-Result)"
 # Fit-Result itself: the installer's function run on controls with the result page's geometry (none is shown)
@@ -302,13 +330,14 @@ if ($fnFit -and $fnFont) {
     $t = $TX["de"]
     $base0 = $t["start_the_game_the"] + "`n`n" + $t["the_shortcut"]
     foreach ($case in @(@("short", $t["start_the_game_the"], 160, $true, $true), @("SMOD + the note", ($base0 + $t["smod_found_supported"] + "`n`n" + $t["asi_note"]), 210, $false, $true),
-                        @("SMOD + the animation failure + the note", ($base0 + $t["smod_found_supported"] + "`n`n" + $t["the_build_of_the"] + " " + $t["the_cutscene_animations_and"] + "`n`n" + $t["asi_note"]), 290, $false, $false))) {
+                        @("SMOD + its language hint + the note", ($base0 + $t["smod_found_supported"] + " " + $t["smod_english"] + "`n`n" + $t["asi_note"]), 290, $false, $false),
+                        @("SMOD + the animation failure + the note", ($base0 + $t["smod_found_supported"] + " " + $t["smod_english"] + "`n`n" + $t["the_build_of_the"] + " " + $t["the_cutscene_animations_and"] + "`n`n" + $t["asi_note"]), 290, $false, $false))) {
         $lbResText.Text = ($case[1] -replace '`n', "`n")
         try { Fit-Result $true } catch { $fit += "$($case[0]): $($_.Exception.Message)"; continue }
         $h = [Windows.Forms.TextRenderer]::MeasureText($lbResText.Text, $lbResText.Font, (New-Object Drawing.Size(540, 100000)), [Windows.Forms.TextFormatFlags]::WordBreak).Height
         if ($lbResText.Height -ne $case[2] -or $bar.Visible -ne $case[3] -or $tbLog.Visible -ne $case[4] -or $h -gt $lbResText.Height) { $fit += "$($case[0]): height $($lbResText.Height) bar $($bar.Visible) log $($tbLog.Visible) text $h px at $($lbResText.Font.Size) pt" }
     }
-    Check ($fit.Count -eq 0) "Fit-Result (de): 160 px for a short text, 210 without the bar for SMOD + the note, 290 without the log and a smaller font for the longest ($($fit -join '; '))"
+    Check ($fit.Count -eq 0) "Fit-Result (de): 160 px for a short text, 210 without the bar for SMOD + the note, 290 without the log with the SMOD language hint and with a smaller font for the longest ($($fit -join '; '))"
 }
 
 Write-Host ""

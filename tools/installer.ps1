@@ -90,6 +90,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "There is no bin\Jericho.exe in this folder."
         "clive_barker_s_jericho" = "Clive Barker's Jericho found."
         "smod_found_supported2" = "SMOD found: supported."
+        "smod_english" = "SMOD starts the game in English (SelectedLanguage in its autoexec.lua); co-op follows the game's language."
         "co_op_is_already" = "Co-op {0} is already installed: it will be installed again."
         "reinstall" = "Reinstall"
         "co_op_is_installed" = "Co-op {0} is installed: it will be updated to {1}."
@@ -176,6 +177,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "В этой папке нет bin\Jericho.exe."
         "clive_barker_s_jericho" = "Clive Barker's Jericho найдена."
         "smod_found_supported2" = "Найден SMOD: поддерживается."
+        "smod_english" = "SMOD запускает игру на английском (SelectedLanguage в его autoexec.lua); кооп следует языку игры."
         "co_op_is_already" = "Кооп {0} уже установлен: будет установлен заново."
         "reinstall" = "Переустановить"
         "co_op_is_installed" = "Установлен кооп {0}: он будет обновлён до {1}."
@@ -262,6 +264,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "In diesem Ordner gibt es keine bin\Jericho.exe."
         "clive_barker_s_jericho" = "Clive Barker's Jericho gefunden."
         "smod_found_supported2" = "SMOD gefunden: wird unterstützt."
+        "smod_english" = "SMOD startet das Spiel auf Englisch. Für Deutsch in seiner autoexec.lua SelectedLanguage = `"German`" setzen."
         "co_op_is_already" = "Koop {0} ist bereits installiert: es wird neu installiert."
         "reinstall" = "Neu installieren"
         "co_op_is_installed" = "Koop {0} ist installiert: es wird auf {1} aktualisiert."
@@ -348,6 +351,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "Ce dossier ne contient pas bin\Jericho.exe."
         "clive_barker_s_jericho" = "Clive Barker's Jericho détecté."
         "smod_found_supported2" = "SMOD détecté: pris en charge."
+        "smod_english" = "SMOD lance le jeu en anglais. Pour le français, mettez SelectedLanguage = `"French`" dans son autoexec.lua."
         "co_op_is_already" = "Le mod coop {0} est déjà installé: il sera réinstallé."
         "reinstall" = "Réinstaller"
         "co_op_is_installed" = "Le mod coop {0} est installé: il sera mis à jour vers {1}."
@@ -434,6 +438,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "No hay bin\Jericho.exe en esta carpeta."
         "clive_barker_s_jericho" = "Clive Barker's Jericho encontrado."
         "smod_found_supported2" = "SMOD encontrado: compatible."
+        "smod_english" = "SMOD inicia el juego en inglés. Para español, ponga SelectedLanguage = `"Spanish`" en su autoexec.lua."
         "co_op_is_already" = "El cooperativo {0} ya está instalado: se volverá a instalar."
         "reinstall" = "Reinstalar"
         "co_op_is_installed" = "El cooperativo {0} está instalado: se actualizará a {1}."
@@ -520,6 +525,7 @@ $script:TEXTS = @{
         "there_is_no_bin" = "In questa cartella non c'è bin\Jericho.exe."
         "clive_barker_s_jericho" = "Clive Barker's Jericho trovato."
         "smod_found_supported2" = "SMOD rilevato: supportato."
+        "smod_english" = "SMOD avvia il gioco in inglese. Per l'italiano, imposta SelectedLanguage = `"Italian`" nel suo autoexec.lua."
         "co_op_is_already" = "Co-op {0} è già installato: verrà installato di nuovo."
         "reinstall" = "Reinstalla"
         "co_op_is_installed" = "Co-op {0} è installato: verrà aggiornato alla {1}."
@@ -714,7 +720,7 @@ function Read-Manifest($g) {
             if ($line -match '^version=(.*)$') { $m.version = $Matches[1] }
             elseif ($line -match '^file=(.*)$') { $m.files += $Matches[1] }
             elseif ($line -match '^backup=(.*)$') { $m.backups += $Matches[1] }
-            # (after 0.3.1: a copy the install made for the player's ASI loader, see Chain-Plan; also listed as file=)
+            # (from 0.3.2: a copy the install made for the player's ASI loader, see Chain-Plan; also listed as file=)
             elseif ($line -match '^chain=(.*)$') { if ($script:CHAIN.Contains($Matches[1])) { $m.chains += $Matches[1] } }
             elseif ($line -match '^built=(.*)$') { $m.built += $Matches[1] }
             # (0.2.3-0.2.4 wrote all shortcuts on one line, space-separated, and an empty line
@@ -891,6 +897,18 @@ function Game-Exe($g) {
     $smod = Join-Path $g "bin\anselintegrationtestapp.exe"
     if (Test-Path -LiteralPath $smod) { return $smod }
     Join-Path $g "bin\Jericho.exe"
+}
+
+# SMOD's autoexec.lua sets the game's language at every start (GameOverrides SelectedLanguage, "English" as shipped; its
+# SKIPLANGUAGESELECTION skips the game's language screen) and co-op's texts follow the game's language. A player whose installer
+# speaks German, French, Spanish or Italian is told where SMOD keeps that setting (0.3.2; nothing of SMOD's is changed). The
+# Russian release keeps its Russian with "English" (its english.txt holds the Russian texts).
+function Smod-English($g) {
+    if (-not (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe"))) { return $false }
+    $a = Join-Path $g "autoexec.lua"
+    if (-not (Test-Path -LiteralPath $a -PathType Leaf)) { return $false }
+    $t = try { [IO.File]::ReadAllText($a) } catch { "" }
+    [bool]($t -match '(?m)^[ \t]*SelectedLanguage[ \t]*=[ \t]*"English"')
 }
 
 # The window's icon: the co-op one once made, else the game's.
@@ -1456,13 +1474,14 @@ function Do-Install($g) {
     Remove-Item -LiteralPath $snap -Recurse -Force -ErrorAction SilentlyContinue
     Ui-Step "finish" "done"
     Ui-Progress 100 ""
-    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); links = $links.Count; chain = $plan.state }
+    @{ old = $old.version; anims = $anims; smod = (Test-Path -LiteralPath (Join-Path $g "bin\anselintegrationtestapp.exe")); smodEnglish = (Smod-English $g); links = $links.Count; chain = $plan.state }
 }
 
 function Install-Message($g, $r) {
     $msg = L "start_the_game_the"
     if ($r.links -gt 0) { $msg += "`n`n" + (L "the_shortcut") }
     if ($r.smod) { $msg += (L "smod_found_supported") }
+    if ($r.smodEnglish -and @("de", "fr", "es", "it") -contains $script:lang) { $msg += " " + (L "smod_english") }
     # (another mod's dinput8.dll: what became of it)
     if ($r.chain -eq "asi") { $msg += "`n`n" + (L "asi_note") } elseif ($r.chain -eq "off") { $msg += "`n`n" + (L "off_note") }
     if ($r.anims -eq "nopython" -or $r.anims -eq "failed") {
