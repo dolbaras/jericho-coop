@@ -676,7 +676,7 @@ Who may switch at all is `coop_souls.lua` (seats 1-2 free, 3-4 keep their body).
   speaker, not in a replay) is played at once there and sent to the host (`K.localSay`); the same voice
   within 3 s is one line. Test:
   `lua/tests/talk_mock_test.lua` (the real `teamtalk.lua` on two simulated machines),
-  `lab	alktest.sh` (pair).
+  `lab\talktest.sh` (pair).
 - **`coop_anim.lua`** (`CoopAnim`, `A`): what other bodies do, seen here (`docs/ally-animations.md`): per
   puppet and frame from `Coop.drivePuppets` (`A.sync`): a downed puppet the engine left standing is put into
   agony (`Soldier.OnDeath` replica after 0.6 s), one `Team.RevivePlayer` per revive (`A.revive`, called by

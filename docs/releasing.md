@@ -37,7 +37,7 @@ one release before the old form is dropped.
 
 The mod is `bin\dinput8.dll` too. What the installer does with what it finds in `bin\`:
 
-- **`bin\dinput8.dll` of someone else's** (an ASI loader, any other mod): kept in `coop-backupin\dinput8.dll` once, replaced, put
+- **`bin\dinput8.dll` of someone else's** (an ASI loader, any other mod): kept in `coop-backup\bin\dinput8.dll` once, replaced, put
   back on uninstall (byte for byte). When it is an **Ultimate ASI Loader** (ThirteenAG; 32-bit, exports `IsUltimateASILoader` and
   winmm's `timeGetTime`; the file's export table is read, nothing of it runs) and `bin\winmm.dll` does not exist, a copy of it is made
   as `bin\winmm.dll` and its `bin\dinput8.ini` as `bin\winmm.ini`: a name the loader serves and `Jericho.exe` imports, so Windows loads
@@ -66,7 +66,7 @@ Jericho ASI plugin is known: ThirteenAG's WidescreenFixesPack has none, 2026-11-
 
 ## Tests
 
-`powershell -NoProfile -ExecutionPolicy Bypass -File tests	est_installer.ps1 [-Zip <release zip>] [-OldZip <release zip>] [-Keep]`
+`powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_installer.ps1 [-Zip <release zip>] [-OldZip <release zip>] [-Keep]`
 (Windows PowerShell 5.1; everything under `%TEMP%`, stand-in game folders, made-up PE files that are only read; about 2 minutes).
 It packages this tree (`tools\package.ps1 -Dist <temp>`) unless `-Zip` is given and checks: the zip's entry names use `/`; an ASI
 loader as `bin\dinput8.dll` next to `d3d9` / `dsound` (+ini) / `version` / `xinput1_3` proxies and plugin folders (backup, the
