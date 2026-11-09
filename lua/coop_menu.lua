@@ -48,6 +48,7 @@ CoopMenu.TEXT = {
     title_invite = "INVITE FRIENDS", more = "More friends", friends_none = "(no friends online in Steam)",
     invited = "invite sent",
     steam_norun = "Steam is not running", steam_nodll = "steam_api.dll is missing",
+    steam_old = "Steam is out of date (update it)", steam_fail = "Steam did not start",
     title_host = "HOST CO-OP GAME", chapter = "Chapter", create = "Create session",
     title_join = "JOIN CO-OP GAME", connect = "Connect", join_hint = "Host IP, then Connect",
     title_lobby = "CO-OP LOBBY", character = "Character", ready = "Ready", yes = "YES", no = "no",
@@ -80,6 +81,7 @@ CoopMenu.TEXT = {
     title_invite = "ПРИГЛАСИТЬ ДРУЗЕЙ", more = "Ещё друзья", friends_none = "(нет друзей в сети Steam)",
     invited = "приглашение отправлено",
     steam_norun = "Steam не запущен", steam_nodll = "нет steam_api.dll",
+    steam_old = "Steam устарел (обновите его)", steam_fail = "Steam не запустился",
     create = "Создать сессию", title_join = "ПРИСОЕДИНИТЬСЯ", connect = "Подключиться",
     join_hint = "IP хоста, затем Подключиться", title_lobby = "ЛОББИ",
     character = "Персонаж", ready = "Готов", yes = "ДА", no = "нет", start = "Начать",
@@ -330,13 +332,15 @@ function CoopMenu.ToggleNet()
   CoopMenu.refreshHost()
 end
 
--- Why Steam is not there, for the player.
+-- Why Steam is not there, for the player, in the game's language (native/steam_net.c's reasons are
+-- English: the screen gets one of these, the reason itself is in coop.log).
 function CoopMenu.steamError()
   local st = Net.CoopSteam and Net.CoopSteam("status") or ""
   local err = string.match(st, "error=(.*)$") or st
   if string.find(err, "not running", 1, true) then return T("steam_norun") end
   if string.find(err, "not found", 1, true) or not Net.CoopSteam then return T("steam_nodll") end
-  return err
+  if string.find(err, "client too old", 1, true) then return T("steam_old") end
+  return T("steam_fail")
 end
 
 function CoopMenu.stepLevel(step)

@@ -19,12 +19,12 @@ function Log($s) { try { Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{
 
 $lang = (Get-UICulture).TwoLetterISOLanguageName
 $T = @{
-    en = @{ title = "Jericho Co-op+"; found = "Co-op {0} is out (you have {1}). Downloading..."; verify = "Checking the download..."; failed = "The update could not be installed: {0}`nThe game starts with co-op {1}."; bad = "The download does not match the release's checksum." }
-    ru = @{ title = "Jericho Co-op+"; found = "Вышел кооп {0} (у вас {1}). Загрузка..."; verify = "Проверка загрузки..."; failed = "Обновление не удалось установить: {0}`nИгра запустится с коопом {1}."; bad = "Загрузка не совпадает с контрольной суммой выпуска." }
-    de = @{ title = "Jericho Co-op+"; found = "Koop {0} ist erschienen (du hast {1}). Download läuft..."; verify = "Download wird geprüft..."; failed = "Das Update konnte nicht installiert werden: {0}`nDas Spiel startet mit Koop {1}."; bad = "Der Download passt nicht zur Prüfsumme der Veröffentlichung." }
-    fr = @{ title = "Jericho Co-op+"; found = "Le coop {0} est sorti (vous avez {1}). Téléchargement..."; verify = "Vérification du téléchargement..."; failed = "La mise à jour n'a pas pu être installée : {0}`nLe jeu démarre avec le coop {1}."; bad = "Le téléchargement ne correspond pas à la somme de contrôle de la version." }
-    es = @{ title = "Jericho Co-op+"; found = "Ya está el cooperativo {0} (tienes {1}). Descargando..."; verify = "Comprobando la descarga..."; failed = "No se pudo instalar la actualización: {0}`nEl juego se inicia con el cooperativo {1}."; bad = "La descarga no coincide con la suma de comprobación de la versión." }
-    it = @{ title = "Jericho Co-op+"; found = "È uscito il co-op {0} (hai {1}). Download in corso..."; verify = "Verifica del download..."; failed = "Impossibile installare l'aggiornamento: {0}`nIl gioco parte con il co-op {1}."; bad = "Il download non corrisponde al checksum della versione." }
+    en = @{ title = "Jericho Co-op+"; found = "Co-op {0} is out (you have {1}). Downloading..."; verify = "Checking the download..."; failed = "The update could not be installed: {0}`nThe game starts with co-op {1}."; bad = "The download does not match the release's checksum."; noinst = "The download has no installer ({0})."; exitcode = "Its installer stopped with code {0}." }
+    ru = @{ title = "Jericho Co-op+"; found = "Вышел кооп {0} (у вас {1}). Загрузка..."; verify = "Проверка загрузки..."; failed = "Обновление не удалось установить: {0}`nИгра запустится с коопом {1}."; bad = "Загрузка не совпадает с контрольной суммой выпуска."; noinst = "В загрузке нет установщика ({0})."; exitcode = "Установщик обновления завершился с кодом {0}." }
+    de = @{ title = "Jericho Co-op+"; found = "Koop {0} ist erschienen (du hast {1}). Download läuft..."; verify = "Download wird geprüft..."; failed = "Das Update konnte nicht installiert werden: {0}`nDas Spiel startet mit Koop {1}."; bad = "Der Download passt nicht zur Prüfsumme der Veröffentlichung."; noinst = "Im Download fehlt das Installationsprogramm ({0})."; exitcode = "Sein Installationsprogramm endete mit Code {0}." }
+    fr = @{ title = "Jericho Co-op+"; found = "Le coop {0} est sorti (vous avez {1}). Téléchargement..."; verify = "Vérification du téléchargement..."; failed = "La mise à jour n'a pas pu être installée : {0}`nLe jeu démarre avec le coop {1}."; bad = "Le téléchargement ne correspond pas à la somme de contrôle de la version."; noinst = "Le téléchargement ne contient pas d'installateur ({0})."; exitcode = "Son installateur s'est arrêté avec le code {0}." }
+    es = @{ title = "Jericho Co-op+"; found = "Ya está el cooperativo {0} (tienes {1}). Descargando..."; verify = "Comprobando la descarga..."; failed = "No se pudo instalar la actualización: {0}`nEl juego se inicia con el cooperativo {1}."; bad = "La descarga no coincide con la suma de comprobación de la versión."; noinst = "La descarga no trae el instalador ({0})."; exitcode = "Su instalador terminó con el código {0}." }
+    it = @{ title = "Jericho Co-op+"; found = "È uscito il co-op {0} (hai {1}). Download in corso..."; verify = "Verifica del download..."; failed = "Impossibile installare l'aggiornamento: {0}`nIl gioco parte con il co-op {1}."; bad = "Il download non corrisponde al checksum della versione."; noinst = "Nel download manca il programma di installazione ({0})."; exitcode = "Il suo programma di installazione è terminato con il codice {0}." }
 }
 if (-not $T.ContainsKey($lang)) { $lang = "en" }
 function L($k) { $T[$lang][$k] }
@@ -144,13 +144,13 @@ function Try-Update {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::ExtractToDirectory($zip, (Join-Path $tmp "x"))
     $inst = Join-Path $tmp "x\coop-installer.ps1"
-    if (-not (Test-Path -LiteralPath $inst)) { throw "coop-installer.ps1 missing in $($asset.name)" }
+    if (-not (Test-Path -LiteralPath $inst)) { Log "coop-installer.ps1 missing in $($asset.name)"; throw ((L "noinst") -f $asset.name) }
     $form.Hide()
     # That version's installer, its window, for this folder; it closes by itself when done.
     $p = Start-Process powershell -PassThru -Wait -WindowStyle Hidden -ArgumentList @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$inst`"", "-Game", "`"$game`"", "-AutoClose", "-NoShortcut")
     Log "installer exit $($p.ExitCode)"
-    if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
+    if ($p.ExitCode -ne 0) { throw ((L "exitcode") -f $p.ExitCode) }
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 

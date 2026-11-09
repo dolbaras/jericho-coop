@@ -168,7 +168,9 @@ function C.updateHud()
   local s, msg = C.shown, nil
   if s then
     local left = s.untilT and math.max(0, math.floor(s.untilT - Net.CoopTime())) or 0
-    msg = string.format(text("req"), Coop.charName(s.char), s.what or "", left)
+    -- (the action's name in this machine's language: a client's request carries the host's text,
+    -- in the host's language and code page)
+    msg = string.format(text("req"), Coop.charName(s.char), text("obj"), left)
   elseif C.flash and Net.CoopTime() < C.flash.untilT then
     msg = C.flash.text
   end

@@ -55,6 +55,7 @@ C.TEXT = {
     wait = "Waiting for the others...",
     nobody = "nobody yet",
     ok = "(ok)",
+    host_name = "Host", player_n = "Player %d",
     full = "That group was full: you stay as %s.",
     host = "The host's game runs the main group: you stay with it.",
     default = "No choice made: you stay as %s.",
@@ -134,6 +135,7 @@ C.TEXT = {
     wait = "Ждём остальных...",
     nobody = "пока никого",
     ok = "(ок)",
+    host_name = "Хост", player_n = "Игрок %d",
     full = "Эта группа заполнена: вы остаётесь: %s.",
     host = "Игра хоста ведёт основную группу: вы остаётесь с ней.",
     default = "Выбор не сделан: вы остаётесь: %s.",
@@ -822,7 +824,11 @@ local function nick(owner)
   if not nickCache or Coop.frame % 20 == 0 then nickCache = CoopHud and CoopHud.nicks and CoopHud.nicks() or {} end
   local n = nickCache[owner]
   if n and n ~= "" then return n end
-  return owner == 0 and "Host" or ("P" .. owner)
+  -- (no nickname, as in a test session: named as the lobby names a seat, in this machine's language)
+  local peer = Coop.peerOf(owner) or owner
+  local s = peer == 0 and C.text("host_name") or C.text("player_n", peer + 1)
+  if owner >= Coop.P2 then s = s .. " 2" end
+  return s
 end
 
 -- Number of rows a text takes in a block of this width (Coop.textBlock breaks the same way).

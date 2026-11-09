@@ -55,8 +55,10 @@ Tested game: retail DVD release, `Jericho.exe` SHA-256
   second player waits for a body (none free yet, down with nobody to revive them) the first
   gets the whole screen and each gamepad still drives only its own player; the halves come
   back as soon as a body is free.
-- Six languages: the mod's menus, hints and the installer follow the game's language
-  (English, Russian, German, French, Spanish, Italian), also when it is changed mid-level.
+- Six languages: the mod's menus and hints follow the game's language (English, Russian,
+  German, French, Spanish, Italian), also when it is changed mid-level; each player sees
+  them in their own game's language. The installer and the shortcut's update window follow
+  Windows' language (the installer has a list).
 - Each player controls one squad member; the others stay AI. Players see each other move,
   aim, shoot and use their powers, with nameplates (can be turned off).
 - Squad orders per player: each fire team (Alpha, Omega) follows one player; in Act 1 Ross's
@@ -186,7 +188,9 @@ cutscene view. `tools/package.ps1 -Version <v>` builds the release zip in `dist\
   `tools/sheet.ps1`: video recording and contact sheets. Environment switches for test runs:
   `JERICHO_TEST_NOMOUSE=1` (DirectInput's mouse fails, as on a PC without one).
 - `lua/tests/*_mock_test.lua`: the Lua modules against a mock of the engine (run from `lua/`
-  with Lua 5.1); the mock errors on reads of write-only engine fields.
+  with Lua 5.1); the mock errors on reads of write-only engine fields. `lang_mock_test.lua`
+  checks every text table in the six languages.
+- `tests/test_texts.ps1`: the installer's and the launcher's texts in the six languages.
 
 The scripts expect the workspace layout described in `tools/paths.ps1` (the private
 `../work` folder holds the test copy of the game and run logs).
