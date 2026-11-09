@@ -62,6 +62,7 @@ def forward(yaw_deg):
 
 class Bot:
     RUN_SPEED = 400.0   # units/s at InCtrl_Walk = 1 (measured roughly in rom_tepidarium)
+    FRONT = 350.0       # --pattern front: units in front of the host's body
 
     def __init__(self, args):
         self.args = args
@@ -121,6 +122,8 @@ class Bot:
                 p = seat.split(':', 3)
                 if len(p) >= 2 and p[0] == str(self.my_id):
                     self.char = p[1]
+                if len(p) >= 2 and p[0] == "0":
+                    self.host_char = p[1]
             self.log(f'start level={self.level} char={self.char} seats {self.utf8(f[2])}')
             self.ready_at = time.time() + 15
         elif f[0] == 'welcome':
@@ -194,6 +197,15 @@ class Bot:
             self.pos = [x, y, z]
             self.yaw = yaw
             return (walk if self.path_i + 1 < len(self.path) else 0.0), 0.0
+        if p == 'front':
+            # stand FRONT units in front of the host's body, facing it (its nameplate on the host's screen)
+            h = self.states.get(getattr(self, 'host_char', None))
+            if h:
+                hx, hy, hz, hyaw = float(h[2]), float(h[3]), float(h[4]), float(h[5])
+                fx, fz = forward(hyaw)
+                self.pos = [hx + fx * self.FRONT, hy, hz + fz * self.FRONT]
+                self.yaw = (hyaw + 180.0) % 360.0
+            return 0.0, 0.0
         if p == 'still':
             return 0.0, 0.0
         if p == 'circle':
@@ -230,12 +242,13 @@ class Bot:
                     self.log('disconnected')
                     return 1
             now = time.time()
-            if now >= next_send and self.char and self.pos is not None:
+            if now >= next_send and self.char and (self.pos is not None or self.args.pattern == "front") and not self.ready_at:
                 dt = now - last
                 last = now
                 walk, strafe = self.step(now - start, dt)
-                x, y, z = self.pos
-                self.send(f's|{self.char}|{x:.0f}|{y:.0f}|{z:.0f}|{self.yaw:.1f}|0.0|{walk:.2f}|{strafe:.2f}|0|100|BotRun', False)
+                if self.pos is not None:
+                    x, y, z = self.pos
+                    self.send(f's|{self.char}|{x:.0f}|{y:.0f}|{z:.0f}|{self.yaw:.1f}|0.0|{walk:.2f}|{strafe:.2f}|0|100|BotRun', False)
                 next_send = now + 0.05
             elif now >= next_send:
                 last = now
@@ -263,7 +276,7 @@ def main():
     ap.add_argument('--addr', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=28100)
     ap.add_argument('--want', default='Black')
-    ap.add_argument('--pattern', default='circle', choices=['circle', 'still', 'line', 'replay'])
+    ap.add_argument('--pattern', default='circle', choices=['circle', 'still', 'line', 'replay', 'front'])
     ap.add_argument('--path', help='log with path| lines for --pattern replay')
     ap.add_argument('--seconds', type=float, default=60)
     ap.add_argument('--log')
