@@ -13,7 +13,7 @@ $LANGS = @("en", "ru", "de", "fr", "es", "it")
 # Texts that are the English ones in these languages, on purpose: "<script>:<key>" -> languages.
 $SAME = @{
     "launcher:title" = "ru de fr es it"                  # Jericho Co-op+
-    "installer:large_address_aware" = "fr es it"         # the exe flag's name
+    "installer:large_address_aware" = "es it"            # the exe flag's name (French: "Large address aware : ")
     "installer:error" = "es"                             # "Error: "
 }
 $script:pass = 0; $script:fail = 0
@@ -95,6 +95,13 @@ $nLaun = if ($launTexts) { Check-Calls "launcher" $laun $launTexts["en"] } else 
 $throws = @($laun.FindAll({ param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }, $true))
 foreach ($t in $throws) {
     Check ($null -ne $t.Pipeline -and $t.Pipeline.Extent.Text -match '^\(\(?L "') "launcher line $($t.Extent.StartLineNumber): a reason not through L: $($t.Extent.Text)"
+}
+
+# PowerShell reads the typographic quotes as its own (U+201E, U+201C, U+201D end a "..." string; U+2018, U+2019, U+201A a '...'
+# one): a language's quotes in a text need a backtick in front, else the text is cut or the script does not parse.
+foreach ($p in $instPath, $launPath) {
+    $bad = @([IO.File]::ReadAllLines($p) | Where-Object { $_ -match '(?<!`)[\u201E\u201C\u201D\u2018\u2019\u201A]' })
+    Check ($bad.Count -eq 0) "$(Split-Path $p -Leaf): a typographic quote without its backtick: $(($bad | ForEach-Object { $_.Trim() }) -join ' | ')"
 }
 
 $n = $script:pass + $script:fail

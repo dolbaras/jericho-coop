@@ -44,10 +44,10 @@ P.STORY = {
     ru = "К Мюриэль спускаются только Росс и Роулингс. Остальные охраняют вход наверху."},
   ["levels/wwii_vigil_inside"] = {
     en = "Only Cole, Church and Rawlings got into the Vigil. You follow them as an echo of Ross.",
-    ru = "В Бдение вошли только Коул, Чёрч и Роулингс. Вы следуете за ними эхом Росса."},
+    ru = "В логово Лихтхаммер вошли только Коул, Черч и Роулингс. Вы следуете за ними эхом Росса."},
   ["levels/cru_labyrinth"] = {
     en = "The bridge took Jones, Cole and Rawlings. The children have them now.",
-    ru = "Мост забрал Джонса, Коула и Роулингса. Теперь они у детей."},
+    ru = "Мост забрал Джонса, Коул и Роулингса. Теперь они у детей."},
   ["levels/cru_sewers"] = {
     en = "Jones, Cole and Rawlings are lost. Their souls are somewhere below.",
     ru = "Джонс, Коул и Роулингс потеряны. Их души где-то внизу."},
@@ -56,19 +56,19 @@ P.STORY = {
     ru = "Джонс, Коул и Роулингс всё ещё в плену у детей."},
   ["levels/cru_catacomb"] = {
     en = "Somewhere in these catacombs the children hold Jones, Cole and Rawlings.",
-    ru = "Где-то в этих катакомбах дети держат Джонса, Коула и Роулингса."},
+    ru = "Где-то в этих катакомбах дети держат Джонса, Коул и Роулингса."},
   ["levels/sum_ziggurat_01"] = {
     en = "Jones is possessed. Fight for his body: stay with the squad.",
     ru = "Джонс одержим. Боритесь за его тело: держитесь рядом с отрядом."},
   ["levels/sum_ziggurat_02"] = {
     en = "The vortex scattered the squad. Search with Black.",
-    ru = "Вихрь раскидал отряд. Ищите вместе с Блэком."},
+    ru = "Вихрь раскидал отряд. Ищите вместе с Блэк."},
   ["levels/sum_ziggurat_03"] = {
     en = "Delgado and Rawlings are still lost in the vortex.",
     ru = "Дельгадо и Роулингс всё ещё потеряны в вихре."},
   ["levels/sum_ziggurat_04"] = {
     en = "Cole and Church are hidden by the vortex until the end of the ziggurat.",
-    ru = "Коул и Чёрч скрыты вихрем до конца зиккурата."},
+    ru = "Коул и Черч скрыты вихрем до конца зиккурата."},
 }
 
 function P.storyLine()

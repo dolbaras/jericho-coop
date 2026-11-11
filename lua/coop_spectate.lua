@@ -41,7 +41,7 @@ S.TEXT = {
   en = {watch = "Watching: %s",
         multi = "A / D or left stick: other player.  Mouse or right stick: look around.",
         one = "Mouse or right stick: look around."},
-  ru = {watch = "Вы смотрите за: %s",
+  ru = {watch = "Наблюдение: %s",
         multi = "A / D или левый стик: другой игрок.  Мышь или правый стик: осмотреться.",
         one = "Мышь или правый стик: осмотреться."},
 }

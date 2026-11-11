@@ -22,7 +22,7 @@ C.aiDid = {}                 -- char -> true after the AI took over an action th
 
 C.TEXT = {
   en = {req = "%s is needed here (%s)\nY - take control (%d)", ai = "%s: the AI does it", obj = "use"},
-  ru = {req = "Нужен %s (%s)\nY - взять управление (%d)", ai = "%s: делает ИИ", obj = "действие"},
+  ru = {req = "Требуется %s (%s)\nY - взять управление (%d)", ai = "%s: делает ИИ", obj = "действие"},
 }
 
 local function text(key)
