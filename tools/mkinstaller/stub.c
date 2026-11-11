@@ -36,13 +36,17 @@
 
 enum { M_DAMAGED, M_UNPACK, M_PS, M_NOSTART, M_ZIP, M_COUNT };
 
-static const wchar_t *const TEXTS[6][M_COUNT] = {
+/* The 16 languages of the four co-op mods' texts together (Jericho 6, TimeShift 9, Revelations 13, Revelations 2 12), in the
+ * style of knowledge\i18n-style.md (register and quotes per language: es "tú", de "Sie", pt formal, pt-BR "você", ...).
+ * Index = FORCE_LANG: 0 en, 1 ru, 2 de, 3 fr, 4 es, 5 it, 6 pl, 7 cs, 8 hu, 9 pt, 10 pt-BR, 11 nl, 12 ja, 13 ko, 14 zh-CN, 15 zh-TW. */
+#define LANGS 16
+static const wchar_t *const TEXTS[LANGS][M_COUNT] = {
     { /* en */
         L"This setup file is damaged (its built-in checksum does not match). Please download it again.",
         L"The installer could not be unpacked into the temporary folder.",
         L"Windows PowerShell could not be started. The installer needs it (it is part of Windows).",
         L"The installer window did not start. Windows, a security policy or an antivirus may have blocked PowerShell.",
-        L"The .zip package of the same release does the same: unpack it and run \"Install Co-op.bat\".",
+        L"The .zip package of the same version does the same: unpack it and run 'Install Co-op.bat'.",
     },
     { /* ru */
         L"Файл установки повреждён (не совпадает встроенная контрольная сумма). Скачайте его ещё раз.",
@@ -79,20 +83,102 @@ static const wchar_t *const TEXTS[6][M_COUNT] = {
         L"La finestra del programma di installazione non si è aperta. Windows, un criterio di sicurezza o un antivirus potrebbe aver bloccato PowerShell.",
         L"Il pacchetto .zip della stessa versione fa lo stesso: estrailo ed esegui «Install Co-op.bat».",
     },
+    { /* pl */
+        L"Ten plik instalacyjny jest uszkodzony (wbudowana suma kontrolna się nie zgadza). Pobierz go ponownie.",
+        L"Nie udało się rozpakować instalatora do folderu tymczasowego.",
+        L"Nie udało się uruchomić Windows PowerShell. Instalator go potrzebuje (jest częścią systemu Windows).",
+        L"Okno instalatora się nie otworzyło. Możliwe, że PowerShell został zablokowany przez system Windows, zasady zabezpieczeń lub program antywirusowy.",
+        L"To samo robi pakiet .zip tej samej wersji: rozpakuj go i uruchom „Install Co-op.bat”.",
+    },
+    { /* cs */
+        L"Tento instalační soubor je poškozený (vestavěný kontrolní součet nesouhlasí). Stáhni ho prosím znovu.",
+        L"Instalátor se nepodařilo rozbalit do dočasné složky.",
+        L"Windows PowerShell se nepodařilo spustit. Instalátor ho potřebuje (je součástí Windows).",
+        L"Okno instalátoru se neotevřelo. PowerShell byl možná zablokován systémem Windows, bezpečnostními zásadami nebo antivirem.",
+        L"Totéž udělá balíček .zip stejné verze: rozbal ho a spusť „Install Co-op.bat“.",
+    },
+    { /* hu */
+        L"Ez a telepítőfájl sérült (a beépített ellenőrzőösszeg nem egyezik). Töltsd le újra.",
+        L"A telepítőt nem sikerült kicsomagolni az ideiglenes mappába.",
+        L"A Windows PowerShellt nem sikerült elindítani. A telepítőnek szüksége van rá (a Windows része).",
+        L"A telepítő ablaka nem nyílt meg. Lehet, hogy a Windows, egy biztonsági házirend vagy egy víruskereső letiltotta a PowerShellt.",
+        L"Ugyanezt teszi ugyanennek a verziónak a .zip csomagja: csomagold ki, és futtasd az „Install Co-op.bat” fájlt.",
+    },
+    { /* pt */
+        L"Este ficheiro de instalação está danificado (a soma de verificação incorporada não coincide). Transfira-o novamente.",
+        L"Não foi possível descompactar o instalador na pasta temporária.",
+        L"Não foi possível iniciar o Windows PowerShell. O instalador precisa dele (faz parte do Windows).",
+        L"A janela do instalador não abriu. O Windows, uma política de segurança ou um antivírus pode ter bloqueado o PowerShell.",
+        L"O pacote .zip da mesma versão faz o mesmo: descompacte-o e execute «Install Co-op.bat».",
+    },
+    { /* pt-BR */
+        L"Este arquivo de instalação está danificado (a soma de verificação embutida não confere). Baixe-o novamente.",
+        L"Não foi possível extrair o instalador na pasta temporária.",
+        L"Não foi possível iniciar o Windows PowerShell. O instalador precisa dele (ele faz parte do Windows).",
+        L"A janela do instalador não abriu. O Windows, uma política de segurança ou um antivírus pode ter bloqueado o PowerShell.",
+        L"O pacote .zip da mesma versão faz o mesmo: extraia-o e execute “Install Co-op.bat”.",
+    },
+    { /* nl */
+        L"Dit installatiebestand is beschadigd (de ingebouwde controlesom klopt niet). Download het opnieuw.",
+        L"Het installatieprogramma kon niet worden uitgepakt in de tijdelijke map.",
+        L"Windows PowerShell kon niet worden gestart. Het installatieprogramma heeft het nodig (het hoort bij Windows).",
+        L"Het venster van het installatieprogramma is niet geopend. Windows, een beveiligingsbeleid of een virusscanner heeft PowerShell misschien geblokkeerd.",
+        L"Het .zip-pakket van dezelfde versie doet hetzelfde: pak het uit en start “Install Co-op.bat”.",
+    },
+    { /* ja */
+        L"このセットアップファイルは壊れています（内蔵のチェックサムが一致しません）。もう一度ダウンロードしてください。",
+        L"インストーラーを一時フォルダーに展開できませんでした。",
+        L"Windows PowerShellを起動できませんでした。インストーラーに必要です（Windowsの一部です）。",
+        L"インストーラーのウィンドウが開きませんでした。Windows、セキュリティポリシー、またはウイルス対策ソフトがPowerShellをブロックした可能性があります。",
+        L"同じバージョンの.zipパッケージでも同じことができます。展開して「Install Co-op.bat」を実行してください。",
+    },
+    { /* ko */
+        L"이 설치 파일이 손상되었습니다(내장된 체크섬이 일치하지 않습니다). 다시 다운로드하세요.",
+        L"설치 프로그램을 임시 폴더에 풀 수 없습니다.",
+        L"Windows PowerShell을 시작할 수 없습니다. 설치 프로그램에 필요합니다(Windows의 일부입니다).",
+        L"설치 프로그램 창이 열리지 않았습니다. Windows, 보안 정책 또는 백신 프로그램이 PowerShell을 차단했을 수 있습니다.",
+        L"같은 버전의 .zip 패키지로도 같은 작업을 할 수 있습니다. 압축을 풀고 “Install Co-op.bat”을 실행하세요.",
+    },
+    { /* zh-CN */
+        L"此安装文件已损坏（内置校验和不匹配）。请重新下载。",
+        L"无法将安装程序解压到临时文件夹。",
+        L"无法启动 Windows PowerShell。安装程序需要它（它是 Windows 的一部分）。",
+        L"安装程序窗口未能打开。Windows、安全策略或杀毒软件可能阻止了 PowerShell。",
+        L"同一版本的 .zip 包也能完成同样的安装：解压后运行“Install Co-op.bat”。",
+    },
+    { /* zh-TW */
+        L"此安裝檔已損毀（內建的檢查碼不符）。請重新下載。",
+        L"無法將安裝程式解壓縮到暫存資料夾。",
+        L"無法啟動 Windows PowerShell。安裝程式需要它（它是 Windows 的一部分）。",
+        L"安裝程式視窗未能開啟。Windows、安全性原則或防毒軟體可能封鎖了 PowerShell。",
+        L"同一版本的 .zip 套件也能完成相同的安裝：解壓縮後執行「Install Co-op.bat」。",
+    },
 };
 
 static const wchar_t *msg(int id)
 {
     int l;
-#ifdef FORCE_LANG   /* tests only: -CFlags "-DFORCE_LANG=<0..5>" renders every language's boxes on one PC */
+    LANGID ui;
+#ifdef FORCE_LANG   /* tests only: -CFlags "-DFORCE_LANG=<0..15>" renders every language's boxes on one PC */
     return TEXTS[FORCE_LANG][id];
 #endif
-    switch (PRIMARYLANGID(GetUserDefaultUILanguage())) {
+    ui = GetUserDefaultUILanguage();
+    switch (PRIMARYLANGID(ui)) {
     case LANG_RUSSIAN: l = 1; break;
     case LANG_GERMAN: l = 2; break;
     case LANG_FRENCH: l = 3; break;
     case LANG_SPANISH: l = 4; break;
     case LANG_ITALIAN: l = 5; break;
+    case LANG_POLISH: l = 6; break;
+    case LANG_CZECH: l = 7; break;
+    case LANG_HUNGARIAN: l = 8; break;
+    case LANG_PORTUGUESE: l = SUBLANGID(ui) == SUBLANG_PORTUGUESE_BRAZILIAN ? 10 : 9; break;
+    case LANG_DUTCH: l = 11; break;
+    case LANG_JAPANESE: l = 12; break;
+    case LANG_KOREAN: l = 13; break;
+    case LANG_CHINESE:   /* Traditional: Taiwan, Hong Kong, Macau; Simplified: China, Singapore */
+        l = (SUBLANGID(ui) == SUBLANG_CHINESE_TRADITIONAL || SUBLANGID(ui) == SUBLANG_CHINESE_HONGKONG || SUBLANGID(ui) == SUBLANG_CHINESE_MACAU) ? 15 : 14;
+        break;
     default: l = 0;
     }
     return TEXTS[l][id];

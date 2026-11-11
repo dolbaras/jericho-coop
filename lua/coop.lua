@@ -26,7 +26,7 @@ end
 Net.CoopTime = function() return Net.CoopTimeRaw() - Net.CoopT0 end
 
 Coop = {}
-Coop.VERSION = "0.3.2"      -- players must have the same (lobby check); tools/package.ps1 checks it
+Coop.VERSION = "0.3.3"      -- players must have the same (lobby check); tools/package.ps1 checks it
 Coop.cfg = COOP_CFG
 Coop.level = string.lower(Game.GetLevelPath())
 Coop.SQUAD = {"Jones", "Cole", "Delgado", "Church", "Rawlings", "Black"}
@@ -379,6 +379,9 @@ function Coop.lang()
     if changed then
       for tbl, path in pairs(Coop.langTables) do Coop.fillLang(tbl, path, lang) end
       Coop.log("language now " .. lang)
+    else
+      -- (once per run: the bug-report collector speaks the mod's language, log-profiles\jericho.psd1)
+      Coop.log("language " .. lang)
     end
   end
   return lang

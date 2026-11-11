@@ -22,7 +22,7 @@ param([Parameter(Mandatory)] [string] $Zip,
       [string] $TempPrefix = "",
       [string] $Installer = "coop-installer.ps1",
       [string] $Zig = "",
-      [string[]] $CFlags = @(),   # extra compiler flags (tests: -DFORCE_LANG=<0..5>)
+      [string[]] $CFlags = @(),   # extra compiler flags (tests: -DFORCE_LANG=<0..15>)
       [switch] $NoSelfTest)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem

@@ -148,7 +148,9 @@ What the exe does when a player runs it:
 option works as before: `-Game`, `-Uninstall`, `-Quiet`, `-Lang`, `-AutoClose`, `-NoShortcut`, `-ShortcutDir`.
 Only the exe's own `--extract <folder>` is extra (unpack only, run nothing; for audits and tests). The installer still copies
 `coop-installer.ps1` and writes `Uninstall Co-op.bat` into the game folder, so removal is the same with or without the exe.
-Error boxes are in English, Russian, German, French, Spanish and Italian (Windows' UI language).
+Error boxes follow Windows' UI language in the 16 languages of the four co-op mods' texts together (from 0.3.3: English,
+Russian, German, French, Spanish, Italian, Polish, Czech, Hungarian, Portuguese, Brazilian Portuguese, Dutch, Japanese, Korean,
+Simplified and Traditional Chinese; `tools/mkinstaller` is the workspace's shared stub, copied here as it is).
 
 Honest limits: the exe is NOT code-signed (no certificate), so SmartScreen will probably warn "Windows protected your PC" and
 an antivirus may flag a self-extracting program that starts PowerShell; the README texts say so, offer the zip as the
