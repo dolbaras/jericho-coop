@@ -50,6 +50,9 @@ if (-not (Test-Path $pyZip)) { throw "tools\python-embed\python-3.12.10-embed-wi
 $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($pyZip))) -replace "-", ""
 if ($sha -ne $pySha) { throw "tools\python-embed zip is not the pinned one ($sha)" }
 Expand-Archive $pyZip (Join-Path $files "coop\python")
+# (Windows PowerShell 5.1 started from a PowerShell 7 shell can load 7's Archive module, whose Expand-Archive fails
+# without stopping the script: a 0.3.3 dry run packaged no Python that way. Check the result.)
+if (-not (Test-Path -LiteralPath (Join-Path $files "coop\python\python.exe"))) { throw "Python was not unpacked into files\coop\python (start powershell.exe with a clean PSModulePath)" }
 Get-ChildItem (Join-Path $root "lua\*.lua") | Where-Object { $_.Name -notin "dev.lua", "probe.lua" } |
     Copy-Item -Destination (Join-Path $files "coop")
 Set-Content -Path (Join-Path $files "coop\version.txt") -Value $Version -Encoding ASCII
