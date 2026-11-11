@@ -1,0 +1,89 @@
+name: Bug report
+description: Something goes wrong in a co-op game, with the installer or at the start-up
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. The more of this you fill in (and the logs you attach), the faster it can be fixed.
+        Please do not post the game's files, a cracked exe or a link to one.
+  - type: input
+    id: version
+    attributes:
+      label: Mod version
+      description: The installer's title bar, or `coop\version.txt` in the game folder. Every player of the session should have the same version.
+      placeholder: "0.3.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Game edition
+      options:
+        - Retail DVD release
+        - Steam
+        - GOG
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: mods
+    attributes:
+      label: Other mods installed
+      multiple: true
+      options:
+        - None
+        - SMOD
+        - SMOD Add-ons
+        - Clive Upscaler's Jericho
+        - DXVK
+        - An ASI loader or another dinput8.dll
+        - Something else (say below)
+  - type: dropdown
+    id: role
+    attributes:
+      label: What were you doing
+      options:
+        - Hosting a co-op game (local network)
+        - Hosting a co-op game (Steam)
+        - Joining a co-op game (local network)
+        - Joining a co-op game (Steam)
+        - Split screen on one PC
+        - Installing / updating / uninstalling
+        - Starting the game
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect
+      description: Chapter / level, what you did just before, what the screen showed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: 'Steps, or "only once". For a network problem say local network, Internet, a VPN (which one) or Steam.'
+  - type: textarea
+    id: pc
+    attributes:
+      label: PC
+      description: Windows version, graphics card, gamepads. The zip below has this too.
+  - type: markdown
+    attributes:
+      value: |
+        **Logs: please attach the zip made by `<game folder>\coop\Collect logs.bat`** (double-click it; the zip appears on your desktop,
+        drag it into the comment box). It holds the mod's logs (`Documents\Codemasters\Clive Barker's Jericho\Coop\coop.log` and the four
+        runs before it), the game's `log.html`, the install record and logs, hashes and system information; it removes your Windows user name,
+        computer name, folder paths, player names, Steam names and IDs, e-mail and MAC addresses and public IP addresses, and uploads nothing.
+        Open it to check before you attach it. For a network problem a zip from the host AND from a client of the same session helps most.
+        Saw it happen? Press F11 right after: the last 30 seconds are saved as a video in the same Coop folder; attach it too.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checked
+      options:
+        - label: All players of the session have the same mod version.
+        - label: The game was started with the "Jericho Co-op+" shortcut (or I say above how it was started).

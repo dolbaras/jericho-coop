@@ -45,7 +45,8 @@ only unpacks it into %TEMP%, starts the PowerShell installer from there and dele
 afterwards. To look inside first, run it from a command prompt as
 "jericho-coop-setup-<version>.exe --extract <empty folder>": it only unpacks, nothing is started.
 If the exe is blocked, the .zip + "Install Co-op.bat" does the same. A message box appears when it
-cannot unpack, when PowerShell cannot be started or when the installer window did not start.
+cannot unpack, when PowerShell cannot be started or when the installer window did not start (in
+Windows' language; the exe knows 16 languages).
 Updates: the shortcut first asks GitHub for the newest release of the mod (a second or two;
 offline, the game simply starts). When there is a newer one, it downloads it (checked against
 the release's SHA-256), runs its installer for your game folder and then starts the game. A log
@@ -290,7 +291,9 @@ mod's version, hashes of the game's exe and of the mod's DLL, Windows, graphics 
 the names (not the contents) of the files in the mod's folders. It removes your Windows user name,
 computer name, folder paths, player names, Steam names and IDs, e-mail and MAC addresses and public
 IP addresses, and uploads nothing; open the zip to check it before you attach it. A zip from the
-host AND from a client of the same session helps most.
+host AND from a client of the same session helps most. From 0.3.3 its window speaks your language
+(the game's language from the mod's last log, else Windows'; 16 languages); the zip's report stays
+in English for the developers.
 Saw it happen? Press F11 right after: the last 30 seconds of the game are saved as a video
 (clip-<date>-<time>.avi in the same Coop folder) - attach it too. The mod keeps only what the
 game draws, in memory, and writes nothing until F11.
@@ -340,7 +343,8 @@ Windows, скорее всего, напишет «Windows защитила ва
 удаляет папку. Чтобы заглянуть внутрь заранее, запустите его из командной строки:
 «jericho-coop-setup-<версия>.exe --extract <пустая папка>» - он только распакует, ничего не
 запускается. Если exe блокируется, то же делает .zip + «Install Co-op.bat». Окно с сообщением
-появится, если распаковать не удалось, PowerShell не запустился или окно установщика не открылось.
+появится, если распаковать не удалось, PowerShell не запустился или окно установщика не открылось
+(на языке Windows; exe знает 16 языков).
 Обновления: ярлык сначала спрашивает у GitHub, вышла ли новая версия мода (секунда-две; без
 интернета игра просто запускается). Если вышла, он скачивает её (с проверкой по SHA-256
 выпуска), запускает её установщик для вашей папки игры и только потом запускает игру. Журнал —
@@ -583,6 +587,8 @@ coop.log — текущий запуск, и coop.1.log (последний) ...
 папках мода. Он убирает имя пользователя Windows, имя компьютера, пути к папкам, имена игроков,
 имена и ID в Steam, адреса e-mail и MAC и публичные IP-адреса и ничего никуда не отправляет;
 откройте zip и проверьте его перед отправкой. Больше всего помогают zip хоста И клиента одного сеанса.
+С 0.3.3 его окно говорит на вашем языке (язык игры из последнего журнала мода, иначе язык Windows;
+16 языков); отчёт внутри zip остаётся на английском для разработчиков.
 Увидели ошибку? Сразу нажмите F11: последние 30 секунд игры сохранятся как видео
 (clip-<дата>-<время>.avi в той же папке Coop) — приложите и его. Мод хранит только то, что рисует
 игра, в памяти, и ничего не записывает до нажатия F11.
