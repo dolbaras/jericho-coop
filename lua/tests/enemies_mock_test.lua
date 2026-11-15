@@ -155,7 +155,18 @@ do
   local v = E.localVoters()
   assert(#v == 1 and v[1] == 0, "player 1's vote")
   E.voteSkip(v[1])
-  assert(aborted == 0 and label == "Skip scene: 1 of 2 players\nPlayer 2: press START to skip", "strip: " .. tostring(label))
+  local st = E.skipStrip
+  assert(aborted == 0 and st and st[1] == "Skip scene: 1 of 2 players" and st[2] == "Player 2: press START to skip", "strip: " .. tostring(st and st[1]))
+  -- drawn as two text items over the scene (the game's label line is not drawn during scenes, live 2026-11-15)
+  local items = {}
+  Scorer.GetItem = function(u, n) return items[n] end
+  Scorer.NewItem = function(u, n) items[n] = {Y = 0}; return items[n] end
+  V2D = function(x, y) return {x = x, y = y} end
+  Color = function() return {} end
+  Coop.setCentered = function(it, t) it.Text = t end
+  E.updateSkipStrip()
+  assert(items.CoopSkip.Text == "Skip scene: 1 of 2 players" and items.CoopSkip.Visible == 1 and items.CoopSkip2.Text == "Player 2: press START to skip",
+    "strip items")
   -- player 1 again: still one vote
   E.voteSkip(0)
   assert(aborted == 0, "the same player twice is one vote")
@@ -168,7 +179,12 @@ do
   -- player 2 first (BACK), then player 1: the strip asks player 1
   pads[1] = 0x20
   E.voteSkip(E.localVoters()[1])
-  assert(label == "Skip scene: 1 of 2 players\nPlayer 1: press START / Esc to skip", "strip for player 1: " .. tostring(label))
+  assert(E.skipStrip[2] == "Player 1: press START / Esc to skip", "strip for player 1: " .. tostring(E.skipStrip[2]))
+  -- the scene is over: the items go
+  Scene.IsPlaying = false
+  E.updateSkipStrip()
+  assert(items.CoopSkip.Visible == 0 and E.skipStrip == nil, "strip hidden after the scene")
+  Scene.IsPlaying = true
   pads[1] = 0
   -- a client with its own player 2: four voters (host, its player 2, the client, the client's player 2 = 3 + 8)
   status = "peers=1"
@@ -193,5 +209,65 @@ do
   Coop.role = "host"
   CoopSplit, Scene, Scorer = nil, nil, nil
   Coop.owners = {}
+end
+
+-- 7. (0.3.4) rewards of joining players: a client's hit carries what the game would count, the host credits the kill to
+-- that machine, which counts it; level pictures the host unlocks at a level's end go to everyone
+do
+  local sent = {}
+  Net.CoopSend = function(to, rel, msg) sent[#sent + 1] = {to = to, msg = msg} end
+  local counted, pics = {}, {}
+  local vars = {MeleeKills = 49}
+  Game.Get = function(k) return vars[k] or 0 end
+  SaveGame = {IncreaseTracker = function(t) vars[t] = (vars[t] or 0) + 1; counted[#counted + 1] = t end,
+              AddPic = function(n) pics[#pics + 1] = n; return true end,
+              CheckVisitedLevels = function(name, add) if add then SaveGame.AddPic(7) end end,
+              CheckLevelTrackVarValue = function() SaveGame.AddPic(9) end}
+  -- client: the melee event's hit is tagged "m"
+  Weapons = Weapons or {}
+  Weapons.FP_MeleeHitEvent = function() return E.trkCtx end
+  WeaponsChurch, ThreadsBlack = {FatHitEventUpGo = function() return E.trkCtx end}, {AbbObjSlot = function() return E.trkCtx end}
+  Weapons.ExplosionDamage = function() return E.trkCtx end
+  E.installRewardsClient()
+  assert(Weapons.FP_MeleeHitEvent() == "m" and ThreadsBlack.AbbObjSlot() == "g" and WeaponsChurch.FatHitEventUpGo() == "m", "contexts")
+  Weapons.NameTargetToExplode = "Nazi1"
+  assert(Weapons.ExplosionDamage("Nazi1") == "x" and Weapons.ExplosionDamage("Nazi2") == "", "only an explosion's direct target")
+  assert(E.trkCtx == nil, "context cleared after the call")
+  E.installRewardsClient()
+  assert(Weapons.FP_MeleeHitEvent() == "m", "not wrapped twice")
+  -- host: the hit of peer 3 killed: trk to peer 3 only; a hit that does not kill: nothing
+  Coop.role = "host"
+  local nazi = {Name = "Nazi9", Life = 30, uData = {}}
+  local cole = {Name = "Cole", Life = 100}
+  ents.Nazi9, ents.Cole = nazi, cole
+  E.origDamage = function(From, To, dmg) To.Life = To.Life - dmg return true end
+  E.stats = E.stats or {}; E.stats.hitsApplied = E.stats.hitsApplied or 0
+  E.applyHit("Nazi9", 10, "Cole", "", 0, "m", 3)
+  assert(#sent == 0, "not killed: no credit")
+  E.applyHit("Nazi9", 25, "Cole", "", 0, "m", 3)
+  assert(#sent == 1 and sent[1].to == 3 and sent[1].msg == "trk|m|Nazi9", "credit: " .. tostring(sent[1] and sent[1].msg))
+  E.applyHit("Nazi9", 25, "Cole", "", 0, "m", 3)
+  assert(#sent == 1, "a dead enemy is not credited twice")
+  -- client: counts it as the game does (the 50th melee kill unlocks the picture through the game's own tracker table)
+  Coop.role = "client"
+  E.onCredit("m", "Nazi9")
+  assert(counted[1] == "MeleeKills" and vars.MeleeKills == 50, "counted")
+  E.onCredit("?", "Nazi9")
+  assert(#counted == 1, "unknown kinds ignored")
+  -- host: level pictures (visited, Hard / no deaths) go to everyone, the host's own kill trackers do not
+  Coop.role = "host"
+  sent = {}
+  E.installRewardsHost()
+  SaveGame.CheckVisitedLevels("wwii_vigil", true)
+  SaveGame.CheckLevelTrackVarValue("wwii_vigil", "Hard")
+  SaveGame.AddPic(3)
+  assert(#sent == 2 and sent[1].msg == "pic|7" and sent[2].msg == "pic|9", "level pictures sent: " .. #sent)
+  assert(#pics == 3, "the host unlocks all three itself")
+  -- client: a level picture
+  Coop.role = "client"
+  E.onPic("7")
+  assert(pics[#pics] == 7, "client unlocks the level picture")
+  Coop.role = "host"
+  SaveGame, WeaponsChurch, ThreadsBlack = nil, nil, nil
 end
 print("enemies mock test: ok")

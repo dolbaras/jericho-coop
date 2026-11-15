@@ -1353,6 +1353,7 @@ end
 
 function E.updateSceneLabel()
   E.updateCurtain()
+  E.updateSkipStrip()
   -- A first-person scene that went black for its start but never started: show play again.
   if E.fpBlackT and Game.GetTime() - E.fpBlackT > 4 then
     E.fpBlackT = nil
@@ -1622,14 +1623,38 @@ function E.localPending()
   return nil
 end
 
+-- (0.3.4) The strip is drawn as two text items over the scene (E.updateSkipStrip, every frame): the game's label line
+-- (Scorer.SetLabelText, used up to 0.3.3) is not drawn while a scene plays, so nobody saw the votes (live 2026-11-15).
+E.SKIP_SHOW = 6
 function E.showSkip(votes, players)
   local lang = Coop.lang()
   local s = Coop.enc(string.format(E.SKIP_TEXT[lang] or E.SKIP_TEXT.en, votes, players), lang)
   local who = E.localPending()
-  if who then
-    s = s .. "\n" .. Coop.enc(string.format(E.SKIP_LOCAL[lang] or E.SKIP_LOCAL.en, who, E.SKIP_KEYS[who]), lang)
+  local s2 = who and Coop.enc(string.format(E.SKIP_LOCAL[lang] or E.SKIP_LOCAL.en, who, E.SKIP_KEYS[who]), lang) or ""
+  E.skipStrip = {s, s2, Game.GetTime() + E.SKIP_SHOW}
+  Coop.log("skip strip: " .. s .. (s2 ~= "" and (" / " .. s2) or ""))
+end
+
+function E.updateSkipStrip()
+  local st = E.skipStrip
+  local on = st and Scene and Scene.IsPlaying and Game.GetTime() < st[3]
+  for i, name in ipairs({"CoopSkip", "CoopSkip2"}) do
+    local it = Scorer.GetItem(0, name)
+    if on and st[i] ~= "" then
+      if not it then
+        it = Scorer.NewItem(0, name, "Text")
+        it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
+        it.Effect = "Shadow"
+        it.Pos = V2D(320, i == 1 and 418 or 440)
+        it.Color = Color(230, 230, 230, 255)
+      end
+      Coop.setCentered(it, st[i])
+      it.Visible = 1
+    elseif it then
+      it.Visible = 0
+    end
   end
-  Scorer.SetLabelText(s, Game.GetTime() + 6)
+  if st and not on then E.skipStrip = nil end
 end
 
 -- Host: a player votes to skip the scene that is playing (`peer`: the voter's owner id).
@@ -1819,7 +1844,7 @@ function E.partByBone(To, bone)
   return map[bone]
 end
 
-function E.applyHit(enemyName, damage, attackerName, bone, partDamage)
+function E.applyHit(enemyName, damage, attackerName, bone, partDamage, kind, peer)
   local To = Game.GetEntity(enemyName)
   local From = Game.GetEntity(attackerName)
   if not To or not From or To.Life <= 0 then return end
@@ -1845,6 +1870,8 @@ function E.applyHit(enemyName, damage, attackerName, bone, partDamage)
   Coop.applyingRemoteHit = false
   if To.uData then To.uData.TeamDamageFactor = factor end
   if not ok then Coop.log("applyHit error: " .. tostring(err)) end
+  -- (0.3.4) the hit killed: that machine counts it for its rewards
+  if ok and kind and kind ~= "" and (tonumber(To.Life) or 1) <= 0 then E.creditKill(peer, kind, To.Name) end
   local bh = E.bossHit
   if bh then
     E.bossHit = nil
@@ -1969,7 +1996,9 @@ function E.installClient()
         end
       end
       local bone, partDmg = E.hitPart(To, From, dmg, BodyMultiplier ~= nil)
-      Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s|%s|%.2f", To.Name, dmg, From.Name, bone or "", partDmg or 0))
+      -- (the 7th field: what the game would count for this player's rewards if the hit kills, E.installRewardsClient)
+      Net.CoopSend(0, 1, string.format("hit|%s|%.2f|%s|%s|%.2f|%s", To.Name, dmg, From.Name, bone or "", partDmg or 0,
+        type(E.trkCtx) == "string" and E.trkCtx or ""))
       E.stats.hitsSent = E.stats.hitsSent + 1
       if BodyImpact and BodyImpact.OnShot then pcall(BodyImpact.OnShot, To.Name) end
       return false
@@ -2329,7 +2358,11 @@ function E.onMessage(peer, f)
       E.stats.pdmgApplied = E.stats.pdmgApplied + 1
     end
   elseif kind == "hit" and Coop.isHost() then
-    E.applyHit(f[2], tonumber(f[3]), f[4], f[5], tonumber(f[6]))
+    E.applyHit(f[2], tonumber(f[3]), f[4], f[5], tonumber(f[6]), f[7], peer)
+  elseif kind == "trk" and Coop.isClient() then
+    E.onCredit(f[2], f[3])
+  elseif kind == "pic" and Coop.isClient() then
+    E.onPic(f[2])
   elseif kind == "scene" and Coop.isClient() then
     E.onScene(f[2], f[3])
   elseif kind == "skipvote" and Coop.isHost() then
@@ -2421,6 +2454,10 @@ function E.update()
   if E.abortAt and Net.CoopTime() >= E.abortAt then
     E.abortAt = nil
     if Scene.IsPlaying then fromHost(Scene.AbortScene) end
+  end
+  -- (0.3.4 rewards: the weapon and character scripts that count kills load with their characters)
+  if Coop.frame % 90 == 0 then
+    if Coop.isHost() then E.installRewardsHost() elseif Coop.isClient() then E.installRewardsClient() end
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
@@ -2529,12 +2566,101 @@ function E.installScenes()
   Coop.log("scene hooks installed as " .. tostring(Coop.cfg.role))
 end
 
+------------------------------------------------------------------------------
+-- Rewards of joining players (0.3.4, sync checklist row 28, gap G-E28 of notes/sync-parity-audit.md). The game's artwork
+-- unlocks count kills on the killer's machine (SaveGame.IncreaseTracker when Weapons.LastKilled is set after the hit) and
+-- levels at the level's end (SaveGame.NewLevelNow). On a client a hit returns before the kill is known and NewLevelNow is the
+-- host's, so joining players never unlocked anything. Now the client tags each hit with what the game would count, the host
+-- tells that machine when the hit killed (trk) and it counts it as the game does; the level pictures the host unlocks at a
+-- level's end go to every machine (pic). The profile keeps them (UnblockedPictures and the trackers are not among the values a
+-- session puts back, coop_session.lua CS.PROTECTED).
+--   hit|...|<kind>      client -> host: m a melee strike (Weapons.FP_MeleeHitEvent, Church's fatal blow), g the ghost
+--                       bullet (ThreadsBlack.AbbObjSlot), x the direct target of an explosion (Weapons.ExplosionDamage with
+--                       Weapons.NameTargetToExplode), "" anything else
+--   trk|<kind>|<enemy>  host -> that machine: the hit killed
+--   pic|<n>             host -> everyone: a level picture unlocked (visited, Hard, no deaths)
+-- Not counted for clients (the game counts them on the enemy's machine, the host): BlowUpHeads (CultistaMelee), Jones's
+-- pyrokinesis blow-ups.
+------------------------------------------------------------------------------
+E.TRACKERS = {m = "MeleeKills", g = "GhostBulletKills", x = "BlowUpEnemies"}
+E.rwWrapped = E.rwWrapped or {}
+
+local function packr(...) return {n = select("#", ...), ...} end
+
+-- f runs with E.trkCtx set to kind (a function of the arguments, or a string)
+local function withCtx(tbl, fname, kind)
+  local f = tbl and tbl[fname]
+  local key = tostring(tbl) .. "." .. fname
+  if type(f) ~= "function" or f == E.rwWrapped[key] then return end
+  local w = function(...)
+    local was = E.trkCtx
+    E.trkCtx = type(kind) == "function" and kind(...) or kind
+    local r = packr(pcall(f, ...))
+    E.trkCtx = was
+    if not r[1] then error(r[2], 0) end
+    return unpack(r, 2, r.n)
+  end
+  tbl[fname] = w
+  E.rwWrapped[key] = w
+end
+
+function E.installRewardsClient()
+  if Coop.cfg.rewards == false then return end
+  withCtx(Weapons, "FP_MeleeHitEvent", "m")
+  withCtx(WeaponsChurch, "FatHitEventUpGo", "m")
+  withCtx(ThreadsBlack, "AbbObjSlot", "g")
+  withCtx(Weapons, "ExplosionDamage", function(name) return Weapons.NameTargetToExplode == name and "x" or "" end)
+end
+
+function E.installRewardsHost()
+  if Coop.cfg.rewards == false or not SaveGame or not SaveGame.AddPic then return end
+  withCtx(SaveGame, "CheckVisitedLevels", "pic")
+  withCtx(SaveGame, "CheckLevelTrackVarValue", "pic")
+  local f = SaveGame.AddPic
+  if f == E.rwWrapped.AddPic then return end
+  local w = function(ipic, ...)
+    if E.trkCtx == "pic" and Coop.inSession() and tonumber(ipic) then
+      Net.CoopSend(-1, 1, "pic|" .. tostring(ipic))
+      Coop.log("rewards: level picture " .. tostring(ipic) .. " sent to everyone")
+    end
+    return f(ipic, ...)
+  end
+  SaveGame.AddPic = w
+  E.rwWrapped.AddPic = w
+end
+
+-- Host: a hit of a client killed (E.applyHit).
+function E.creditKill(peer, kind, enemy)
+  if not peer or peer == 0 or not E.TRACKERS[kind or ""] then return end
+  Net.CoopSend(peer, 1, "trk|" .. kind .. "|" .. tostring(enemy))
+  E.stats.credits = (E.stats.credits or 0) + 1
+  Coop.log("rewards: " .. tostring(enemy) .. " killed by peer " .. peer .. " (" .. kind .. ")")
+end
+
+-- Client: count it as the game would have.
+function E.onCredit(kind, enemy)
+  local tracker = E.TRACKERS[kind or ""]
+  if not tracker or not SaveGame or not SaveGame.IncreaseTracker then return end
+  local before = Game.Get(tracker)
+  local ok, err = pcall(SaveGame.IncreaseTracker, tracker)
+  Coop.log("rewards: " .. tostring(enemy) .. " counted as " .. tracker .. " " .. tostring(before) .. " -> " .. tostring(Game.Get(tracker)) ..
+    (ok and "" or (" error: " .. tostring(err))))
+end
+
+function E.onPic(n)
+  n = tonumber(n)
+  if not n or not SaveGame or not SaveGame.AddPic then return end
+  local ok, r = pcall(SaveGame.AddPic, n)
+  Coop.log("rewards: level picture " .. n .. (ok and (r and " unlocked here" or " was unlocked already") or (" error: " .. tostring(r))))
+end
+
 function E.install()
   if E.installed or not NPC or not Weapons then return end
   E.installed = true
   if Coop.isHost() then E.installHost() elseif Coop.isClient() then E.installClient() end
   E.installScenes()
   if SaveGame and Coop.isHost() then E.installLevelHost() end
+  if Coop.isHost() then E.installRewardsHost() elseif Coop.isClient() then E.installRewardsClient() end
   Coop.log("enemies installed as " .. tostring(Coop.cfg.role))
 end
 

@@ -233,12 +233,17 @@ A.SPLIT_EVENTS = {
   {"Weapons", "MeleeHitEvent", split = true}, {"WeaponsChurch", "OnFirstCombo", split = true},
 }
 A.twinUntil = A.twinUntil or {}
--- A twin of this machine's split screen body is playing: its events are not the player's.
+-- A twin of this machine's split screen body is playing: its events are not the player's. (While the body still plays the
+-- twin, or within A.TWIN_GUARD after it was forced: Church's Spell fires its life cost 3.5 s in, live 2026-11-15.)
 function A.twinGuard(who)
-  local t = A.twinUntil[who]
-  if not t or now() > t then return false end
+  local rec = A.twinUntil[who]
+  if not rec then return false end
   local ok, ent = pcall(Game.GetEntity, who)
-  return ok and ent ~= nil and not ent:IsType("FP")
+  if not ok or not ent or ent:IsType("FP") then return false end
+  if now() <= rec.t then return true end
+  if rec.act and tostring(ent.Action) == rec.act and now() <= rec.t + A.TWIN_MAX then return true end
+  A.twinUntil[who] = nil
+  return false
 end
 A.wrapped = A.wrapped or {}
 function A.guardEvents()
@@ -800,7 +805,8 @@ end
 --     start event; the dragon itself is one entity both halves see).
 -- cfg.splittwins = false: off (the 0.3.3 behaviour).
 ------------------------------------------------------------------------------
-A.TWIN_GUARD = 3        -- s a twin's events are dropped after it was forced (the longest twin, Spell, is ~2.5 s)
+A.TWIN_GUARD = 1        -- s a twin's events are dropped after it was forced, and as long as the body plays it (A.twinGuard)
+A.TWIN_MAX = 8          -- s at most
 A.TWIN_SKIP = {"^Hit", "^HitStrong", "^DuckRelaxInit$", "^Reequip", "^DuckReequip", "^Shot1", "^DuckShot1"}
 local TWIN_BUSY = {"^Shot", "^DuckShot", "^Shelter", "^Agony", "^Astral", "^Trance", "^Possessed", "^Stupid", "^KO", "^Fall",
                    "^Jump", "^Climb"}
@@ -871,7 +877,7 @@ function A.twinBody(e)
     local okd, disp = pcall(function() return actClass(e, name):GetAct(want).UseDisp end)
     if okd and tonumber(disp) == 1 then return end
   end
-  A.twinUntil[name] = now() + A.TWIN_GUARD
+  A.twinUntil[name] = {t = now() + A.TWIN_GUARD, act = want}
   e.ForceAction = want
   A.twins = (A.twins or 0) + 1
   if A.twins <= 60 or cfg.animlog then Coop.log("anim: split screen " .. name .. " " .. fpa .. " -> " .. want .. " (third person)") end

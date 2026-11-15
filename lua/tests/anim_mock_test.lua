@@ -475,9 +475,14 @@ do
   assert(p2.ForceAction == "TKHit", "P2 telekinesis twin: " .. tostring(p2.ForceAction))
   Black.UseTelePower("Black"); Black.UseTelePower("1FP_Black")
   assert(tk == 1, "the twin's push dropped, the arms' push kept: " .. tk)
-  -- after the guard time the body's events are its own again
-  step(A.TWIN_GUARD + 0.1)
+  -- while the body still plays the twin (Church's Spell fires its cost 3.5 s in, live), its events stay dropped
+  p1.Action = "Spell"
+  step(A.TWIN_GUARD + 2.5)
   evCalls = {}
+  Church.LoseLifeCutting("Church")
+  assert(#evCalls == 0, "the twin still plays: its late event dropped")
+  -- the twin is over: the body's events are its own again
+  p1.Action = "Relax"
   Church.LoseLifeCutting("Church")
   assert(#evCalls == 1, "guard over")
   -- a reload while the trigger is held: nothing forced (the shot comes from the third-person Shot)
