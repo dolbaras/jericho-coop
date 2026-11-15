@@ -288,6 +288,7 @@ return {
   ["CoopWorld.REJOIN_TEXT"] = "Vom Team abgeschnitten?\nHalten Sie T (Controller: beide Sticks), um zurückzukehren",
   ["CoopEnemies.EYES"] = "Mit den Augen von %s",
   ["CoopEnemies.WAIT"] = "Warten auf Spieler...",
+  ["CoopEnemies.WAIT_FOR"] = "Warten auf %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Szene überspringen: %d von %d Spielern",
   ["Coop.TEXT"] = {
     clip = "Letzte 30 s als Video gespeichert: ",

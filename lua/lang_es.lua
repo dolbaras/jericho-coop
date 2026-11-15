@@ -288,6 +288,7 @@ return {
   ["CoopWorld.REJOIN_TEXT"] = "¿Separado del comando?\nMantén pulsada T (mando: ambas palancas) para volver con él",
   ["CoopEnemies.EYES"] = "A través de los ojos de %s",
   ["CoopEnemies.WAIT"] = "Esperando a los jugadores...",
+  ["CoopEnemies.WAIT_FOR"] = "Esperando a %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Saltar escena: %d de %d jugadores",
   ["Coop.TEXT"] = {
     clip = "Últimos 30 s guardados como vídeo: ",

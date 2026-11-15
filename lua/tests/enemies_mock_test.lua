@@ -105,4 +105,30 @@ assert(seenArgs.n == 6 and seenArgs[1] == "Nazi1" and seenArgs[3] == 0.5 and see
 Behemoth.DrawAttack("Nobody", "Ev", 1, 2)
 assert(seenArgs.n == 4, "non-enemy: forwarded too")
 Behemoth = nil
+
+-- 5. (0.3.4) the level-start strip names the machines still loading: one name per machine (player 2's
+-- seat id = peer + 8), the host and machines that said lready left out, the plain text without seats
+Coop.role = "host"
+Coop.P2 = 8
+Coop.peerOf = function(o) return o >= 8 and o - 8 or o end
+Coop.enc = function(s) return s end
+Coop.nickShow = function(s) return s end
+Coop.lang = function() return "en" end
+Coop.cfg.seats = "0:Church:1:Hostie;3:Black:1:Ann;11:Jones:1:Ann P2;5:Cole:0:"
+E.readyPeers = {}
+local names = E.waitingNames()
+assert(#names == 2 and names[1] == "Ann" and names[2] == "#5", "two machines loading: " .. table.concat(names, ","))
+assert(E.waitText("en") == "Waiting for Ann, #5...", "strip: " .. E.waitText("en"))
+E.readyPeers[3] = true
+assert(E.waitText("en") == "Waiting for #5...", "Ann loaded: " .. E.waitText("en"))
+E.readyPeers[5] = true
+assert(E.waitText("en") == "Waiting for players...", "all loaded: the plain strip")
+Coop.cfg.seats = nil
+E.readyPeers = {}
+assert(E.waitText("en") == "Waiting for players...", "no seats (test without the lobby): the plain strip")
+Coop.cfg.seats = "0:Church:1:Hostie;3:Black:1:Ann"
+Coop.role = "client"
+assert(E.waitText("en") == "Waiting for players...", "a client has no ready list: the plain strip")
+Coop.role = "host"
+Coop.cfg.seats = nil
 print("enemies mock test: ok")

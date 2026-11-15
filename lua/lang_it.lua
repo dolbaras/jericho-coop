@@ -288,6 +288,7 @@ return {
   ["CoopWorld.REJOIN_TEXT"] = "Separato dalla squadra?\nTieni premuto T (controller: entrambe le levette) per riunirti",
   ["CoopEnemies.EYES"] = "Attraverso gli occhi di %s",
   ["CoopEnemies.WAIT"] = "In attesa dei giocatori...",
+  ["CoopEnemies.WAIT_FOR"] = "In attesa di %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Salta scena: %d di %d giocatori",
   ["Coop.TEXT"] = {
     clip = "Ultimi 30 s salvati come video: ",

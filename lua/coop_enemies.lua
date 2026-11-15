@@ -1238,7 +1238,35 @@ function E.lang() return Coop.lang() end
 -- this player in live play for a few seconds where the game shows the scene at once: the
 -- screen stays black and the keys do nothing until it starts; a long wait says why.
 E.WAIT = {en = "Waiting for players...", ru = "Ожидание игроков..."}
+-- (0.3.4) With the nicknames of the machines still loading (sync checklist row 13, "Waiting for <name>").
+E.WAIT_FOR = {en = "Waiting for %s...", ru = "Ожидание игроков: %s..."}
 E.WAIT_TEXT_AFTER = 0.5
+
+-- Host: the nicknames of the expected machines that have not said lready yet, in seat order, one per
+-- machine (a split screen player 2 loads with its machine), players away in a side instance left out.
+-- Empty while no seat is known (a test without the lobby before the client's hello).
+function E.waitingNames()
+  local names, seen = {}, {[0] = true}
+  local away = CoopInst and not Coop.cfg.inst and CoopInst.split and CoopInst.split() and CoopInst.sideMembers() or {}
+  for item in string.gmatch(Coop.cfg.seats or "", "[^;]+") do
+    local id, nick = string.match(item, "^(%d+):%a*:%d:?(.*)$")
+    local peer = id and Coop.peerOf(tonumber(id))
+    if peer and not seen[peer] and not E.readyPeers[peer] and not away[peer] then
+      seen[peer] = true
+      names[#names + 1] = nick ~= "" and nick or ("#" .. peer)
+    end
+  end
+  return names
+end
+
+-- The strip's text in the screen's code page.
+function E.waitText(lang)
+  lang = lang or E.lang()
+  local names = Coop.isHost() and E.waitingNames() or {}
+  if #names == 0 then return Coop.enc(E.WAIT[lang] or E.WAIT.en, lang) end
+  for i, n in ipairs(names) do names[i] = Coop.nickShow and Coop.nickShow(n, lang) or n end
+  return string.format(Coop.enc(E.WAIT_FOR[lang] or E.WAIT_FOR.en, lang), table.concat(names, ", "))
+end
 -- Fades go through the game's own Scorer.Fade; while the curtain is up, the level's opening
 -- fade-in (MapInit.main: black -> clear, run after the mod starts) would show the first frame.
 function E.fade(...)
@@ -1306,13 +1334,20 @@ function E.updateCurtain()
   E.fade(0, Color(0, 0, 0, 255), Color(0, 0, 0, 255), 0.1)
   if Game.GetTime() - c.t0 < E.WAIT_TEXT_AFTER then return end
   local it = Scorer.GetItem(0, "CoopWait")
+  local text = E.waitText()
   if not it then
     it = Scorer.NewItem(0, "CoopWait", "Text")
     it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
     it.Effect = "Shadow"
     it.Pos = V2D(320, 240)
-    Coop.setCentered(it, Coop.enc(E.WAIT[E.lang()] or E.WAIT.en))
     it.Color = Color(230, 230, 230, 255)
+    c.text = nil
+  end
+  -- (the names shrink as machines report in)
+  if c.text ~= text then
+    Coop.setCentered(it, text)
+    Coop.log("curtain: " .. text)
+    c.text = text
   end
   it.Visible = 1
 end
@@ -2445,4 +2480,5 @@ E.installScenes()
 -- Texts of the other languages (Coop.addLangs).
 Coop.addLangs(E.EYES, "CoopEnemies.EYES")
 Coop.addLangs(E.WAIT, "CoopEnemies.WAIT")
+Coop.addLangs(E.WAIT_FOR, "CoopEnemies.WAIT_FOR")
 Coop.addLangs(E.SKIP_TEXT, "CoopEnemies.SKIP_TEXT")

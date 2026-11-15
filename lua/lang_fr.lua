@@ -288,6 +288,7 @@ return {
   ["CoopWorld.REJOIN_TEXT"] = "Coupé de la section?\nMaintenez T (manette : les deux sticks) pour la rejoindre",
   ["CoopEnemies.EYES"] = "Par les yeux de %s",
   ["CoopEnemies.WAIT"] = "En attente des joueurs...",
+  ["CoopEnemies.WAIT_FOR"] = "En attente de %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Passer la scène : %d sur %d joueurs",
   ["Coop.TEXT"] = {
     clip = "30 dernières secondes enregistrées en vidéo : ",
