@@ -461,18 +461,201 @@ function P.onPower(peer, f, data)
 end
 
 ------------------------------------------------------------------------------
+-- Cole's grenades and mines (0.3.4, sync checklist row 3, gap G-A3 of notes/sync-parity-audit.md). A grenade was made on
+-- the thrower's machine only (a puppet's own launch event is dropped, CoopAnim.installGrenade, or it made a second, damaging
+-- grenade): the others saw the throw gesture and no grenade, no mine on the floor, no blast. Now the machine that throws
+-- (Cole's player, or the host for the game's AI Cole) reports each grenade it makes, where it came to rest and its end;
+-- every other machine shows a passive copy: the same model, place, speed, gravity and bounce, the trail. The copy never
+-- explodes by itself and deals no damage (show-only callbacks below); at the thrower's explosion it is removed and the blast
+-- (its effects and quake, the noise the host's AI hears) plays where the thrower's did. Damage stays the thrower's: on a
+-- client its blast hurts that client's copies of the enemies, which reach the host as that player's hits
+-- (coop_enemies.lua), as his shots do.
+--   gr|<Cole body>|<id>|<mode>|x|y|z|vx|vy|vz|pitch|yaw|roll|<stable 0/1>|<rebound limit>   thrower -> host -> everyone
+--   grs|<Cole body>|<id>|x|y|z                       it came to rest (the copy is put there)
+--   grx|<Cole body>|<id>|x|y|z|<fx 1/0>|<radius>      it exploded
+------------------------------------------------------------------------------
+P.GR_MESH = "Models/FP/FP_Cole/FP_Cole_Granada.M3D"
+P.GR_KEEP = 300      -- s a copy waits for its explosion (a remote mine the owner never fires)
+P.grMine = P.grMine or {}       -- grenade entity name on the thrower's machine -> id
+P.grCopies = P.grCopies or {}   -- id -> {name = copy entity, t = time made}
+
+function P.installGrenades()
+  if P.grInstalled or not WeaponsCole or not WeaponsCole.LaunchGrenade or not WeaponsCole.PetaMina then return end
+  P.grInstalled = true
+  local origLaunch = WeaponsCole.LaunchGrenade
+  WeaponsCole.LaunchGrenade = function(name, ...)
+    -- the Missile the game makes for this throw (WeaponsCole.LaunchGrenade does not return it)
+    local made
+    local origCreate = Game.CreateEntity
+    Game.CreateEntity = function(n, cls, ...)
+      local e = origCreate(n, cls, ...)
+      if cls == "Missile" and e and not made then made = e end
+      return e
+    end
+    local ok, a, b = pcall(origLaunch, name, ...)
+    Game.CreateEntity = origCreate
+    if not ok then error(a, 0) end
+    if made then pcall(P.tellGrenade, made) end
+    return a, b
+  end
+  local origStop = WeaponsCole.OnStopGrenade
+  if origStop then
+    WeaponsCole.OnStopGrenade = function(name, ...)
+      local id = P.grMine[tostring(name)]
+      local o = id and Game.GetEntity(name)
+      if o then
+        local owner = o.oParent and o.oParent.Name or ""
+        relay(string.format("grs|%s|%s|%.0f|%.0f|%.0f", owner, id, o.Pos.x, o.Pos.y, o.Pos.z))
+      end
+      return origStop(name, ...)
+    end
+  end
+  local origPeta = WeaponsCole.PetaMina
+  WeaponsCole.PetaMina = function(me, X, Y, Z, Radius, Damage, DoFX, ...)
+    local id = me and P.grMine[tostring(me.Name)]
+    if id then
+      P.grMine[me.Name] = nil
+      local owner = me.oParent and me.oParent.Name or ""
+      local r = tonumber(Radius) or (SquadCfg and SquadCfg.Cole and SquadCfg.Cole.Mine and SquadCfg.Cole.Mine.Radius) or 500
+      relay(string.format("grx|%s|%s|%.0f|%.0f|%.0f|%d|%.0f", owner, id, X or me.Pos.x, Y or me.Pos.y, Z or me.Pos.z,
+        (DoFX == nil or DoFX == 1) and 1 or 0, r))
+      Coop.log("powers: " .. owner .. "'s grenade " .. id .. " exploded")
+    end
+    return origPeta(me, X, Y, Z, Radius, Damage, DoFX, ...)
+  end
+end
+
+-- The thrower's machine: a grenade just made (its owner body is the Missile's oParent).
+function P.tellGrenade(o)
+  local char = o.oParent
+  if not char or not tells(char) then return end
+  P.grSeq = (P.grSeq or 0) + 1
+  local id = tostring(Coop.myId() or 0) .. "_" .. P.grSeq
+  P.grMine[o.Name] = id
+  local mode = "-"
+  pcall(function() mode = tostring(char.oWeapCtrl:Slot(1).UsrString or "-") end)
+  local v, a = o.Vel, o.Ang
+  relay(string.format("gr|%s|%s|%s|%.0f|%.0f|%.0f|%.0f|%.0f|%.0f|%.1f|%.1f|%.1f|%d|%d", char.Name, id, mode,
+    o.Pos.x, o.Pos.y, o.Pos.z, v.x, v.y, v.z, a.x, a.y, a.z, (o.bCheckIfStablePos == false or o.bCheckIfStablePos == 0) and 0 or 1,
+    tonumber(o.ReboundLimit) or 15))
+  Coop.log("powers: " .. char.Name .. "'s grenade " .. id .. " (" .. mode .. ") sent")
+end
+
+-- Show-only callbacks of a copy (the game's own would explode it and deal the damage a second time).
+function P.grShowExplode(ent) end   -- (the copy waits for the thrower's grx; its TimeToExplode is long)
+function P.grShowStop(name)
+  pcall(FX.SetEffect, "EFFECT_GRENADETRAIL", tostring(name) .. "_C", "Extinguish")
+end
+function P.grShowHit(ent, X, Y, Z, hitEnt, surface)
+  if WeaponsCole and WeaponsCole.OnHit then pcall(WeaponsCole.OnHit, ent, X, Y, Z, hitEnt, surface) end
+end
+
+function P.grDelCopy(id)
+  local c = P.grCopies[id]
+  if not c then return end
+  P.grCopies[id] = nil
+  pcall(FX.SetEffect, "EFFECT_GRENADETRAIL", c.name .. "_C", "EndLink")
+  local e = Game.GetEntity(c.name)
+  if e then pcall(function() e:Del() end) end
+end
+
+function P.onGrenade(peer, f, data)
+  local kind, name, id = f[1], f[2], f[3]
+  if Coop.isHost() then
+    -- only the machine that holds that Cole tells about his grenades
+    if not Coop.heldBy(name, peer) then return end
+    Net.CoopSend(-1, 1, data)
+  end
+  if not name or not id or Coop.isLocalPlayer(name) then return end
+  if kind == "gr" then
+    if P.grCopies[id] then return end
+    local x, y, z = tonumber(f[5]), tonumber(f[6]), tonumber(f[7])
+    if not (x and y and z) then return end
+    local cname = "CoopGr_" .. string.gsub(id, "%W", "_")
+    local ok, o = pcall(Game.CreateEntity, cname, "Missile", V3D(x, y, z))
+    if not ok or not o then Coop.log("powers: grenade copy " .. id .. " not made: " .. tostring(o)) return end
+    local okc, err = pcall(function()
+      local owner = Game.GetEntity(name)
+      if owner then o.oParent = owner end
+      o.Mesh = P.GR_MESH
+      o.EmbeddedCapsuleRadius = 13
+      o.EmbeddedCapsuleHeight = 0
+      o.Vel = V3D(tonumber(f[8]) or 0, tonumber(f[9]) or 0, tonumber(f[10]) or 0)
+      o.Ang = V3D(tonumber(f[11]) or 0, tonumber(f[12]) or 0, tonumber(f[13]) or 0)
+      o.bExplodeOnHit = false
+      o.bBounceOnHit = true
+      o.Restitution = 0.8
+      o.OnExplode = "CoopPowers.grShowExplode"
+      o.OnZeroSpeed = "CoopPowers.grShowStop"
+      o.OnHit = "CoopPowers.grShowHit"
+      o.TimeToExplode = P.GR_KEEP
+      o.Gravity = -980
+      o.bOrientOnCol = true
+      o.bOrientWithTrajectory = false
+      o.bCheckIfStablePos = f[14] ~= "0"
+      o.ReboundLimit = tonumber(f[15]) or 15
+      o.RandomRotationFactor = 10
+      o.Life = 3
+      FX.BeginEffect("EFFECT_GRENADETRAIL", cname .. "_C")
+      FX.SetEffect("EFFECT_GRENADETRAIL", cname .. "_C", "Do 0.04#" .. cname)
+      if f[4] == "Near" then FX.SetEffect("EFFECT_GRENADETRAIL", cname .. "_C", "DeActivateLink") end
+    end)
+    P.grCopies[id] = {name = o.Name, t = Net.CoopTime()}
+    Coop.log("powers: " .. name .. "'s grenade " .. id .. " (" .. tostring(f[4]) .. ") shown" .. (okc and "" or (" error: " .. tostring(err))))
+  elseif kind == "grs" then
+    local c = P.grCopies[id]
+    local e = c and Game.GetEntity(c.name)
+    local x, y, z = tonumber(f[4]), tonumber(f[5]), tonumber(f[6])
+    if e and x then
+      pcall(function() e.Vel = V3D(0, 0, 0); e.Pos = V3D(x, y, z) end)
+      P.grShowStop(c.name)
+    end
+  elseif kind == "grx" then
+    local x, y, z, fx, r = tonumber(f[4]), tonumber(f[5]), tonumber(f[6]), f[7] ~= "0", tonumber(f[8]) or 500
+    P.grDelCopy(id)
+    if not (x and y and z) then return end
+    -- the blast's picture (no damage: Weapons.ExplotaExplotaQueExplo is the thrower's), and on the host the noise its AI hears
+    local ok, err = pcall(function()
+      if fx then
+        ExplosiveWeapons.DoExplosionImpact(x, y, z)
+        ExplosiveWeapons.DoExplosion(x, y, z, nil, "Cole")
+      else
+        ExplosiveWeapons.DoExplosion(x, y, z, nil, "Cole_Simple")
+      end
+      Weapons.QuakeFX(V3D(x, y, z), 1.7, 0.3, r * 1.5)
+      if Coop.isHost() and AI and AI.NotifyImpact and Game.Get("BlindBehemothInMap") == 0 then
+        local c = Game.GetEntity(name)
+        local p = c and c.Pos or V3D(x, y, z)
+        AI.NotifyImpact(x, y, z, r, p.x, p.y, p.z, false)
+      end
+    end)
+    Coop.log("powers: " .. name .. "'s grenade " .. id .. " exploded here (shown)" .. (ok and "" or (" error: " .. tostring(err))))
+  end
+end
+
+-- Copies whose explosion never came (a level change, a lost message) are removed after P.GR_KEEP.
+function P.grTidy()
+  local t = Net.CoopTime()
+  for id, c in pairs(P.grCopies) do
+    if t - c.t > P.GR_KEEP + 5 then P.grDelCopy(id) end
+  end
+end
+
+------------------------------------------------------------------------------
 function P.install()
   if not Coop.inSession() or Coop.level == "levels/menu" then return end
   P.installBullet()
   P.installAbby()
   P.installWorldPowers()
   P.installRawlings()
+  P.installGrenades()
 end
 
 function P.update()
   P.install()
   P.sendBullet()
   P.reportBurns()
+  P.grTidy()
 end
 
 function P.onMessage(peer, f, data)
@@ -480,6 +663,7 @@ function P.onMessage(peer, f, data)
   if kind == "gb" or kind == "gbe" then P.onBullet(peer, f, data) return true end
   if kind == "abby" then P.onAbby(peer, f, data) return true end
   if kind == "pw" then P.onPower(peer, f, data) return true end
+  if kind == "gr" or kind == "grs" or kind == "grx" then P.onGrenade(peer, f, data) return true end
   if kind == "rl" then
     if Coop.isClient() then P.onLifeFeed(f) end
     return true
