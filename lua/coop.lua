@@ -2400,6 +2400,14 @@ function Coop.frameUpdate(now, dt)
       Coop.splitErrors = (Coop.splitErrors or 0) + 1
       Coop.log("split error: " .. tostring(err))
     end
+    -- (0.3.4) each player's strikes, reloads and powers on their body for the other half (coop_anim.lua)
+    if CoopAnim and CoopAnim.splitTwins then
+      ok, err = pcall(CoopAnim.splitTwins)
+      if not ok and (Coop.twinErrors or 0) < 5 then
+        Coop.twinErrors = (Coop.twinErrors or 0) + 1
+        Coop.log("split twin error: " .. tostring(err))
+      end
+    end
   end
   -- Ross's stand-in (act 1) per frame, as the puppets: at 20 Hz it moved in steps (audit
   -- 0.2.2 A10). (In split screen coop_split.lua runs it per view, unless the screen is whole

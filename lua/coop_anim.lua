@@ -224,18 +224,41 @@ A.PUPPET_EVENTS = {
   -- player in third person); it exists only with the add-ons, the guard skips what is not there
   {"Rawlings", "TPVladsCourse", "Rawlings"},
 }
+-- (0.3.4) Events of the third-person twins played on a split screen player's own body (A.splitTwins): the first-person arms
+-- already did them (their events name the FP model), so the twin's are dropped for that body while the twin plays. Besides the
+-- list above: Black's telekinesis push and its hand effect, the sabre's hits and its combo chaining (Church's third-person
+-- combos carry them), split = true: never dropped for puppets.
+A.SPLIT_EVENTS = {
+  {"Black", "UseTelePower", split = true}, {"Black", "DoTelekinesisPowerFX", split = true},
+  {"Weapons", "MeleeHitEvent", split = true}, {"WeaponsChurch", "OnFirstCombo", split = true},
+}
+A.twinUntil = A.twinUntil or {}
+-- A twin of this machine's split screen body is playing: its events are not the player's.
+function A.twinGuard(who)
+  local t = A.twinUntil[who]
+  if not t or now() > t then return false end
+  local ok, ent = pcall(Game.GetEntity, who)
+  return ok and ent ~= nil and not ent:IsType("FP")
+end
 A.wrapped = A.wrapped or {}
 function A.guardEvents()
-  for _, d in ipairs(A.PUPPET_EVENTS) do
+  for i = 1, #A.PUPPET_EVENTS + #A.SPLIT_EVENTS do
+    local d = A.PUPPET_EVENTS[i] or A.SPLIT_EVENTS[i - #A.PUPPET_EVENTS]
     local tbl, fname, fixed = d[1], d[2], d[3]
     local t = _G[tbl]
     local key = tbl .. "." .. fname
     -- (looked at every frame: a character's script table is built again when a player takes the character, which drops a wrapper)
     if type(t) == "table" and type(t[fname]) == "function" and t[fname] ~= A.wrapped[key] then
       local orig = t[fname]
+      local splitOnly = d.split
       local w = function(name, ...)
-        if cfg.puppetevents ~= true and Coop.inSession() and Coop.isPuppet then
-          local who = fixed or name
+        local who = fixed or name
+        if type(who) == "string" and A.twinGuard(who) then
+          A.twinDropped = (A.twinDropped or 0) + 1
+          if A.twinDropped <= 20 or cfg.animlog then Coop.log("anim: " .. key .. " dropped (split screen twin on " .. who .. ")") end
+          return
+        end
+        if not splitOnly and cfg.puppetevents ~= true and Coop.inSession() and Coop.isPuppet then
           local ok, ent = pcall(Game.GetEntity, who)
           if ok and ent and not ent:IsType("FP") and Coop.isPuppet(ent.Name) then
             A.eventsDropped = (A.eventsDropped or 0) + 1
@@ -758,4 +781,108 @@ function A.reloadAction(name, cls, load, _, set)
   if load ~= "" and cls:GetAct("ReloadE") then return "ReloadE" end
   if set == "02" and A.RELOAD0_SET2[name] and cls:GetAct("Reload0") then return "Reload0" end
   return "Reload"
+end
+
+------------------------------------------------------------------------------
+-- Split screen (0.3.4, sync checklist row 2, gap G-A2 of notes/sync-parity-audit.md). Both players' bodies are real human
+-- bodies of this engine, and a human body's third-person model does not play its own strikes, reloads or powers: only its
+-- first-person arms do (live 2026-11-15, N100, runs\p034\ga2-split-n100: `fl:` lines act=Relax while fp=01_Spell,
+-- 01_Reload, 01_Combo1Hit1). So each half showed the other player standing still while they reloaded, struck or cast.
+-- Every frame each local body's first-person action is looked at; a new one gets its third-person twin, mapped as for a
+-- puppet (Coop.ARM_BY_CHAR, Coop.ARM_ACTIONS, A.FPMAP), played once on the body (ForceAction). The player never sees his own
+-- third-person body. Safety:
+--   * the twin's game events are dropped for that body while it plays (A.twinGuard: the arms did them already);
+--   * never over a shot (the third-person Shot fires the bShotOnConfirm weapons), a trigger held, a lasting state (cover,
+--     agony, astral, trance, possessed, stunned) or a dead body;
+--   * a twin that moves the body by its animation (UseDisp) only while the body stands;
+--   * not mirrored here: hit reactions (the engine plays them on the body itself), HitStrong (AI bookkeeping events), crouching
+--     fillers (DuckRelaxInit would crouch the real body), Cole's reequip (Team.SetMaxAmmo), Delgado's arm powers (the dragon's
+--     start event; the dragon itself is one entity both halves see).
+-- cfg.splittwins = false: off (the 0.3.3 behaviour).
+------------------------------------------------------------------------------
+A.TWIN_GUARD = 3        -- s a twin's events are dropped after it was forced (the longest twin, Spell, is ~2.5 s)
+A.TWIN_SKIP = {"^Hit", "^HitStrong", "^DuckRelaxInit$", "^Reequip", "^DuckReequip", "^Shot1", "^DuckShot1"}
+local TWIN_BUSY = {"^Shot", "^DuckShot", "^Shelter", "^Agony", "^Astral", "^Trance", "^Possessed", "^Stupid", "^KO", "^Fall",
+                   "^Jump", "^Climb"}
+local function twinSkipped(want)
+  for _, p in ipairs(A.TWIN_SKIP) do if string.find(want, p) then return true end end
+  return false
+end
+
+-- The third-person twin of a first-person action for body `name` (nil: none, or one not safe on a real body).
+function A.twinFor(e, name, fpa)
+  local act = string.match(fpa, "^%d+_(.+)$") or fpa
+  local cls = actClass(e, name)
+  if not cls then return nil end
+  if name == "Delgado" and string.find(act, "^Special") then return nil end
+  local want
+  local own = Coop.ARM_BY_CHAR and Coop.ARM_BY_CHAR[name]
+  if own then
+    for pat, a in pairs(own) do if string.find(act, pat) then want = a end end
+    if want == "" then return nil end
+  end
+  if not want then
+    for _, m in ipairs(Coop.ARM_ACTIONS or {}) do
+      local caps = {string.match(act, m[1])}
+      if caps[1] then
+        want = type(m[2]) == "function" and m[2](name, cls, caps[1], caps[2], string.match(fpa, "^(%d+)_")) or m[2]
+        break
+      end
+    end
+  end
+  if not want then
+    for _, m in ipairs(A.FPMAP) do
+      if string.find(act, m[1]) and (m.only == nil or m.only == name) and m.except ~= name and
+         not (m.sw and (cfg[m.sw] == false or (m.sw ~= "gapgestures" and cfg.gapgestures == false))) then
+        local w = m[2]
+        if type(w) == "table" then
+          for _, cand in ipairs(w) do if hasAct(cls, cand) then want = cand break end end
+        else
+          want = w
+        end
+        break
+      end
+    end
+  end
+  if not want or twinSkipped(want) or not hasAct(cls, want) then return nil end
+  if string.find(tostring(e.Action), "^Duck") and hasAct(cls, "Duck" .. want) then want = "Duck" .. want end
+  return want
+end
+
+function A.twinBody(e)
+  local name = e.Name
+  local s = stOf("twin:" .. name)
+  local ok, fpa = pcall(function()
+    local fp = e.FPSEntity and e.FPSEntity ~= "" and Game.GetEntity(e.FPSEntity)
+    return fp and fp.Action
+  end)
+  if not ok or type(fpa) ~= "string" or fpa == "" or fpa == "-" or fpa == s.lastFpa then return end
+  s.lastFpa = fpa
+  if (tonumber(e.Life) or 1) <= 0 then return end
+  local cur = tostring(e.Action)
+  for _, p in ipairs(TWIN_BUSY) do if string.find(cur, p) then return end end
+  local okf, firing = pcall(function() return (tonumber(e.owc.Shot) or 0) > 0.5 or (tonumber(e.owc.SecondWeaponTrigger) or 0) > 0.5 end)
+  if okf and firing then return end
+  local want = A.twinFor(e, name, fpa)
+  if not want or string.find(cur, "^" .. want) then return end
+  -- a twin whose animation moves the body only while it stands (it would fight the player's own movement)
+  local still = string.find(cur, "^Relax") or string.find(cur, "^DuckRelax")
+  if not still then
+    local okd, disp = pcall(function() return actClass(e, name):GetAct(want).UseDisp end)
+    if okd and tonumber(disp) == 1 then return end
+  end
+  A.twinUntil[name] = now() + A.TWIN_GUARD
+  e.ForceAction = want
+  A.twins = (A.twins or 0) + 1
+  if A.twins <= 60 or cfg.animlog then Coop.log("anim: split screen " .. name .. " " .. fpa .. " -> " .. want .. " (third person)") end
+end
+
+-- Every frame while split screen is on (coop.lua Coop.frameUpdate).
+function A.splitTwins()
+  if cfg.splittwins == false or not (CoopSplit and CoopSplit.on) then return end
+  A.guardEvents()
+  local p1 = Game.UsrEntity(0)
+  local p2 = CoopSplit.body and CoopSplit.body()
+  if p1 then A.twinBody(p1) end
+  if p2 and p2 ~= p1 then A.twinBody(p2) end
 end

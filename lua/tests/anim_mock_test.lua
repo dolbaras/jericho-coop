@@ -434,4 +434,85 @@ A.powerGesture(er4, "rm")
 assert(er4.ForceAction == nil, "cfg.gapcalm = false")
 Coop.cfg.gapcalm = nil
 
+-- 0.3.4 split screen twins (A.splitTwins): each local body's first-person action becomes its third-person twin, once; the
+-- twin's events are dropped for that body only (the arms' events, named by the FP model, go through); never over a shot.
+do
+  EXTRA.Church.Spell = 1
+  local fpm = {["0FP_Church"] = {Action = "01_Relax"}, ["1FP_Black"] = {Action = "01_Relax"}}
+  local p1 = body("Church"); p1.FPSEntity = "0FP_Church"; p1.owc = {Shot = 0, SecondWeaponTrigger = 0}
+  local p2 = body("Black"); p2.FPSEntity = "1FP_Black"; p2.owc = {Shot = 0, SecondWeaponTrigger = 0}
+  local ents = {Church = p1, Black = p2}
+  local origGet = Game.GetEntity
+  Game.GetEntity = function(n)
+    if fpm[n] then return {Name = n, Action = fpm[n].Action, IsType = function(self, t) return t == "FP" end} end
+    if ents[n] then ents[n].IsType = function() return false end return ents[n] end
+    return origGet(n)
+  end
+  Game.UsrEntity = function() return p1 end
+  CoopSplit = {on = true, body = function() return p2 end}
+  puppets = {}
+  local tk = 0
+  Black = {UseTelePower = function(n) tk = tk + 1 end, DoTelekinesisPowerFX = function() end}
+  Weapons = {MeleeHitEvent = function(n) evCalls[#evCalls + 1] = "melee " .. tostring(n) end}
+  evCalls = {}
+  step(5)
+  A.splitTwins()
+  assert(p1.ForceAction == nil and p2.ForceAction == nil, "idle arms: nothing played")
+  -- player 1 casts the blood spell: her third-person Spell, its life cost dropped for the body, the arms' own cost kept
+  fpm["0FP_Church"].Action = "01_Spell"
+  A.splitTwins()
+  assert(p1.ForceAction == "Spell", "P1 spell twin: " .. tostring(p1.ForceAction))
+  Church.LoseLifeCutting("Church")
+  Church.LoseLifeCutting("0FP_Church")
+  assert(#evCalls == 1 and evCalls[1] == "spell 0FP_Church", "the twin's spell cost dropped, the arms' kept: " .. table.concat(evCalls, ","))
+  -- the same action again next frame: not forced twice
+  p1.ForceAction = nil
+  A.splitTwins()
+  assert(p1.ForceAction == nil, "one twin per first-person action")
+  -- player 2 (Black) uses telekinesis: TKHit, the push event of the twin dropped
+  fpm["1FP_Black"].Action = "01_Special_0Init"
+  A.splitTwins()
+  assert(p2.ForceAction == "TKHit", "P2 telekinesis twin: " .. tostring(p2.ForceAction))
+  Black.UseTelePower("Black"); Black.UseTelePower("1FP_Black")
+  assert(tk == 1, "the twin's push dropped, the arms' push kept: " .. tk)
+  -- after the guard time the body's events are its own again
+  step(A.TWIN_GUARD + 0.1)
+  evCalls = {}
+  Church.LoseLifeCutting("Church")
+  assert(#evCalls == 1, "guard over")
+  -- a reload while the trigger is held: nothing forced (the shot comes from the third-person Shot)
+  p2.ForceAction = nil
+  p2.owc.Shot = 1
+  fpm["1FP_Black"].Action = "01_Reload"
+  A.splitTwins()
+  assert(p2.ForceAction == nil, "never over a shot")
+  p2.owc.Shot = 0
+  -- a reload while firing stopped: the reload twin
+  fpm["1FP_Black"].Action = "01_Relax"; A.splitTwins()
+  fpm["1FP_Black"].Action = "01_Reload"; A.splitTwins()
+  assert(p2.ForceAction == "Reload", "P2 reload twin: " .. tostring(p2.ForceAction))
+  -- hit reactions and crouching fillers are not played on a real body
+  p1.ForceAction = nil
+  fpm["0FP_Church"].Action = "01_HitFront"; A.splitTwins()
+  assert(p1.ForceAction == nil, "hits: the engine's own")
+  fpm["0FP_Church"].Action = "01_Heal"; A.splitTwins()
+  assert(p1.ForceAction == nil, "no crouching filler on a real body")
+  -- not in a lasting state
+  p1.Action = "ShelterDown"
+  fpm["0FP_Church"].Action = "01_Reload"; A.splitTwins()
+  assert(p1.ForceAction == nil, "not in cover")
+  p1.Action = "Relax"
+  -- cfg.splittwins = false: nothing
+  Coop.cfg.splittwins = false
+  fpm["0FP_Church"].Action = "01_Punch"; A.splitTwins()
+  assert(p1.ForceAction == nil, "switched off")
+  Coop.cfg.splittwins = nil
+  -- no split screen: nothing
+  CoopSplit.on = false
+  fpm["0FP_Church"].Action = "02_Punch"; A.splitTwins()
+  assert(p1.ForceAction == nil, "only in split screen")
+  CoopSplit, Black, Weapons = nil, nil, nil
+  Game.GetEntity = origGet
+end
+
 print("anim mock test: OK")

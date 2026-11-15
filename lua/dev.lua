@@ -3921,7 +3921,8 @@ if cfg.fieldlog and Coop.level ~= "levels/menu" then
         local function g(f) local ok, v = pcall(f) if ok then return tostring(v) end return "?" end
         local fp = "-"
         local own = g(function() return Game.UsrEntity(0).Name == name end) == "true"
-        if own then fp = g(function() return Game.GetEntity(e.FPSEntity).Action end) end
+        -- (parity-034: split screen player 2 has first-person arms of their own too)
+        if own or (CoopSplit and CoopSplit.on and CoopSplit.char == name) then fp = g(function() return Game.GetEntity(e.FPSEntity).Action end) end
         local line = string.format("%s [%s] act=%s shot=%s sec=%s slot=%s want=%s ammo=%s/%s sup=%s/%s mode=%s%s fp=%s net=%s", name, own and "own" or "puppet",
           g(function() return e.Action end), g(function() return e.owc.Shot end), g(function() return e.owc.SecondWeaponTrigger end),
           g(function() return e.oWeapCtrl.iSlot end), g(function() return e.oWeapCtrl.iDesiredSlot end),
