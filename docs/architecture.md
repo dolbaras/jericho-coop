@@ -324,9 +324,11 @@ Payload fields follow the kind, `|`-separated, in the order given.
 | `phit` | host → owner's machine | R | victim | `E.onMessage`: `Soldier.DoHitStrong` (the hit reaction; the client suppresses its own) |
 | `epart` | host → all; host → one | R | enemy, `seal`/`bomb`/`bombs`, node or 0/1 mask | `E.applyPart`: Behemoth seals and exploding cultists' pustules as the host has them |
 | `eact` | host → all | R | boss, action | `E.onMessage`: a boss's non-locomotion action forced at once (fades, attacks) |
-| `hit` | client → host | R | enemy, damage (body multiplier applied), attacker, bone, part damage | `E.applyHit` (no check that the attacker is the sender's body) |
+| `hit` | client → host | R | enemy, damage (body multiplier applied), attacker, bone, part damage, reward kind (0.3.4: `m` melee, `g` ghost bullet, `x` an explosion's direct target, empty) | `E.applyHit` (no check that the attacker is the sender's body); a kill with a kind -> `trk` |
+| `trk` | host → the hit's machine | R | kind, enemy | `E.onCredit`: `SaveGame.IncreaseTracker` (MeleeKills, GhostBulletKills, BlowUpEnemies) as the game counts a kill (0.3.4) |
+| `pic` | host → all | R | picture number | `E.onPic`: `SaveGame.AddPic` for a level picture the host unlocked at a level's end (0.3.4) |
 | `scene` | host → all | R | `play`/`fp`/`fpni`/`fpnni`/`abort`, class | `E.onScene` (client) |
-| `skipvote` | client → host | R | scene name | `E.voteSkip`: skip when every player voted |
+| `skipvote` | client → host | R | scene name, `1` / `2` (0.3.4: the client's player 1 or its split screen player 2) | `E.voteSkip`: skip when every player voted (owner ids: split screen players 2 vote too) |
 | `skipv` | host → all | R | votes, players | `E.showSkip` |
 | `level` | host → all | R | level name | `E.onLevel` (client): `CoopSave.applyPending`, `SaveGame.LoadLevel` through `fromHost` |
 | `lready` | client → host | R | level name | `E.onMessage` (host): `E.sendCatchup(peer)`, `E.readyPeers[peer] = true` |
@@ -392,6 +394,9 @@ Counters in the 100-tick report line: `windows`, `missile-windows`, `flame-segs`
 | `abby` | Delgado's player → host → all | R | Delgado body, target or empty | `P.onAbby`: the puppet's own Ababanili attacks or comes back (hits only play sound) |
 | `pw` | caster → host → all | R | `bt`, Black, target / `cr`, Church, thread / `jt`, owner, target, x, y, z, use 0/1 / `jp`, owner, target / `burn`, caster, target, time, delay, attenuation / `rc`, `rm`, `rh`, Rawlings, target | `P.onPower`: the effect on this machine's copy (no damage) |
 | `rl` | host → all | R | cursed enemy, receiver, amount | `P.onLifeFeed`: the receiver's owner adds the life |
+| `gr` | thrower → host → all | R | Cole body, id, mode, x, y, z, vx, vy, vz, pitch, yaw, roll, stable 0/1, rebound limit | `P.onGrenade`: a passive grenade copy (no explosion or damage of its own) (0.3.4) |
+| `grs` | thrower → host → all | R | Cole body, id, x, y, z | the copy put where the grenade came to rest |
+| `grx` | thrower → host → all | R | Cole body, id, x, y, z, fx 1/0, radius | the copy removed, the blast's effects and quake there (the host's AI hears it) |
 
 ### Story steps (`coop_story.lua`)
 
