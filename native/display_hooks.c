@@ -6,6 +6,10 @@
  *   JERICHO_WINSIZE=w,h     make the game window's client area w x h and keep it so (the
  *                           engine sizes its window on its own, smaller than the
  *                           -WindowedWidth/-WindowedHeight back buffer on some machines).
+ *   JERICHO_WINFRAME=0      (lab only, with JERICHO_WINPOS) a window without title bar and
+ *                           borders: its client area is exactly WINSIZE at WINPOS, so a test
+ *                           window fills a small test display edge to edge and no border
+ *                           reaches the monitor next to it. Off unless set.
  *   JERICHO_ADAPTER=window  create the Direct3D 9 device on the adapter that drives the
  *                           monitor holding the window (the game always asks for adapter 0).
  *   JERICHO_ADAPTER=<n>     use adapter n.
@@ -38,6 +42,7 @@ static int kbm_off;               /* JERICHO_KBM=0 */
 static int test_nomouse;          /* JERICHO_TEST_NOMOUSE=1 */
 static int pad_map[4] = {0, 1, 2, 3};
 static int win_w, win_h, have_winsize;
+static int win_frameless;         /* JERICHO_WINFRAME=0 (lab) */
 static DWORD win_style, win_exstyle;
 
 /* Outer window size for the wanted client size. */
@@ -658,6 +663,11 @@ static HWND WINAPI hook_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR title, DWOR
         coop_log("window %d,%d -> %d,%d", x, y, win_x, win_y);
         x = win_x;
         y = win_y;
+        if (win_frameless && (style & WS_CAPTION)) {
+            style = (style & WS_VISIBLE) | WS_POPUP | WS_CLIPCHILDREN;
+            ex &= ~(DWORD)(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+            coop_log("window: no frame (JERICHO_WINFRAME=0)");
+        }
     }
     if (game && have_winsize) {
         int ow, oh;
@@ -1247,6 +1257,7 @@ void display_hooks_install(void)
             win_x = atoi(v);
             win_y = atoi(comma + 1);
             have_winpos = 1;
+            win_frameless = GetEnvironmentVariableA("JERICHO_WINFRAME", v, sizeof v) == 1 && v[0] == '0';
             if (!real_CreateWindowExA)
                 real_CreateWindowExA = (CreateWindowExA_t)patch_iat("USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA);
             if (!real_SetWindowPos)   /* (hooked already: patching again would make it call itself) */
