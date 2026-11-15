@@ -23,8 +23,9 @@ param(
 if (-not $Game) { $Game = Join-Path $WorkRoot "game" }
 if (-not $OutDir) { $OutDir = Join-Path $WorkRoot "runs" }
 Add-Type -AssemblyName System.Windows.Forms
-$screen = [System.Windows.Forms.Screen]::AllScreens | Where-Object { -not $_.Primary } | Select-Object -First 1
-if (-not $screen) { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+# (2026-11-15) only the lab's test display (the HDMI emulator, paths.ps1 Get-TestScreen): the first non-primary screen was the owner's
+$screen = Get-TestScreen
+if (-not $screen) { "REFUSED: the test display (1280x768, not primary) is not there"; exit 6 }
 $run = Join-Path $OutDir (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force $run | Out-Null
 $luaDir = if ($LuaDir) { $LuaDir.Replace([char]92, [char]47).TrimEnd('/') + "/" } else { $LuaDirForward }
@@ -33,7 +34,8 @@ if (-not $Player) {
     $env:JERICHO_COOP_DIR = $luaDir
     $env:JERICHO_COOP_CFG = "{$Cfg}"
 }
-$winW, $winH, $winPos = Get-FullWindow $screen
+# a frameless 1280x720 client at the display's corner (JERICHO_WINFRAME=0): nothing beyond its edges
+$winW, $winH, $winPos = 1280, 720, "$($screen.Bounds.X),$($screen.Bounds.Y)"
 $aa = if ($Antialiasing -ge 0) { "-Antialiasing:$Antialiasing " } elseif ($Adapter) { "-Antialiasing:0 " } else { "" }   # iGPU: without the owner's 8x MSAA
 $args = "-SelectedLanguage:English -FullScreen:0 -VideoWidth:$winW -VideoHeight:$winH -WindowedWidth:$winW -WindowedHeight:$winH $aa-debug:3 -R_LimitFPS:$LimitFps -PlayVideos:0 " +
         "-SoundMainVolume:0 -MusicMainVolume:0 -VoiceMainVolume:0 " +
@@ -43,6 +45,7 @@ if (-not $DefaultLog) { $env:JERICHO_COOP_LOG = Join-Path $run "coop.txt" }
 $env:JERICHO_STACKDUMP = Join-Path $run "stack.txt"
 $env:JERICHO_WINPOS = $winPos
 $env:JERICHO_WINSIZE = "$winW,$winH"
+$env:JERICHO_WINFRAME = "0"
 $env:JERICHO_BACKGROUND = "1"
 $env:JERICHO_COOP_SAVEDIR = Join-Path $SaveRoot "single"
 if ($Adapter) { $env:JERICHO_ADAPTER = $Adapter }
@@ -50,7 +53,7 @@ if ($Console) { $env:JERICHO_CONSOLE = "$Console" }
 if ($Record) { $env:JERICHO_RECORD = Join-Path $run "game.raw"; $env:JERICHO_RECORD_START = "$RecordStart"; $Shots = @() }
 if ($Record -and $RecordFps -gt 0) { $env:JERICHO_RECORD_FPS = "$RecordFps" }
 $p = Start-Process -FilePath (Join-Path $Game "bin\$Exe") -ArgumentList $args -WorkingDirectory $Game -PassThru
-foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FPS", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE", "JERICHO_CONSOLE") {
+foreach ($v in "JERICHO_COOP_LOG", "JERICHO_STACKDUMP", "JERICHO_WINPOS", "JERICHO_BACKGROUND", "JERICHO_ADAPTER", "JERICHO_RECORD", "JERICHO_RECORD_START", "JERICHO_RECORD_FPS", "JERICHO_COOP_SAVEDIR", "JERICHO_COOP_DIR", "JERICHO_COOP_CFG", "JERICHO_WINSIZE", "JERICHO_WINFRAME", "JERICHO_CONSOLE") {
     Remove-Item "Env:$v" -ErrorAction SilentlyContinue
 }
 try {

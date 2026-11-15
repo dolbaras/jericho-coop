@@ -24,4 +24,11 @@ function Get-FullWindow($screen) {
     $cap = [System.Windows.Forms.SystemInformation]::CaptionHeight
     return @(($wa.Width - $bw), ($wa.Height - $cap - $bw), "$($wa.X),$($wa.Y)")
 }
+# (2026-11-15) The lab's test display: the HDMI emulator "28E850", 1280x768 (main PC at 3840,0; the owner's monitors are the
+# primary and 1920,0 and get no test window). Returns the screen or $null (callers refuse to start then).
+function Get-TestScreen {
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.Screen]::AllScreens | Where-Object { -not $_.Primary -and $_.Bounds.Width -eq 1280 -and $_.Bounds.Height -eq 768 } |
+        Select-Object -First 1
+}
 $FfmpegBin = Join-Path $ToolsRoot "ffmpeg\ffmpeg-master-latest-win64-gpl\bin"
