@@ -1341,11 +1341,10 @@ function E.updateCurtain()
     it.Effect = "Shadow"
     it.Pos = V2D(320, 240)
     it.Color = Color(230, 230, 230, 255)
-    c.text = nil
   end
-  -- (the names shrink as machines report in)
+  -- (the names shrink as machines report in; the item is made again every frame: Scorer.Clear above)
+  Coop.setCentered(it, text)
   if c.text ~= text then
-    Coop.setCentered(it, text)
     Coop.log("curtain: " .. text)
     c.text = text
   end
