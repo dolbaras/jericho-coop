@@ -1965,6 +1965,38 @@ if cfg.locktest and Coop.level ~= "levels/menu" then
   end
 end
 
+-- 'qtelog' (parity-034, any machine): logs the QTE sequences the game launches here ("qtelog: sequence UDU"), every right /
+-- wrong key the game sees, the validation and the branch played, so a lab driver can press the real keys of a QTE in time
+-- (lab\p034\qtedrive.py) and both machines' branches can be compared.
+if cfg.qtelog and Coop.level ~= "levels/menu" then
+  local prevQL = Coop.devFrame
+  Coop.devFrame = function(dt)
+    if prevQL then prevQL(dt) end
+    if not QTE or QTE.coopLogged == QTE.LaunchSequence then return end
+    for _, fn in ipairs({"LaunchSequence", "RightAction", "WrongAction", "ValidateSequence"}) do
+      local orig = QTE[fn]
+      if type(orig) == "function" then
+        QTE[fn] = function(a, b, ...)
+          if fn == "LaunchSequence" then Coop.log("qtelog: sequence " .. tostring(string.match(tostring(b), "^[^|]*")))
+          elseif fn == "WrongAction" then Coop.log("qtelog: wrong " .. tostring(a))
+          elseif fn == "RightAction" then Coop.log("qtelog: right")
+          else Coop.log("qtelog: validate " .. tostring(b) .. " ok=" .. tostring(Scorer.QTEIsSequenceOK and Scorer.QTEIsSequenceOK())) end
+          return orig(a, b, ...)
+        end
+      end
+    end
+    QTE.coopLogged = QTE.LaunchSequence
+    if Scene and Scene.PlayAlternate and not Coop.qteAltLogged then
+      Coop.qteAltLogged = true
+      local origAlt = Scene.PlayAlternate
+      Scene.PlayAlternate = function(sufix, name, ...)
+        Coop.log("qtelog: branch " .. tostring(sufix) .. " of " .. tostring(name or Scene.SceneName))
+        return origAlt(sufix, name, ...)
+      end
+    end
+  end
+end
+
 -- 'qtebot' = 'win' | 'fail' (per machine): stands in for this player's keys in shared story
 -- QTEs (coop_scenes.lua), 0.4 s after a prompt starts: 'win' makes this machine's scorer say
 -- the sequence is done, 'fail' presses a wrong key's failure. Test windows get no real input.
