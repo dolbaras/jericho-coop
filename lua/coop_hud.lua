@@ -119,7 +119,63 @@ function H.hide(name)
   for id = 0, 1 do
     local it = Scorer.GetItem(id, "CoopTag_" .. name)
     if it then it.Visible = 0 end
+    it = Scorer.GetItem(id, "CoopEdge_" .. name)
+    if it then it.Visible = 0 end
   end
+end
+
+------------------------------------------------------------------------------
+-- Off-screen partners (0.3.4, sync checklist row 5, gap G-A5; owner's idea 2026-11-08, docs/coop-ux-research.md 5.9).
+-- Jericho has no map: a partner whose plate is off the view (behind, beside, above) gets a marker at the side of the view
+-- he is on, per HUD (each split screen half its own): "< Nick 25 m" on the left, "Nick 25 m >" on the right, at the height
+-- the head would be (kept in the middle band, clear of the game's HUD corners). Hidden with the plates (scenes, black,
+-- menus, power views, cfg.tags = false); cfg.edges = false: none.
+------------------------------------------------------------------------------
+H.EDGE_X = {full = {28, 612}, split = {150, 490}}   -- HUD x of the markers (split: inside the corner rule of H.splitPlace)
+H.EDGE_Y = {150, 330}
+
+-- Which side of the camera `camName` the point p is on: -1 left, 1 right; and the HUD y it would have (nil: no camera).
+function H.side(camName, p)
+  local cam = Game.GetEntity(camName)
+  if not cam or not cam.camPos or not cam.camAng then return nil end
+  local a = cam.camAng
+  local fwd, right, up = V3D(0, 0, H.FWD):rot(a), V3D(H.FWD, 0, 0):rot(a), V3D(0, 1, 0):rot(a)
+  local d = p - cam.camPos
+  local z = d.x * fwd.x + d.y * fwd.y + d.z * fwd.z
+  local x = d.x * right.x + d.y * right.y + d.z * right.z
+  local y = d.x * up.x + d.y * up.y + d.z * up.z
+  local side = x < 0 and -1 or 1
+  -- (behind the camera with no sideways part: the nearer turn, to the right)
+  local flat = math.sqrt(x * x + z * z)
+  local hy = 240 - 240 * y / math.max(flat, 1)
+  return side, hy
+end
+
+function H.edge(user, name, e, cam, dist)
+  local it = Scorer.GetItem(user, "CoopEdge_" .. name)
+  if Coop.cfg.edges == false or not cam then
+    if it then it.Visible = 0 end
+    return
+  end
+  local side, hy = H.side(cam, H.headPos(e))
+  if not side then
+    if it then it.Visible = 0 end
+    return
+  end
+  if not it then
+    it = Scorer.NewItem(user, "CoopEdge_" .. name, "Text")
+    it.Font = (Menu and Menu.SmallFont) or "ScrapMedium"
+    it.Color = Color(230, 230, 230, 230)
+    it.Effect = "Shadow"
+  end
+  local m = string.format("%d m", math.floor(dist / 100 + 0.5))
+  local label = H.label(name)
+  local xs = (CoopSplit and CoopSplit.on and not CoopSplit.held) and H.EDGE_X.split or H.EDGE_X.full
+  it.Text = side < 0 and ("< " .. label .. " " .. m) or (label .. " " .. m .. " >")
+  it.Align = side < 0 and "Left" or "Right"
+  it.CentralText = 0
+  it.Pos = V2D(side < 0 and xs[1] or xs[2], math.max(H.EDGE_Y[1], math.min(H.EDGE_Y[2], hy or 240)))
+  it.Visible = 1
 end
 
 -- The squad, and in act 1 Ross (a player may hold him; audit 0.2.2 A11).
@@ -206,12 +262,22 @@ function H.update()
             local dd = head - camPos
             if dd.x * fwd.x + dd.y * fwd.y + dd.z * fwd.z > 0 then x, y = Scorer.Get2DPos(head) end
           end
-          H.place(H.item(name, user), name, x, y)
+          local it = H.item(name, user)
+          H.place(it, name, x, y)
           shown = true
+          -- (0.3.4) the plate is off the view: the marker at its side instead
+          if it.Visible == 1 then
+            local edge = Scorer.GetItem(user, "CoopEdge_" .. name)
+            if edge then edge.Visible = 0 end
+          else
+            H.edge(user, name, e, cam, dist)
+          end
         end
       end
       if not shown then
         local it = Scorer.GetItem(user, "CoopTag_" .. name)
+        if it then it.Visible = 0 end
+        it = Scorer.GetItem(user, "CoopEdge_" .. name)
         if it then it.Visible = 0 end
       end
     end
