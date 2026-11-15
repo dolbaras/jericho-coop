@@ -131,7 +131,7 @@ end
 -- the head would be (kept in the middle band, clear of the game's HUD corners). Hidden with the plates (scenes, black,
 -- menus, power views, cfg.tags = false); cfg.edges = false: none.
 ------------------------------------------------------------------------------
-H.EDGE_X = {full = {28, 612}, split = {150, 490}}   -- HUD x of the markers (split: inside the corner rule of H.splitPlace)
+H.EDGE_X = {full = {28, 612}, split = {24, 616}}   -- HUD x of the markers (a filled split half draws the HUD over its middle half: live 2026-11-15, 150 / 490 sat next to the crosshair)
 H.EDGE_Y = {150, 330}
 
 -- Which side of the camera `camName` the point p is on: -1 left, 1 right; and the HUD y it would have (nil: no camera).
