@@ -91,6 +91,19 @@ no window) and Fit-Result itself on controls of the page's geometry (none shown)
 The installer's WINDOW (the result page now gives a long text the progress bar's and the log's room, then a smaller font) needs a
 person to look at it.
 
+Lua tests (`lua/tests/*_mock_test.lua`, run from `lua\` with the workspace's `tools\lua\lua.exe`; `talk_mock_test.lua` takes the
+path of the game's `teamtalk.lua` as its argument): 17 from 0.3.4 (`grenade_mock_test.lua` and `hud_mock_test.lua` are new), all must
+print their ok line; `luac -p` of every module.
+
+Live checks before a release (0.3.4 on): the lab's test windows are frameless 1280x720 windows on its test displays
+(`JERICHO_WINFRAME=0` with `JERICHO_WINPOS` / `JERICHO_WINSIZE`, a lab-only switch of `native/display_hooks.c`, off unless set), with
+the same game settings on both test PCs; the lab's own notes list the checks (two-PC campaign, split screen, story splits, the
+installer and update rehearsals, the collector).
+
+Version mixing: 0.3.4 adds message fields (`hit` carries a reward kind, `skipvote` the voter) and kinds (`trk`, `pic`, `gr`, `grs`,
+`grx`, `docs/architecture.md`); players of different versions never play together (the lobby's version check), so nothing old has to
+understand them.
+
 ## Bug reports: Collect logs.bat
 
 `package.ps1` puts the bug-report collector every co-op mod of the workspace shares into `files\coop\`:

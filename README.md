@@ -15,7 +15,7 @@ Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names st
 
 ## Status
 
-**Version 0.3.3** ([release notes](https://github.com/dolbaras/jericho-coop/releases/latest)): the mod's texts reviewed in all six languages (in Russian the squad's women Church, Cole and Black were spoken of as men in the story texts, French, Spanish and Italian lines got the feminine forms, names follow the game's own spelling, one form of address per language: German "Sie", Spanish "tú"); `coop\Collect logs.bat` now speaks the player's language (16 languages: the game's language from the mod's last log, else Windows'); the setup exe's error messages are in 16 languages. The rest of the mod is unchanged from 0.3.2. The new texts were seen in the running game in Russian (menus, lobby, settings, hints, squad-choice screens) and the collector's window in five languages; German was seen only on a test copy with the Russian edition's font. Nobody outside the lab has played 0.3.3 yet.
+**Version 0.3.4** ([release notes](https://github.com/dolbaras/jericho-coop/releases/latest)): sync fixes from a check of every kind of sync the Revelations co-op mods have. Split screen: each player sees the other player's reloads, strikes and powers on their character. Skipping a cutscene: every player votes, the split screen player 2 too, and the vote line shows over the scene. The level-start screen names the players still loading. Cole's grenades and mines are seen on every PC. A partner off the screen gets a marker at the side of the view. Joining players earn the game's artwork unlocks too. All of it was seen in the running game on two PCs (a real QTE held by a client included); nobody outside the lab has played 0.3.4 yet.
 
 How it is tested: the whole campaign runs through level by level with two real games on two PCs (a playthrough bot plays both sides, both branches of the Lost Patrol included), every story split is played with a real host and client, and every in-engine cutscene is compared with the original. Human playthroughs started with 0.2.1 over Steam; people have played missions 1-8 so far. Every player needs the same version of the mod (the lobby says so when they differ).
 
@@ -89,8 +89,8 @@ The setup exe is not code-signed, so Windows SmartScreen may warn ("More info" -
 ## Known limits / not verified
 
 - Not tested: a Steam session between two different networks (relay) and joining from the Steam friends list.
-- Nobody outside the lab has played 0.3.3 yet; people have played missions 1-8 so far. Story scripts that assume one player are fixed per level as playtesting finds them (`docs/usrentity-audit.md`).
-- Split screen: each view runs at half the frame rate (the engine draws one player's view per frame); Delgado's fire barrier flames are not shown (the barrier itself works). A rare split-screen flicker was reported once and could not be reproduced: an F11 clip of it would help.
+- Nobody outside the lab has played 0.3.4 yet; people have played missions 1-8 so far. Story scripts that assume one player are fixed per level as playtesting finds them (`docs/usrentity-audit.md`).
+- Split screen: each view runs at half the frame rate (the engine draws one player's view per frame); Delgado's fire barrier flames are not shown (the barrier itself works). In a split screen game without network players, player 2 joins after the level's opening scene, so player 1 alone can skip that scene. A rare split-screen flicker was reported once and could not be reproduced: an F11 clip of it would help.
 - Another mod's `bin\dinput8.dll` (an ASI loader such as Ultimate ASI Loader) is kept in `coop-backup` and is off while co-op is installed; it cannot run under another name for Jericho (Windows' compatibility settings for `Jericho.exe` load the system `winmm.dll` first).
 - The setup exe is not code-signed (see above).
 

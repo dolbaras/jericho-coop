@@ -17,6 +17,21 @@ Every problem found in tests and code reviews is fixed. The whole campaign, ever
 and the Lost Patrol run through in tests with two real games on two PCs; people have played
 missions 1-8 so far. Please report problems (see below).
 
+New in 0.3.4
+- Split screen: each player sees the other player's reloads, strikes and powers on their
+  character (up to 0.3.3 the character stood still and only its own player saw the action).
+- Skipping a cutscene: every player votes, the split screen player 2 too (with their own START;
+  the keyboard's Esc is player 1's). The line "Skip scene: 1 of 2 players" now shows over the
+  scene and names the player on this PC who still has to press.
+- Level start: the black "Waiting for ..." screen names the players who are still loading.
+- Cole's grenades and mines are seen on every PC (the flight and the blast); the damage is
+  counted once, by the PC of the player who threw them.
+- A partner off the screen gets a marker at the side of the view ("< Name 25 m"), in each split
+  screen half too.
+- Joining players earn the game's artwork unlocks too: their melee, ghost bullet and grenade
+  kills count for them, and the level pictures the host unlocks at a level's end unlock for
+  everyone.
+
 Requirements
 - Your own copy of the game. Tested: retail DVD release (Jericho.exe SHA-256
   7fb5b759823283a83b685adc4848289a149f520ddbab6dbc7f9e6131b15d2a62), Windows 10 and 11.
@@ -314,6 +329,21 @@ game draws, in memory, and writes nothing until F11.
 Исправлено всё, что нашли тесты и проверки кода. Вся кампания, все сюжетные разделения и
 «Потерянный патруль» пройдены в тестах двумя настоящими играми на двух ПК; живые игроки пока
 прошли миссии 1-8. Пожалуйста, сообщайте об ошибках (см. ниже).
+
+Новое в 0.3.4
+- Разделённый экран: каждый игрок видит перезарядку, удары и силы другого игрока на его
+  персонаже (до 0.3.3 персонаж стоял на месте, и действие видел только его игрок).
+- Пропуск сюжетной сцены: голосует каждый игрок, второй игрок разделённого экрана тоже (своей
+  кнопкой START; Esc на клавиатуре — у первого игрока). Строка «Пропуск сцены: 1 из 2 игроков»
+  теперь видна поверх сцены и называет игрока на этом ПК, которому ещё нужно нажать.
+- Начало уровня: чёрный экран «Ожидание игроков: ...» называет тех, кто ещё загружается.
+- Гранаты и мины Коул видны на всех ПК (полёт и взрыв); урон считается один раз, на ПК того,
+  кто их бросил.
+- Партнёр за краем экрана получает метку сбоку («< Имя 25 m»), и в каждой половине разделённого
+  экрана тоже.
+- Подключившиеся игроки тоже получают открываемые рисунки игры: их убийства в ближнем бою,
+  призрачной пулей и гранатой засчитываются им, а рисунки уровней, которые хост открывает в
+  конце уровня, открываются у всех.
 
 Что нужно
 - Своя копия игры. Проверено на розничной DVD-версии (Jericho.exe SHA-256
