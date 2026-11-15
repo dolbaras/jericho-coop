@@ -290,6 +290,7 @@ return {
   ["CoopEnemies.WAIT"] = "En attente des joueurs...",
   ["CoopEnemies.WAIT_FOR"] = "En attente de %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Passer la scène : %d sur %d joueurs",
+  ["CoopEnemies.SKIP_LOCAL"] = "Joueur %d : appuyez sur %s pour passer",
   ["Coop.TEXT"] = {
     clip = "30 dernières secondes enregistrées en vidéo : ",
     pads = "Manettes réassignées",

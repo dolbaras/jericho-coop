@@ -290,6 +290,7 @@ return {
   ["CoopEnemies.WAIT"] = "Warten auf Spieler...",
   ["CoopEnemies.WAIT_FOR"] = "Warten auf %s...",
   ["CoopEnemies.SKIP_TEXT"] = "Szene überspringen: %d von %d Spielern",
+  ["CoopEnemies.SKIP_LOCAL"] = "Spieler %d: %s drücken zum Überspringen",
   ["Coop.TEXT"] = {
     clip = "Letzte 30 s als Video gespeichert: ",
     pads = "Controller neu zugewiesen",

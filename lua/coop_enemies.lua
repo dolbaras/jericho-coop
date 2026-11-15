@@ -1551,7 +1551,10 @@ function E.installSceneHost()
   end
   Scene.AbortScene = function(...)
     if Coop.fromHost or not Coop.inSession() or E.playerCount() <= 1 then return E.hostAbort(...) end
-    E.voteSkip(0)
+    -- (0.3.4) each local player votes for himself (split screen: the pad that pressed)
+    for _, v in ipairs(E.localVoters()) do
+      if Scene.IsPlaying then E.voteSkip(v) end
+    end
   end
 end
 
@@ -1562,18 +1565,74 @@ end
 ------------------------------------------------------------------------------
 
 E.SKIP_TEXT = {en = "Skip scene: %d of %d players", ru = "Пропуск сцены: %d из %d игроков"}
+-- (0.3.4) split screen: the local player who has not voted yet ("%s": the key)
+E.SKIP_LOCAL = {en = "Player %d: press %s to skip", ru = "Игрок %d: нажмите %s для пропуска"}
+E.SKIP_KEYS = {"START / Esc", "START"}
 
+-- Voters: owner ids (a machine's player = its peer id, its split screen player 2 = peer + Coop.P2, coop.lua).
+-- (0.3.4, sync row 22) Every player counts, the split screen players 2 too (were one vote per machine: either local
+-- player skipped for both).
 function E.playerCount()
-  return 1 + (tonumber(string.match(Net.CoopStatus(), "peers=(%d+)")) or 0)
+  local n = 1 + (tonumber(string.match(Net.CoopStatus(), "peers=(%d+)")) or 0)
+  local seen = {}
+  if CoopSplit and CoopSplit.on then seen[(Coop.myId() or 0) + Coop.P2] = true end
+  for _, id in pairs(Coop.owners or {}) do
+    if type(id) == "number" and id >= Coop.P2 then seen[id] = true end
+  end
+  for _ in pairs(seen) do n = n + 1 end
+  return n
+end
+
+-- Who of this machine pressed skip: during a scene both pads act as the game's pad 0 (coop_split.lua Sp.shouldHold), so
+-- the second player's own pad (Net.CoopKey(-1, 1), straight from XInput) tells: START or BACK held there = player 2.
+-- The keyboard is player 1's. Without split screen: this machine's player.
+E.SKIP_BUTTONS = {0x10, 0x20}   -- XInput START, BACK
+local function skipHeld(user)
+  local ok, b = pcall(Net.CoopKey, -1, user)
+  if not ok or type(b) ~= "number" then return false end
+  for _, bit in ipairs(E.SKIP_BUTTONS) do
+    if math.floor(b / bit) % 2 == 1 then return true end
+  end
+  return false
+end
+function E.localVoters()
+  local me = Coop.myId() or 0
+  if not (CoopSplit and CoopSplit.on) then return {me} end
+  local p1, p2 = skipHeld(0), skipHeld(1)
+  if p2 and p1 then return {me, me + Coop.P2} end
+  if p2 then return {me + Coop.P2} end
+  return {me}
+end
+
+-- The local split screen player still to vote (1 or 2), nil when none.
+function E.localPending()
+  if not (CoopSplit and CoopSplit.on) then return nil end
+  local me = Coop.myId() or 0
+  local voted = {}
+  if Coop.isHost() then
+    local sk = E.skip
+    if not sk or sk.scene ~= Scene.SceneName then return nil end
+    voted[1], voted[2] = sk.votes[me], sk.votes[me + Coop.P2]
+  else
+    local v = E.votedScene or {}
+    voted[1], voted[2] = v["1"] ~= nil, v["2"] ~= nil
+  end
+  if voted[1] and not voted[2] then return 2 end
+  if voted[2] and not voted[1] then return 1 end
+  return nil
 end
 
 function E.showSkip(votes, players)
   local lang = Coop.lang()
   local s = Coop.enc(string.format(E.SKIP_TEXT[lang] or E.SKIP_TEXT.en, votes, players), lang)
+  local who = E.localPending()
+  if who then
+    s = s .. "\n" .. Coop.enc(string.format(E.SKIP_LOCAL[lang] or E.SKIP_LOCAL.en, who, E.SKIP_KEYS[who]), lang)
+  end
   Scorer.SetLabelText(s, Game.GetTime() + 6)
 end
 
--- Host: peer votes to skip the scene that is playing.
+-- Host: a player votes to skip the scene that is playing (`peer`: the voter's owner id).
 function E.voteSkip(peer)
   if not Scene.IsPlaying or not Scene.SceneName then return end
   if not E.skip or E.skip.scene ~= Scene.SceneName then E.skip = {scene = Scene.SceneName, votes = {}} end
@@ -1634,11 +1693,16 @@ function E.installSceneClient()
   E.sceneAbort = Scene.AbortScene
   Scene.AbortScene = function(...)
     if Coop.fromHost then return E.sceneAbort(...) end
-    -- (one vote per showing: a failed QTE plays the scene again)
+    -- (one vote per showing and local player: a failed QTE plays the scene again; "2" = this machine's split screen player 2)
     local key = tostring(Scene.SceneName) .. "@" .. tostring(E.sceneStartT)
-    if Scene.SceneName and E.votedScene ~= key then
-      E.votedScene = key
-      Net.CoopSend(0, 1, "skipvote|" .. Scene.SceneName)
+    if not Scene.SceneName then return end
+    E.votedScene = E.votedScene or {}
+    for _, v in ipairs(E.localVoters()) do
+      local who = v >= Coop.P2 and "2" or "1"
+      if E.votedScene[who] ~= key then
+        E.votedScene[who] = key
+        Net.CoopSend(0, 1, "skipvote|" .. Scene.SceneName .. "|" .. who)
+      end
     end
   end
 end
@@ -2269,7 +2333,7 @@ function E.onMessage(peer, f)
   elseif kind == "scene" and Coop.isClient() then
     E.onScene(f[2], f[3])
   elseif kind == "skipvote" and Coop.isHost() then
-    if f[2] == Scene.SceneName then E.voteSkip(peer) end
+    if f[2] == Scene.SceneName then E.voteSkip(f[3] == "2" and peer + Coop.P2 or peer) end
   elseif kind == "skipv" and Coop.isClient() then
     E.showSkip(tonumber(f[2]) or 0, tonumber(f[3]) or 0)
   elseif kind == "level" and Coop.isClient() then
@@ -2481,3 +2545,4 @@ Coop.addLangs(E.EYES, "CoopEnemies.EYES")
 Coop.addLangs(E.WAIT, "CoopEnemies.WAIT")
 Coop.addLangs(E.WAIT_FOR, "CoopEnemies.WAIT_FOR")
 Coop.addLangs(E.SKIP_TEXT, "CoopEnemies.SKIP_TEXT")
+Coop.addLangs(E.SKIP_LOCAL, "CoopEnemies.SKIP_LOCAL")

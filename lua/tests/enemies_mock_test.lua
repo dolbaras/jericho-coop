@@ -131,4 +131,67 @@ Coop.role = "client"
 assert(E.waitText("en") == "Waiting for players...", "a client has no ready list: the plain strip")
 Coop.role = "host"
 Coop.cfg.seats = nil
+
+-- 6. (0.3.4) skip votes per player: a split screen player 2 is a voter of its own (owner id peer + 8), told apart by its
+-- own pad's START / BACK; the strip names the local player still to press
+do
+  local status, pads, label, aborted, sent = "peers=0", {}, nil, 0, {}
+  Net.CoopStatus = function() return status end
+  Net.CoopKey = function(k, user) if k == -1 then return pads[user] or 0, 0, 0, 0, 0, 0, 0 end end
+  Net.CoopSend = function(to, rel, msg) sent[#sent + 1] = msg end
+  Scene = {IsPlaying = true, SceneName = "DM_Scene_Conversation"}
+  Scorer = {SetLabelText = function(s) label = s end}
+  Game.GetTime = function() return clock end
+  Coop.myId = function() return Coop.role == "host" and 0 or 3 end
+  Coop.owners = {}
+  E.hostAbort = function() aborted = aborted + 1; E.skip = nil end
+  E.skip = nil
+  CoopSplit = nil
+  assert(E.playerCount() == 1, "alone: one player")
+  -- the host's split screen: two voters on one machine
+  CoopSplit = {on = true}
+  assert(E.playerCount() == 2, "host + its player 2: " .. E.playerCount())
+  -- player 1 presses (keyboard or pad 1): one vote, the strip asks player 2
+  local v = E.localVoters()
+  assert(#v == 1 and v[1] == 0, "player 1's vote")
+  E.voteSkip(v[1])
+  assert(aborted == 0 and label == "Skip scene: 1 of 2 players\nPlayer 2: press START to skip", "strip: " .. tostring(label))
+  -- player 1 again: still one vote
+  E.voteSkip(0)
+  assert(aborted == 0, "the same player twice is one vote")
+  -- player 2 presses START on their own pad: the second vote ends the scene
+  pads[1] = 0x10
+  v = E.localVoters()
+  assert(#v == 1 and v[1] == 8, "player 2's vote: " .. tostring(v[1]))
+  E.voteSkip(v[1])
+  assert(aborted == 1, "both voted: skipped")
+  -- player 2 first (BACK), then player 1: the strip asks player 1
+  pads[1] = 0x20
+  E.voteSkip(E.localVoters()[1])
+  assert(label == "Skip scene: 1 of 2 players\nPlayer 1: press START / Esc to skip", "strip for player 1: " .. tostring(label))
+  pads[1] = 0
+  -- a client with its own player 2: four voters (host, its player 2, the client, the client's player 2 = 3 + 8)
+  status = "peers=1"
+  Coop.owners = {Black = 0, Church = 8, Cole = 3, Jones = 11}
+  assert(E.playerCount() == 4, "four players: " .. E.playerCount())
+  -- the client's messages: "skipvote|scene|1" from the client's player 1, "|2" from its player 2
+  E.skip = nil; aborted = 0
+  E.voteSkip(0); E.voteSkip(8)
+  E.onMessage = E.onMessage
+  E.voteSkip(3)
+  assert(aborted == 0, "three of four")
+  E.voteSkip(3 + 8)
+  assert(aborted == 1, "four of four: skipped")
+  -- a client's own presses: one message per local player and showing
+  Coop.role = "client"
+  E.votedScene = nil; sent = {}
+  E.sceneStartT = 5
+  pads[1] = 0x10; pads[0] = 0x10
+  v = E.localVoters()
+  assert(#v == 2 and v[1] == 3 and v[2] == 11, "both pads held: both vote")
+  pads = {}
+  Coop.role = "host"
+  CoopSplit, Scene, Scorer = nil, nil, nil
+  Coop.owners = {}
+end
 print("enemies mock test: ok")
