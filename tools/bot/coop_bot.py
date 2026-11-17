@@ -157,6 +157,13 @@ class Bot:
             if f[1] != getattr(self, 'last_own', None):
                 self.last_own = f[1]
                 self.log('own ' + f[1])
+        elif f[0] == 'e' and getattr(self.args, 'watch', None):
+            # e|<host time>|name,x,y,z,yaw,action,flags,pitch,life;...  (the watched enemy's line is kept)
+            for item in (f[2] if len(f) > 2 else '').split(';'):
+                if item.startswith(self.args.watch + ','):
+                    self.watched = item.split(',')
+        elif f[0] == 'eact' and getattr(self.args, 'watch', None) and f[1:2] == [self.args.watch]:
+            self.log('boss action ' + '|'.join(f[1:]))
         elif f[0] == 's' and len(f) >= 12:
             name = f[1]
             self.states[name] = f
@@ -260,6 +267,15 @@ class Bot:
             elif now >= next_send:
                 last = now
                 next_send = now + 0.05
+            if getattr(self.args, 'hit', None) and self.char and now - start >= self.args.hit_at and now >= getattr(self, 'next_hit', 0):
+                self.next_hit = now + self.args.hit_every
+                self.hits_sent = getattr(self, 'hits_sent', 0) + 1
+                self.send(f'hit|{self.args.hit}|{self.args.hit_dmg}|{self.char}||', True)
+            if getattr(self.args, 'watch', None) and now >= getattr(self, 'next_watch', 0):
+                self.next_watch = now + 2
+                w = getattr(self, 'watched', None)
+                self.log(f'watch {self.args.watch}: ' + (f'action={w[5]} flags={w[6]} life%={w[8] if len(w) > 8 else "?"} pos={w[1]},{w[2]},{w[3]}' if w else 'not in the snapshots') +
+                         f' hits_sent={getattr(self, "hits_sent", 0)}')
             if self.ready_at and now >= self.ready_at:
                 self.ready_at = None
                 self.send('lready|' + self.level, True)
@@ -290,6 +306,11 @@ def main():
     ap.add_argument('--log')
     ap.add_argument('--version', default=COOP_VERSION, help="co-op version sent in hello ('' as before 0.2)")
     ap.add_argument('--nick', default='', help='nickname (UTF-8) sent in hello / the lobby')
+    ap.add_argument('--watch', help="log this enemy's action / life percent from the host's snapshots every 2 s")
+    ap.add_argument('--hit', help="send 'hit' messages against this enemy (a client's shots, protocol level)")
+    ap.add_argument('--hit-dmg', type=float, default=20)
+    ap.add_argument('--hit-at', type=float, default=10, help='seconds after the start of the first hit')
+    ap.add_argument('--hit-every', type=float, default=0.5)
     ap.add_argument('--lobby', action='store_true',
                     help="join the host's lobby (menu level): ver, nick, ready; follow its start into the level")
     sys.exit(Bot(ap.parse_args()).run())
