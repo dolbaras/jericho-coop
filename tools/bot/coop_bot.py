@@ -103,6 +103,13 @@ class Bot:
     def on_message(self, text):
         self.received += 1
         f = text.split('|')
+        # (0.3.5, join into a running level) what a late joiner is told, by kind; the lines say it in words
+        kinds = getattr(self, 'kinds', None)
+        if kinds is None:
+            kinds = self.kinds = {}
+        kinds[f[0]] = kinds.get(f[0], 0) + 1
+        if f[0] in ('inlevel', 'lset', 'edie', 'egroup', 'espawn', 'wstate', 'epart') and kinds[f[0]] <= 400:
+            self.log('msg ' + text[:160])
         if f[0] == 'welcome' and len(f) >= 4 and f[2] == 'Menu' and self.args.lobby:
             # The host's lobby (coop_menu.lua CoopMenu.onJoin): version, nickname, ready, as a player's game sends them.
             self.my_id = int(f[1])
@@ -260,6 +267,7 @@ class Bot:
             if now >= next_report:
                 next_report = now + 5
                 seen = ','.join(sorted(self.states))
+                self.log('kinds ' + ' '.join(f'{k}={v}' for k, v in sorted(getattr(self, 'kinds', {}).items()) if k not in ('s', 'e')))
                 self.log(f'report char={self.char} pos={self.pos and [round(v) for v in self.pos]} '
                          f'yaw={self.yaw:.0f} received={self.received} host_states={seen}')
             time.sleep(0.005)
