@@ -71,6 +71,7 @@ CoopMenu.TEXT = {
     version_host = "The host has co-op %s, you have %s: both need the same version",
     version_peer = "%s has another co-op version (this is %s)",
     lobby_full = "The session is full (%d players)",
+    joining_running = "Joining the running game...",
   },
   ru = {
     coop = "Совместная игра", title_root = "СОВМЕСТНАЯ ИГРА", host = "Создать игру",
@@ -104,6 +105,7 @@ CoopMenu.TEXT = {
     version_host = "У хоста кооп-мод %s, у вас %s: версии должны совпадать",
     version_peer = "У игрока %s другая версия кооп-мода (здесь %s)",
     lobby_full = "Сессия заполнена (%d игроков)",
+    joining_running = "Подключение к идущей игре...",
   },
 }
 
@@ -1299,6 +1301,25 @@ function CoopMenu.onMessage(peer, f)
     Net.CoopSend(0, 1, "ver|" .. Coop.VERSION)
     Net.CoopSend(0, 1, "nick|" .. CoopMenu.myNick())
     if CoopMenu.hostSmod() then Net.CoopSend(0, 1, "smod|1" .. (CoopAddon and CoopAddon.present() and "|a" or "")) end
+    return true
+  elseif kind == "inlevel" and Coop.isClient() then
+    -- The host is already in a level (0.3.5, G-E26): no lobby to wait in. Same version check as the
+    -- lobby's welcome, then the in-level hello (Coop.onJoin of a client outside the menu): the host seats
+    -- this player on a free body and answers with the welcome that names the level.
+    if f[2] ~= Coop.VERSION then
+      Coop.log("join: host version " .. tostring(f[2]) .. ", mine " .. Coop.VERSION)
+      Net.CoopClose()
+      CoopMenu.Root()
+      CoopMenu.message(string.format(T("version_host"), f[2] or "0.1", Coop.VERSION))
+      return true
+    end
+    if not CoopMenu.lateHello then
+      CoopMenu.lateHello = true
+      Coop.log("join: the host is in " .. tostring(f[3]) .. " already, hello sent")
+      CoopMenu.message(T("joining_running"))
+      Net.CoopSend(0, 1, "hello|" .. tostring(cfg.char or cfg.want or "") .. "|" .. Coop.cleanNick(CoopMenu.myNick()) .. "|" ..
+        Coop.VERSION)
+    end
     return true
   elseif kind == "smod" and Coop.isHost() then
     CoopMenu.smodPeers[peer] = f[2] == "1" or nil

@@ -264,9 +264,9 @@ end
 ------------------------------------------------------------------------------
 
 -- Host: before every level load it starts, so the clients load the same state.
-function CS.sendVars(level)
+function CS.sendVars(level, peer)
   if not Coop.isHost() then return end
-  Net.CoopSend(-1, 1, "sv|" .. esc(CS.encode(level)))
+  Net.CoopSend(peer or -1, 1, "sv|" .. esc(CS.encode(level)))
 end
 
 function CS.onMessage(peer, f)

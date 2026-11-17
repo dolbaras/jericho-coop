@@ -1923,6 +1923,24 @@ function Coop.onMessage(peer, data)
       Net.CoopClose(peer)
       return
     end
+    -- A full session (0.3.5: a player may join while the level runs): seats counted as the lobby counts them (split screen player 2 too).
+    local others = 0
+    for item in string.gmatch(cfg.seats or "", "[^;]+") do
+      local id = tonumber(string.match(item, "^(%d+):"))
+      if id and Coop.peerOf(id) ~= peer then others = others + 1 end
+    end
+    if others >= 4 then
+      Coop.log("hello from " .. peer .. ": the session is full")
+      Net.CoopSend(peer, 1, "full|4")
+      Net.CoopClose(peer)
+      return
+    end
+    -- What the lobby's start message carries besides the level, and the host's save vars of this level (the
+    -- checkpoint, what the level has set so far): a player who joins later gets them before its load.
+    Net.CoopSend(peer, 1, "lset|" .. tostring(cfg.skill or Game.Get("GameSkill") or 1) .. "|" .. tostring(cfg.scaling or "light") ..
+      "|" .. tostring(cfg.qte or "normal") .. "|" .. tostring(cfg.aisquad or "normal") .. "|" ..
+      (cfg.povall and "own" or "orig") .. "|" .. (cfg.smod or "-"))
+    if CoopSave and cfg.latesv ~= false then CoopSave.sendVars(string.sub(Game.GetLevelPath(), 8), peer) end
     local pick = Coop.assign(peer, f[2])
     -- Without the lobby (late join, tests) the host builds the seat list here.
     local seats = {}
@@ -1971,6 +1989,13 @@ function Coop.onMessage(peer, data)
     else
       Coop.ownersTo(peer, "claim2 of " .. tostring(name) .. " by peer " .. peer .. " refused")
     end
+  elseif kind == "lset" and Coop.isClient() then
+    -- (0.3.5) the same settings the lobby's start message gives, for a player who joins a running level
+    cfg.skill = tonumber(f[2]) or cfg.skill
+    cfg.scaling = f[3] or cfg.scaling
+    cfg.qte, cfg.aisquad = f[4] or cfg.qte, f[5] or cfg.aisquad
+    cfg.povall = f[6] == "own" or nil
+    cfg.smod = f[7] ~= nil and f[7] ~= "-" and f[7] or nil
   elseif kind == "welcome" and Coop.isClient() then
     cfg.myId = tonumber(f[2])
     cfg.char = f[4]
@@ -1978,6 +2003,14 @@ function Coop.onMessage(peer, data)
     -- (a welcome again during a slow load does not start the same load twice)
     if string.lower("levels/" .. f[3]) ~= Coop.level and Coop.loadingLevel ~= string.lower(f[3]) then
       Coop.log("following host to " .. f[3])
+      -- A join into a running level (0.3.5): the profile values are kept first, then the host's vars of the level
+      -- and its game skill are put in, as the lobby's start does.
+      if CoopSave then
+        CoopSave.beginSession()
+        CoopSave.applyPending()
+      end
+      if cfg.skill then Game.Set("GameSkill", cfg.skill) end
+      cfg.level = f[3]
       Coop.rearm()   -- carry myId/char into the next level
       Coop.levelLoading = Net.CoopTime()
       Coop.loadingLevel = string.lower(f[3])
@@ -1995,6 +2028,11 @@ end
 
 function Coop.onJoin(peer)
   Coop.log("peer " .. peer .. " connected")
+  if Coop.isHost() and Coop.level ~= "levels/menu" then
+    -- A player joining while the level runs (0.3.5, G-E26): its menu has no lobby to wait in and sends no
+    -- hello of its own; this tells it (coop_menu.lua "inlevel") to send one.
+    Net.CoopSend(peer, 1, "inlevel|" .. Coop.VERSION .. "|" .. string.sub(Game.GetLevelPath(), 8))
+  end
   if Coop.isClient() then
     if CoopMenu then CoopMenu.wasFull = nil end   -- (a new connection: its own refusal, if any)
     Net.CoopSend(0, 1, "hello|" .. tostring(cfg.char or cfg.want or "") .. "|" .. Coop.cleanNick(cfg.nick) .. "|" ..

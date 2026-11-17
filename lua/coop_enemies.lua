@@ -19,6 +19,7 @@ E.FOLLOW = 0.9            -- share of the error to the interpolated place remove
 E.MAX_PACKET = 900        -- bytes per snapshot packet
 E.targets = {}            -- client: name -> {x,y,z,yaw,action,active}
 E.applied = {}            -- client: name -> last action forced
+E.deadNames = {}          -- host: enemies that died in this level (a late joiner's catch-up removes their copies)
 E.stats = {hitsSent = 0, hitsApplied = 0, pdmgSent = 0, pdmgApplied = 0, dropped = 0,
            spawns = 0, deaths = 0, groups = 0, snapshots = 0, missing = 0}
 
@@ -1046,6 +1047,7 @@ function E.installHost()
       -- RemoveNow: removed without a death (EnemyGen.Stop clears its unused pool this way).
       local quiet = e.uData and e.uData.RemoveNow and "1" or ""
       Net.CoopSend(-1, 1, "edie|" .. name .. "|" .. quiet)
+      E.deadNames[name] = true   -- (0.3.5: a player who joins later is told, E.sendCatchup)
     end
     return origDeath(name, from, ...)
   end
@@ -1789,7 +1791,13 @@ function E.sendCatchup(peer)
     e = Game.GetEntity(e.NextInSlot)
   end
   local parts = E.sendPartCatchup(peer)
-  Coop.log(string.format("catch-up for peer %d: %d groups, %d spawned enemies, %d part states", peer, groups, spawns, parts))
+  -- Enemies the host killed before this player came: the level the client loaded has them alive.
+  local dead = 0
+  for name in pairs(E.deadNames) do
+    Net.CoopSend(peer, 1, "edie|" .. name .. "|1")
+    dead = dead + 1
+  end
+  Coop.log(string.format("catch-up for peer %d: %d groups, %d spawned enemies, %d part states, %d dead enemies", peer, groups, spawns, parts, dead))
   -- Doors and broken objects as the host has them (coop_world.lua).
   if CoopWorld and CoopWorld.sendState then CoopWorld.sendState(peer) end
   E.catchupSent = true

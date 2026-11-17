@@ -33,6 +33,7 @@ return {
     lan = "Partite sulla rete locale:",
     lan_none = "(ricerca...)",
     leave = "Esci",
+    joining_running = "Accesso alla partita in corso...",
     lobby_full = "La sessione è piena (%d giocatori)",
     more = "Altri amici",
     net = "Rete",
