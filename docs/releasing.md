@@ -100,7 +100,7 @@ Live checks before a release (0.3.4 on): the lab's test windows are frameless 12
 the same game settings on both test PCs; the lab's own notes list the checks (two-PC campaign, split screen, story splits, the
 installer and update rehearsals, the collector).
 
-Version mixing: 0.3.4 adds message fields (`hit` carries a reward kind, `skipvote` the voter) and kinds (`trk`, `pic`, `gr`, `grs`,
+Version mixing: 0.3.5 adds the kinds `inlevel` (host to a peer that just connected to a running level), `lset` (the session settings for a late joiner) and `eheart` (Nanna's / Utu's heart state), and lets a menu client send the in-level `hello`; `docs/architecture.md`. Lua tests: 18 from 0.3.5 (`join_mock_test.lua` is new). Version mixing: 0.3.4 adds message fields (`hit` carries a reward kind, `skipvote` the voter) and kinds (`trk`, `pic`, `gr`, `grs`,
 `grx`, `docs/architecture.md`); players of different versions never play together (the lobby's version check), so nothing old has to
 understand them.
 

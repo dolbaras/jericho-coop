@@ -15,7 +15,7 @@ Until 0.2.3 the mod was called "Jericho Co-op". The repository and file names st
 
 ## Status
 
-**Version 0.3.4** ([release notes](https://github.com/dolbaras/jericho-coop/releases/latest)): sync fixes from a check of every kind of sync the Revelations co-op mods have. Split screen: each player sees the other player's reloads, strikes and powers on their character. Skipping a cutscene: every player votes, the split screen player 2 too, and the vote line shows over the scene. The level-start screen names the players still loading. Cole's grenades and mines are seen on every PC. A partner off the screen gets a marker at the side of the view. Joining players earn the game's artwork unlocks too. All of it was seen in the running game on two PCs (a real QTE held by a client included); nobody outside the lab has played 0.3.4 yet.
+**Version 0.3.5** ([release notes](https://github.com/dolbaras/jericho-coop/releases/latest)): a player can join a game that is already running: from the lobby's join screen the game loads the host's level with the host's save state, seats the newcomer on a free body, and brings enemies (the ones already killed included), doors and breakables up to the host's state. Nanna's and Utu's heart state (shielded, covered, exposed) now reaches every PC: up to 0.3.4 a joining player's copy of them stayed shielded and the player's shots at them did not register. All of it was seen in the running game on two PCs (a real client joining from the menu; a client's damage on the exposed hearts of Nanna and Utu); nobody outside the lab has played 0.3.5 yet.
 
 How it is tested: the whole campaign runs through level by level with two real games on two PCs (a playthrough bot plays both sides, both branches of the Lost Patrol included), every story split is played with a real host and client, and every in-engine cutscene is compared with the original. Human playthroughs started with 0.2.1 over Steam; people have played missions 1-8 so far. Every player needs the same version of the mod (the lobby says so when they differ).
 
@@ -89,8 +89,10 @@ The setup exe is not code-signed, so Windows SmartScreen may warn ("More info" -
 ## Known limits / not verified
 
 - Not tested: a Steam session between two different networks (relay) and joining from the Steam friends list.
-- Nobody outside the lab has played 0.3.4 yet; people have played missions 1-8 so far. Story scripts that assume one player are fixed per level as playtesting finds them (`docs/usrentity-audit.md`).
+- Nobody outside the lab has played 0.3.5 yet; people have played missions 1-8 so far. Story scripts that assume one player are fixed per level as playtesting finds them (`docs/usrentity-audit.md`).
 - Split screen: each view runs at half the frame rate (the engine draws one player's view per frame); Delgado's fire barrier flames are not shown (the barrier itself works). In a split screen game without network players, player 2 joins after the level's opening scene, so player 1 alone can skip that scene. A rare split-screen flicker was reported once and could not be reproduced: an F11 clip of it would help.
+- Joining a running game: seen from the menu on the LAN with one newcomer. Not tested: joining while a cutscene plays, leaving and joining again, joining through Steam, a late joiner with a split screen player 2. A host whose level has no checkpoint yet makes the newcomer play the level's own opening scene alone.
+- Bosses: Nanna's and Utu's fights were run with their AI on the host and a client damaging the exposed hearts; the fly swarms that shield them were not cleared with real weapons, and a pad shot that hits the heart bone was not achieved in the lab. The psychic commander of WWII_Vigil_Inside is not verified.
 - Another mod's `bin\dinput8.dll` (an ASI loader such as Ultimate ASI Loader) is kept in `coop-backup` and is off while co-op is installed; it cannot run under another name for Jericho (Windows' compatibility settings for `Jericho.exe` load the system `winmm.dll` first).
 - The setup exe is not code-signed (see above).
 

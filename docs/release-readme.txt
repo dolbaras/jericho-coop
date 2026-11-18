@@ -17,6 +17,15 @@ Every problem found in tests and code reviews is fixed. The whole campaign, ever
 and the Lost Patrol run through in tests with two real games on two PCs; people have played
 missions 1-8 so far. Please report problems (see below).
 
+New in 0.3.5
+- Joining a running game: a player who joins from the lobby's join screen while the host is
+  already in a level gets that level with the host's progress, a free character, and the
+  enemies (the ones already killed included), doors and breakables as the host has them.
+  Up to 0.3.4 such a player waited in an empty lobby.
+- Nanna and Utu (Sum_Ziggurat_Meat): their heart state (shielded, covered, exposed) now reaches
+  every PC; up to 0.3.4 a joining player's copy of them stayed shielded and the player's shots
+  at them did not register.
+
 New in 0.3.4
 - Split screen: each player sees the other player's reloads, strikes and powers on their
   character (up to 0.3.3 the character stood still and only its own player saw the action).
@@ -329,6 +338,15 @@ game draws, in memory, and writes nothing until F11.
 Исправлено всё, что нашли тесты и проверки кода. Вся кампания, все сюжетные разделения и
 «Потерянный патруль» пройдены в тестах двумя настоящими играми на двух ПК; живые игроки пока
 прошли миссии 1-8. Пожалуйста, сообщайте об ошибках (см. ниже).
+
+Новое в 0.3.5
+- Подключение к идущей игре: игрок, который заходит с экрана подключения лобби, когда хост уже
+  в уровне, получает этот уровень с прогрессом хоста, свободного персонажа, а также врагов
+  (убитые уже не появляются), двери и разрушаемые объекты в состоянии хоста. До 0.3.4 такой
+  игрок ждал в пустом лобби.
+- Нанна и Уту (Sum_Ziggurat_Meat): состояние их сердца (под защитой, прикрыто, открыто) теперь
+  доходит до всех ПК; до 0.3.4 у подключившегося игрока их копия оставалась под защитой, и его
+  выстрелы по ним не засчитывались.
 
 Новое в 0.3.4
 - Разделённый экран: каждый игрок видит перезарядку, удары и силы другого игрока на его
