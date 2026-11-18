@@ -270,7 +270,7 @@ class Bot:
             if getattr(self.args, 'hit', None) and self.char and now - start >= self.args.hit_at and now >= getattr(self, 'next_hit', 0):
                 self.next_hit = now + self.args.hit_every
                 self.hits_sent = getattr(self, 'hits_sent', 0) + 1
-                self.send(f'hit|{self.args.hit}|{self.args.hit_dmg}|{self.char}||', True)
+                self.send(f'hit|{self.args.hit}|{self.args.hit_dmg}|{self.char}|{self.args.hit_bone}|{self.args.hit_dmg if self.args.hit_bone else ""}', True)
             if getattr(self.args, 'watch', None) and now >= getattr(self, 'next_watch', 0):
                 self.next_watch = now + 2
                 w = getattr(self, 'watched', None)
@@ -309,6 +309,7 @@ def main():
     ap.add_argument('--watch', help="log this enemy's action / life percent from the host's snapshots every 2 s")
     ap.add_argument('--hit', help="send 'hit' messages against this enemy (a client's shots, protocol level)")
     ap.add_argument('--hit-dmg', type=float, default=20)
+    ap.add_argument('--hit-bone', default='', help='the body part hit (bosses with weak parts)')
     ap.add_argument('--hit-at', type=float, default=10, help='seconds after the start of the first hit')
     ap.add_argument('--hit-every', type=float, default=0.5)
     ap.add_argument('--lobby', action='store_true',
