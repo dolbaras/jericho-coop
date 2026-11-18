@@ -285,7 +285,9 @@ Payload fields follow the kind, `|`-separated, in the order given.
 
 | Kind | From → to | | Payload | Handled in |
 |---|---|---|---|---|
-| `hello` | client → host | R | wanted char, nick, version | `coop.lua:Coop.onMessage`: version check (else `CoopClose(peer)`), `Coop.assign`, seats, `welcome`, `own`. Sent by `Coop.onJoin`, which runs only outside the menu level (test sessions with `cfg.auto`) |
+| `hello` | client → host | R | wanted char, nick, version | `coop.lua:Coop.onMessage`: version check (else `CoopClose(peer)`), `Coop.assign`, seats, `welcome`, `own`. Sent by `Coop.onJoin` outside the menu level (test sessions with `cfg.auto`), and (0.3.5) by a menu client that got `inlevel`. A fifth seat gets `full` (seats counted as in the lobby). Before the welcome the host sends `lset` and `sv` to that peer |
+| `inlevel` | host → a peer that just connected, only when the host is in a level | R | version, level | (0.3.5, join into a running level) `CoopMenu.onMessage` (client in the menu): version check, then the in-level `hello` once. Without it a menu client waited in an empty lobby |
+| `lset` | host → a joining client | R | skill, toughness, QTE, AI squadmates, own-eyes, SMOD rules | (0.3.5) the lobby's `start` settings for a late joiner; `Coop.onMessage` (client) |
 | `welcome` | host → that client | R | peer id, level (no `Levels/`), char, x, y, z, yaw | `Coop.onMessage` (client): `cfg.myId`, `cfg.char`; loads the host's level if it differs |
 | `seats` | host → all | R | seat list | `Coop.onMessage` (client) |
 | `own` | host → all; host → a refused claimer | R | `Char=owner,...` | `Coop.onMessage` (client). Sent on every change and every 40 ticks (`broadcastOwners`); `Coop.ownersTo` at most every 2 s per peer |
