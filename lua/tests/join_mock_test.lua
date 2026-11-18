@@ -199,6 +199,42 @@ if CoopEnemies then
   check(dead[1] and string.sub(dead[1].text, -2) == "|1", "catch-up: removed quietly")
 end
 
+-- 7. Nanna's / Utu's heart state (0.3.5, G-D19): the host's engine AI calls <Class>.OnHeartStateChanged; the change goes to the clients,
+-- is applied there with the game's own function, and a late joiner is told the current state.
+if CoopEnemies then
+  local calls = {}
+  SummerianNANNA = {OnHeartStateChanged = function(state, name) calls[#calls + 1] = "N:" .. tostring(state) .. ":" .. tostring(name) end}
+  SummerianUTU = {OnHeartStateChanged = function(state, name) calls[#calls + 1] = "U:" .. tostring(state) .. ":" .. tostring(name) end}
+  cfg.role = "host"
+  CoopEnemies.installHeart()
+  sent = {}
+  SummerianNANNA.OnHeartStateChanged(2, "Nanna")
+  SummerianUTU.OnHeartStateChanged(1, "Utu")
+  eq(#take(starts("eheart|")), 2, "heart: both changes are sent")
+  eq(take(starts("eheart|"))[1].text, "eheart|SummerianNANNA|2|Nanna", "heart: the message")
+  eq(calls[1] .. calls[2], "N:2:NannaU:1:Utu", "heart: the game's own function still runs on the host")
+  CoopEnemies.installHeart()
+  sent = {}
+  SummerianNANNA.OnHeartStateChanged(0, "Nanna")
+  eq(#take(starts("eheart|")), 1, "heart: installed once (a second install does not send twice)")
+  cfg.heartsync = false
+  sent = {}
+  SummerianNANNA.OnHeartStateChanged(1, "Nanna")
+  eq(#take(starts("eheart|")), 0, "heartsync=false: nothing sent")
+  cfg.heartsync = nil
+  sent = {}
+  CoopEnemies.sendCatchup(2)
+  local hs = take(starts("eheart|"))
+  eq(#hs, 2, "catch-up: the heart states the host reached (Nanna and Utu)")
+  -- the client applies it
+  cfg.role = "client"
+  calls = {}
+  local E = CoopEnemies
+  entities.Nanna, entities.Utu = body("Nanna"), body("Utu")
+  E.onMessage(0, {"eheart", "SummerianNANNA", "2", "Nanna"})
+  eq(calls[1], "N:2:Nanna", "client: the host's state is applied with the game's function")
+end
+
 if #failures > 0 then
   for _, f in ipairs(failures) do print("FAIL " .. f) end
   error(#failures .. " of " .. nChecks .. " join checks failed")

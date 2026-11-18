@@ -19,6 +19,7 @@ E.FOLLOW = 0.9            -- share of the error to the interpolated place remove
 E.MAX_PACKET = 900        -- bytes per snapshot packet
 E.targets = {}            -- client: name -> {x,y,z,yaw,action,active}
 E.applied = {}            -- client: name -> last action forced
+E.heart = {}              -- host: Nanna's / Utu's heart state by enemy name (0.3.5: sent to clients, E.installHeart)
 E.deadNames = {}          -- host: enemies that died in this level (a late joiner's catch-up removes their copies)
 E.stats = {hitsSent = 0, hitsApplied = 0, pdmgSent = 0, pdmgApplied = 0, dropped = 0,
            spawns = 0, deaths = 0, groups = 0, snapshots = 0, missing = 0}
@@ -1791,6 +1792,7 @@ function E.sendCatchup(peer)
     e = Game.GetEntity(e.NextInSlot)
   end
   local parts = E.sendPartCatchup(peer)
+  for name, h in pairs(E.heart) do Net.CoopSend(peer, 1, "eheart|" .. h[1] .. "|" .. tostring(h[2]) .. "|" .. name) end
   -- Enemies the host killed before this player came: the level the client loaded has them alive.
   local dead = 0
   for name in pairs(E.deadNames) do
@@ -1927,6 +1929,32 @@ E.AI_EVENTS = {
   SummerianUTU = {OnAfterDisappear = {"FXShieldOff", "FXHeartProtectionOff"},
                   OnAfterAppear = {"FXShieldOn", "FXHeartProtectionOn"}},
 }
+-- Nanna and Utu: their engine AI moves them through heart states (0 shielded, 1 heart covered, 2 heart exposed) by calling
+-- <Class>.OnHeartStateChanged(state, name), which switches the ragdoll's collision, the shield effects and Invulnerable.
+-- Only the host's AI runs it: a client's copy stayed shielded with its ragdoll parts switched off, so a client's shots could
+-- not even touch the heart (0.3.5, G-D19). The host sends every change (`eheart|class|state|name`), and a late joiner gets
+-- the current ones with the catch-up.
+E.HEART_CLASSES = {"SummerianNANNA", "SummerianUTU"}
+function E.installHeart()
+  if not Coop.isHost() then return end
+  for _, cls in ipairs(E.HEART_CLASSES) do
+    local t = _G[cls]
+    local orig = t and t.OnHeartStateChanged
+    if type(orig) == "function" and t.coopHeart ~= orig then
+      t.OnHeartStateChanged = function(state, name, ...)
+        if name and state and Coop.cfg.heartsync ~= false then
+          E.heart[name] = {cls, state}
+          Net.CoopSend(-1, 1, "eheart|" .. cls .. "|" .. tostring(state) .. "|" .. tostring(name))
+          E.stats.heartSent = (E.stats.heartSent or 0) + 1
+          Coop.log("boss heart " .. tostring(name) .. " (" .. cls .. "): state " .. tostring(state))
+        end
+        return orig(state, name, ...)
+      end
+      t.coopHeart = t.OnHeartStateChanged
+    end
+  end
+end
+
 function E.guardAIEvents()
   for cls, evs in pairs(E.AI_EVENTS) do
     local t = _G[cls]
@@ -2325,6 +2353,14 @@ function E.onMessage(peer, f)
     end
     E.targets[f[2]] = nil
     E.stats.deaths = E.stats.deaths + 1
+  elseif kind == "eheart" and Coop.isClient() then
+    local t = _G[f[2] or ""]
+    local fn = t and t.OnHeartStateChanged
+    if type(fn) == "function" and Game.GetEntity(f[4] or "") then
+      fromHost(fn, tonumber(f[3]), f[4])
+      E.stats.heartApplied = (E.stats.heartApplied or 0) + 1
+      Coop.log("boss heart " .. tostring(f[4]) .. ": state " .. tostring(f[3]) .. " from the host")
+    end
   elseif kind == "epart" and Coop.isClient() then
     E.pendingParts[#E.pendingParts + 1] = {f[2], f[3], f[4] or "", Net.CoopTime()}
     E.drainParts()
@@ -2469,7 +2505,7 @@ function E.update()
   end
   if Coop.isHost() then
     if Coop.frame % E.SNAP_EVERY == 0 then E.snapshot() end
-    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installMissileRef() E.installBloodHit() E.installStompRef() E.installLaunchers() E.installHitStrong() end   -- (an enemy class whose script loads later)
+    if Coop.frame % 90 == 0 then E.installMelee() E.installParts() E.installFlames() E.installMissileRef() E.installBloodHit() E.installStompRef() E.installLaunchers() E.installHitStrong() E.installHeart() end   -- (an enemy class whose script loads later)
     if Coop.frame % E.RETARGET_EVERY == 0 then
       local ok, err = pcall(E.retarget)
       if not ok and not E.retargetError then E.retargetError = true Coop.log("retarget error: " .. tostring(err)) end
