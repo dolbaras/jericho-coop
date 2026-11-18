@@ -596,6 +596,7 @@ function CoopMenu.Connect()
   addr = string.gsub(addr, "%s", "")
   cfg.addr = addr
   cfg.joinLabel = nil
+  CoopMenu.lateHello = nil   -- (a new connection: the hello of a join into a running level goes out again)
   Net.CoopClose()
   local ok = Net.CoopJoin(addr, cfg.port or CoopMenu.PORT)
   Coop.log("lobby: join " .. addr .. " -> " .. ok)
