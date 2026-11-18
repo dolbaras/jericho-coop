@@ -186,3 +186,25 @@ record looks like a player's; then check the record, that both shortcuts were re
 that uninstalling removes them. Before a release, also run every published version through the new installer
 (`lab/oldversions_test.ps1`, plus `-Chain` and `-RemoveOld`): the folder must end equal to
 the clean game after removal.
+
+## Release log: 0.3.5
+
+**0.3.5, published 2026-11-18 from `main` 9269974** (tag `v0.3.5`, full release, Latest). Assets, with the SHA-256 GitHub shows for them:
+`jericho-coop-0.3.5.zip` `b3a321f1...` and `jericho-coop-setup-0.3.5.exe` `3b756b0b...`; the DLL inside is the one of 0.3.4
+(`bin\dinput8.dll` `b14018eb...`, `native\` untouched since 0.3.4's commit 6013f61).
+
+New in this release: joining a running level from the menu (messages `inlevel`, `lset`, a menu client's `hello`, `sv` and the dead-enemy list
+in the catch-up) and the heart state of Nanna and Utu sent to clients (`eheart`); see `docs/architecture.md`.
+
+Checks before publishing (two test PCs, release build): a real menu client joining a level the host had played for a while (same living
+enemies and world digest on both PCs), Nanna / Utu with a client's damage on the exposed hearts, the skip vote with real input, split screen,
+the whole 33-level campaign in two runs, the Co-op menus in Russian and English; Lua tests 18, texts test 1219, installer test 56, loader test 13,
+collector test 114, setup exe test, every published version 0.1.0 / 0.2.2 / 0.2.9 / 0.3.4 updated and removed, the chain and `-RemoveOld`, the
+update through a local feed 10/10. Not seen again in this release's lab runs (same on the 0.3.4 build, no code touched): a client-held QTE
+scene and a client's melee kill credit.
+
+Checks after publishing: the release is not a draft or pre-release, `releases/latest` is `v0.3.5`, both digests equal the local files; the
+published 0.3.4's own launcher updated a stand-in game through the REAL feed (no `-Feed`, a hidden desktop, nothing on the owner's
+screens): `installed 0.3.4, latest v0.3.5`, `checksum ok B3A321F1...`, installer exit 0, version 0.3.5, both shortcuts kept and refreshed,
+the installed collector answers in Russian, a second start installs nothing, the uninstall leaves the stand-in as it was (10/10;
+`lab\rel035\selfupdate_realfeed.ps1` = `lab\rel033\selfupdate_hidden.ps1` with `-RealFeed`).
